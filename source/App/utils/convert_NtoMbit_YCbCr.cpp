@@ -3,7 +3,7 @@
  * and contributor rights, including patent rights, and no such rights are
  * granted under this license.
  *
- * Copyright (c) 2010-2016, ITU/ISO/IEC
+ * Copyright (c) 2010-2015, ITU/ISO/IEC
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -33,10 +33,9 @@
 
 #include <cstdlib>
 
-#include "Utilities/VideoIOYuv.h"
-#include "Utilities/program_options_lite.h"
-#include "CommonLib/Unit.h"
-
+#include "TLibCommon/TComPicYuv.h"
+#include "TLibVideoIO/TVideoIOYuv.h"
+#include "TAppCommon/program_options_lite.h"
 
 using namespace std;
 namespace po = df::program_options_lite;
@@ -87,8 +86,8 @@ Int main(Int argc, const char** argv)
       return EXIT_FAILURE;
   }
 
-  VideoIOYuv input;
-  VideoIOYuv output;
+  TVideoIOYuv input;
+  TVideoIOYuv output;
 
   Int inputBitDepths [MAX_NUM_CHANNEL_TYPE];
   Int outputBitDepths[MAX_NUM_CHANNEL_TYPE];
@@ -104,24 +103,36 @@ Int main(Int argc, const char** argv)
 
   input.skipFrames(num_frames_skip, width, height, chromaFormatIDC);
 
-  PelStorage frame;
-  frame.create( chromaFormatIDC, Area( 0, 0, width, height));
+  TComPicYuv frame;
+  frame.create( width, height, chromaFormatIDC, width, height, 0, false);
 
   Int pad[2] = {0, 0};
 
-  PelStorage cPicYuvTrueOrg;
-  cPicYuvTrueOrg.create( chromaFormatIDC, Area( 0, 0, width, height));
-
+  TComPicYuv cPicYuvTrueOrg;
+  cPicYuvTrueOrg.create( width, height, chromaFormatIDC, width, height, 0, false );
 
   UInt num_frames_processed = 0;
   while (!input.isEof())
   {
-    if (! input.read( frame, cPicYuvTrueOrg, IPCOLOURSPACE_UNCHANGED, pad))
+    if (! input.read(&frame, &cPicYuvTrueOrg, IPCOLOURSPACE_UNCHANGED, pad))
     {
       break;
     }
+#if 0
+    Pel* img = frame.getAddr(COMPONENT_Y);
+    for (Int y = 0; y < height; y++)
+    {
+      for (Int x = 0; x < height; x++)
+      {
+        img[x] = 0;
+      }
+      img += frame.getStride();
+    }
+    img = frame.getAddr(COMPONENT_Y);
+    img[0] = 1;
+#endif
 
-    output.write( frame, IPCOLOURSPACE_UNCHANGED);
+    output.write(&frame, IPCOLOURSPACE_UNCHANGED);
     num_frames_processed++;
     if (num_frames_processed == num_frames)
     {
@@ -131,6 +142,7 @@ Int main(Int argc, const char** argv)
 
   input.close();
   output.close();
+  cPicYuvTrueOrg.destroy();
 
   return EXIT_SUCCESS;
 }

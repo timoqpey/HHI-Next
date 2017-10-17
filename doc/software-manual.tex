@@ -3,11 +3,7 @@
 \usepackage{geometry}[2010/02/12]
 
 \usepackage{hyperref}
-\hypersetup{colorlinks=true,
-            linkcolor=black,      % color of internal links (change box color with linkbordercolor)
-            citecolor=black,      % color of links to bibliography
-            filecolor=black,      % color of file links
-            urlcolor=blue}
+\hypersetup{colorlinks=true}
 \usepackage{color,soul}
 
 \usepackage[position=bottom]{subfig}
@@ -20,7 +16,6 @@
 \usepackage{longtable}
 \usepackage{array}
 \usepackage{algorithm2e}
-\usepackage{amsmath}
 
 \usepackage[strings]{underscore}
 \usepackage{csquotes}
@@ -166,7 +161,7 @@
 	\end{longtable}
 }
 
-\title{HM Software Manual}
+\title{JEM Software Manual}
 \author{%
 	Frank Bossen
 	\email{frank@bossentech.com}
@@ -174,11 +169,14 @@
 	David Flynn
 	\email{dflynn@blackberry.com}
 	\and
-  Karl Sharman
+	Karl Sharman
 	\email{karl.sharman@eu.sony.com}
 	\and
 	Karsten S\"uhring
 	\email{karsten.suehring@hhi.fraunhofer.de}
+	\and
+	Xian Li
+	\email{lxiang@qti.qualcomm.com}
 }
 
 \jctvcmeeting{}
@@ -190,9 +188,9 @@
 \begin{document}
 \maketitle
 \begin{abstract}
-This document is a user manual describing usage of reference software
-for the HEVC project. It applies to version 16.13
-of the software.
+This document is a user manual describing usage of the JEM software
+of the JVET project. It applies to version JEM-7.0, which is based 
+on the JCT-VC HM software version 16.6.
 \end{abstract}
 
 \tableofcontents
@@ -201,34 +199,41 @@ of the software.
 
 
 \section{General Information}
+The Joint Exploration Model (JEM) software is the reference software 
+of the Joint Video Exploration Team (on Future Video coding) of ITU-T 
+VCEG and ISO/IEC MPEG. 
+It reflects the explorative work on technologies that may be included
+in future video coding standards.
+
 Reference software is being made available to provide a reference
-implementation of the HEVC standard being developed by the Joint
-Collaborative Team on Video Coding (JCT-VC) regrouping experts from
-ITU-T SG 16 and ISO/IEC SC29 WG11. One of the main goals of the
+implementation of the technologies being evaluated by JVET.
+One of the main goals of the
 reference software is to provide a basis upon which to conduct
 experiments in order to determine which coding tools provide desired
 coding performance. It is not meant to be a particularly efficient
 implementation of anything, and one may notice its apparent
 unsuitability for a particular use. It should not be construed to be a
 reflection of how complex a production-quality implementation of a
-future HEVC standard would be.
+future video coding standard would be.
 
 This document aims to provide guidance on the usage of the reference
 software. It is widely suspected to be incomplete and suggestions for
 improvements are welcome. Such suggestions and general inquiries may be
-sent to the general JCT-VC email reflector on
-\url{jct-vc@lists.rwth-aachen.de} (registration required).
+sent to the general JVET email reflector on
+\url{jvet@lists.rwth-aachen.de} (registration required).
+
+\emph{Note, although the software is based on HM, the new technologies
+included in JEM are not part of the HEVC video coding standard.}
 
 \subsection*{Bug reporting}
 Bugs should be reported on the issue tracker set up at
-\url{http://hevc.kw.bbc.co.uk/trac/}
+\url{https://hevc.hhi.fraunhofer.de/trac/jem}
 
 \section{Installation and compilation}
-The software may be retrieved from one of the following SVN servers
+The software may be retrieved from the following SVN server
 (mirrored):
 \begin{itemize}
-\item \url{https://hevc.hhi.fraunhofer.de/svn/svn_HEVCSoftware/}
-\item \url{svn://hevc.kw.bbc.co.uk/svn/jctvc-hm/}
+\item \url{https://jvet.hhi.fraunhofer.de/svn/svn_HMJEMSoftware/}
 \end{itemize}
 
 Table~\ref{tab:project-files} enumerates various project files that are
@@ -245,13 +250,13 @@ provided for development environments.
  \thead{Location of project file} \\
 % Environment          & Location of project file \\
 \hline
-MS Visual Studio 2008 (VC9)   & build/HM_vc9.sln \\
-MS Visual Studio 2010 (VC10)  & build/HM_vc2010.sln \\
-MS Visual Studio 2012 (VC11)  & build/HM_vc2012.sln \\
-MS Visual Studio 2013 (VC12)  & build/HM_vc2013.sln \\
-Xcode                         & HM.xcodeproj \\
-Eclipse                       & .project .cproject \\
-make/gcc (e.g. Linux)         & build/linux/makefile \\
+MS Visual Studio 9     & build/JEM_vc9.sln \\
+MS Visual Studio 2010  & build/JEM_vc2010.sln \\
+MS Visual Studio 2012  & build/JEM_vc2012.sln \\
+MS Visual Studio 2013  & build/JEM_vc2013.sln \\
+MS Visual Studio 2015  & build/JEM_vc2015.sln \\
+Xcode                  & HM.xcodeproj \\
+Linux                  & build/linux/makefile \\
 \hline
 \end{tabular}
 \end{table}
@@ -321,14 +326,6 @@ from 1 to GOPSize.
 
 \item[]\textbf{QPOffset}: QP offset is added to the QP parameter to set
 the final QP value to use for this frame.
-
-\item[]\textbf{QPOffsetModelOff}: Offset parameter to a linear model to adjust final QP based on QP + QPoffset.
-
-\item[]\textbf{QPOffsetModelScale}: Scale parameter to a linear model to adjust final QP based on QP + QPoffset.
-
-\item[]\textbf{SliceCbQPOffset}: The slice-level Cb QP offset.
-
-\item[]\textbf{SliceCrQPOffset}: The slice-level Cr QP offset.
 
 \item[]\textbf{QPFactor}: Weight used during rate distortion
 optimization. Higher values mean lower quality and less bits. Typical
@@ -459,11 +456,7 @@ Table~\ref{tab:gop-example} could be used.
 \hline
 Type                &   P  &    B   &      B   &       B \\
 POC                 &   4  &    2   &      1   &       3 \\
-QPOffset            &   1  &    2   &      3   &       3 \\
-QPOffsetModelOff    & 0.0  &  0.0   &    0.0   &     0.0 \\
-QPOffsetModelScale  & 0.0  &  0.0   &    0.0   &     0.0 \\
-SliceCbQPOffset     &   0  &    0   &      0   &       0 \\
-SliceCrQPOffset     &   0  &    0   &      0   &       0 \\
+QPoffset            &   1  &    2   &      3   &       3 \\
 QPfactor            & 0.5  &  0.5   &    0.5   &     0.5 \\
 tcOffsetDiv2        &   0  &    1   &      2   &       2 \\  
 betaOffsetDiv2      &   0  &    0   &      0   &       0 \\
@@ -488,10 +481,10 @@ line should contain information for one frame, so this
 configuration would be specified as:
 
 \begin{verbatim}
-Frame1: P 4 1 0 0 0.5 0 0 0 1 1 -4 0
-Frame2: B 2 2 0 0 0.5 1 0 1 1 2 -2 2 1 0 2 2 1 1
-Frame3: B 1 3 0 0 0.5 2 0 2 1 3 -1 1 3 1 0 1 3 1 1 1
-Frame4: B 3 3 0 0 0.5 2 0 2 1 2 -1 1 1 0 -2 4 0 1 1 0
+Frame1: P 4 1 0.5 0 0 0 1 1 -4 0
+Frame2: B 2 2 0.5 1 0 1 1 2 -2 2 1 0 2 2 1 1
+Frame3: B 1 3 0.5 2 0 2 1 3 -1 1 3 1 0 1 3 1 1 1
+Frame4: B 3 3 0.5 2 0 2 1 2 -1 1 1 0 -2 4 0 1 1 0
 \end{verbatim}
 
 The values of deltaRIdx$-1$, deltaRPS, num_ref_idcs and reference
@@ -501,7 +494,7 @@ $K$ is the index of the RPS to be inter coded and the $M$ is the
 index of the reference RPS, as follows.
 
 \setlength{\algomargin}{2em}
-\begin{algorithm}[ht]
+\begin{algorithm}[h]
 \SetKwData{deltaRIdx}{deltaRIdx}
 \SetKwData{deltaRPS}{deltaRPS}
 \SetKwData{numrefidcs}{num_ref_idcs}
@@ -695,6 +688,24 @@ When 1, the Mean Square Error (MSE) values of each frame will also be output alo
 When 1, the Mean Square Error (MSE) values of the entire sequence will also be output alongside the default PSNR values.
 \\
 
+\Option{TrueBitdepthPSNR} &
+%\ShortOption{\None} &
+\Default{false} &
+When 1, compute PSNR using maxval = (1$<<$(bitdepth) - 1) instead of maxval = 255$<<$(bitdepth - 8).
+\\
+
+\Option{PreciseLog (-p)} &
+%\ShortOption{\None} &
+\Default{false} &
+Filename to use for producing log file of precise PSNR. If empty, do not produce a file.
+\\
+
+\Option{PrintMSSSIM} &
+%\ShortOption{\None} &
+\Default{false} &
+When 1, the MS-SSIM values of each frame and entire sequence will be output.
+\\
+
 \Option{SummaryOutFilename} &
 %\ShortOption{\None} &
 \Default{false} &
@@ -772,13 +783,7 @@ Specifies a number of frames to skip at beginning of input video file.
 \Option{FramesToBeEncoded (-f)} &
 %\ShortOption{-f} &
 \Default{0} &
-Specifies the number of frames to be encoded (see note regarding TemporalSubsampleRatio). When 0, all frames are coded.
-\\
-
-\Option{TemporalSubsampleRatio (-ts)} &
-%\ShortOption{-fs} &
-\Default{1} &
-Temporally subsamples the input video sequence. A value of $N$ will skip $(N-1)$ frames of input video after each coded input video frame. Note the FramesToBeEncoded does not account for the temporal skipping of frames, which will reduce the number of frames encoded accordingly. The reported bit rates will be reduced and VUI information is scaled so as to present the video at the correct speed. The minimum and default value is 1.
+Specifies the number of frames to be encoded. When 0, all frames are coded.
 \\
 
 \Option{FieldCoding} &
@@ -815,12 +820,6 @@ Enable to code fields in a specific, potentially more efficient, order.
 %\ShortOption{\None} &
 \Default{1} &
 Enables harmonization of Gop first field couple.
-\\
-
-\Option{AccessUnitDelimiter} &
-%\ShortOption{\None} &
-\Default{0} &
-Add Access Unit Delimiter NAL units between all Access Units.
 \\
 
 \end{OptionTableNoShorthand}
@@ -920,6 +919,12 @@ Specifies the value of general_non_packed_constraint_flag
 Specifies the value of general_frame_only_constraint_flag
 \\
 
+\Option{ReWriteParamSetsFlag} &
+%\ShortOption{\None} &
+\Default{true} &
+Specifies whether outputing parameter sets before every (intra) random access point
+\\
+
 \end{OptionTableNoShorthand}
 
 
@@ -928,52 +933,46 @@ Specifies the value of general_frame_only_constraint_flag
 %%
 
 \begin{OptionTableNoShorthand}{Unit definition parameters}{tab:unit}
-\Option{MaxCUWidth} &
+\Option{CTUSize} &
 %\ShortOption{\None} &
-\Default{64} &
-Defines the maximum CU width.
+\Default{128} &
+Defines the CTU size.
 \\
 
-\Option{MaxCUHeight} &
+\Option{MinQTLumaISlice} &
 %\ShortOption{\None} &
-\Default{64} &
-Defines the maximum CU height.
+\Default{8} &
+Defines the minimum size of luma quadtree leaf node in intra slices.
 \\
 
-\Option{MaxCUSize (-s)} &
+\Option{MinQTChromaISlice} &
 %\ShortOption{\None} &
-\Default{64} &
-Defines the maximum CU size.
-\\
-
-\Option{MaxPartitionDepth (-h)} &
-%\ShortOption{-h} &
 \Default{4} &
-Defines the depth of the CU tree.
+Defines the minimum size of chroma quadtree leaf node in intra slices.
 \\
 
-\Option{QuadtreeTULog2MaxSize} &
+\Option{MinQTNonISlice} &
 %\ShortOption{\None} &
-\Default{6 \\ ($= \mathrm{log}_2(64)$)} &
-Defines the Maximum TU size in logarithm base 2.
+\Default{8} &
+Defines the minimum size of quadtree leaf node in inter slices.
 \\
 
-\Option{QuadtreeTULog2MinSize} &
+\Option{MaxBTDepth} &
 %\ShortOption{\None} &
-\Default{2 \\ ($= \mathrm{log}_2(4)$)} &
-Defines the Minimum TU size in logarithm base 2.
+\Default{3} &
+Defines the maximum depth of binary tree.
 \\
 
-\Option{QuadtreeTUMaxDepthIntra} &
+\Option{MaxBTDepthISliceL} &
 %\ShortOption{\None} &
-\Default{1} &
-Defines the depth of the TU tree for intra CUs.
+\Default{3} &
+Defines the maximum depth of binary tree for luma component in intra slices.
 \\
 
-\Option{QuadtreeTUMaxDepthInter} &
+\Option{MaxBTDepthISliceC} &
 %\ShortOption{\None} &
-\Default{2} &
-Defines the depth of the TU tree for inter CUs.
+\Default{3} &
+Defines the maximum depth of binary tree for chroma components in intra slices.
 \\
 
 \end{OptionTableNoShorthand}
@@ -1034,9 +1033,8 @@ Enables or disables the use of a fast motion search.
 \par
 \begin{tabular}{cp{0.45\textwidth}}
  0 & Full search method \\
- 1 & Fast search method - TZSearch\\
- 2 & Predictive motion vector fast search method \\
- 3 & Extended TZSearch method \\
+ 1 & Fast search method \\
+ 2 & Previous motion vector fast search method \\
 \end{tabular}
 \\
 
@@ -1125,31 +1123,8 @@ Flag to disable intra PUs in inter slices.
 Specifies a value that is multiplied with the Lagrange multiplier
 $\lambda$, for use in the rate-distortion optimised cost calculation
 when encoding temporal layer~$N$.
-If LambdaModifierI is specified, then LambdaModifierI will be used for intra pictures.
 \par
 $N$ may be in the range 0 (inclusive) to 7 (exclusive).
-\\
-
-\Option{LambdaModifierI (-LMI)} &
-%\ShortOption{-LMI} &
-\Default{} &
-Specifies one or more of the LambdaModifiers to use intra pictures at each of the temporal layers.
-If not present, then the LambdaModifier$N$ settings are used instead. If the list of values
-(comma or space separated) does not include enough values for each of the temporal layers,
-the last value is repeated as required.
-\\
-
-\Option{IQPFactor (-IQF)} &
-%\ShortOption{-IQF} &
-\Default{-1} &
-Specifies the QP factor to be used for intra pictures during the lambda computation.
-(The values specified in the GOP structure are only used for inter pictures).
-If negative (default), the following equation is used to derive the value:
-\par
-$IQP_{factor}=0.57*(1.0-Max(0.5, Min(0.0, 0.05*s)))$
-\par
-where $s = Int(isField ? (GS-1)/2 : GS-1)$ and
-$GS$ is the gop size.
 \\
 
 \Option{ECU} &
@@ -1172,25 +1147,15 @@ Enables or disables the use of early skip detection.  When enabled, the skip mod
 
 \Option{FEN} &
 %\ShortOption{\None} &
-\Default{0} &
-Controls the use of different fast encoder coding tools.  The following
-tools are supported in different combinations:
-\par
-\begin{tabular}{cp{0.45\textwidth}}
- a & In the SAD computation for blocks having size larger than 8, only
-     the lines of even rows in the block are considered. \\
- b & The number of iterations used in the bi-directional motion vector
-     refinement in the motion estimation process is reduced from 4 to 1. \\
-\end{tabular}
-Depending on the value of the parameter, the following combinations are
-supported:
-\par
-\begin{tabular}{cp{0.45\textwidth}}
- 0 & Disable all modes \\
- 1 & Use both a \& b tools\\
- 2 & Use only tool b \\
- 3 & Use only tool a \\
-\end{tabular}
+\Default{false} &
+Enables or disables the use of fast encoder mode.  When enabled,
+the following occurs:
+\begin{itemize}
+\item In the SAD computation for blocks having size larger than 8, only
+      the lines of even rows in the block are considered.
+\item The number of iterations used in the bi-directional motion vector
+      refinement in the motion estimation process is reduced from 4 to 1.
+\end{itemize}
 \\
 
 \Option{FDM} &
@@ -1227,42 +1192,6 @@ Enabling this parameter can reduce the visibility of CU boundaries in the coded 
 Specifies the base value of the quantization parameter. If it is non-integer, the QP is switched once during encoding.
 \\
 
-\Option{IntraQPOffset} &
-%\ShortOption{\None} &
-\Default{0} &
-Specifies a QP offset from the base QP value to be used for intra frames.
-\\
-
-\Option{LambdaFromQpEnable} &
-%\ShortOption{\None} &
-\Default{false} &
-When enabled, the $\lambda$, which is used to convert a cost in bits to a cost in distortion terms, is calculated as:
-
-$\lambda=qpFactor \times 2^{qp+6*(bitDepthLuma-8)-12}$,
-where $qp$ is the slice QP and $qpFactor$ is calculated as follows:
-
-\begin{tabular}{lp{0.45\textwidth}}
- $= IQF$                            & if $IQF >= 0$ and slice is a periodic intra slice \\
- $= 0.57 \times \lambda_{scale}$    & if slice is a non-periodic intra slice \\
- $=$ value from GOP table           & otherwise \\
-\end{tabular}
-
-where $IQF$ is the value specified using the IntraQPFactor option, and where $\lambda_{scale}$ is:
-
-\begin{tabular}{lp{0.45\textwidth}}
- $1$                            & if LambdaFromQpEnable=true \\
- $1.0 - max(0,min(0.5,0.05*B))$ & if LambdaFromQpEnable=false \\
-\end{tabular}
-
-where $B$ is the number of B frames.
-
-If LambdaFromQpEnable=false, then the $\lambda$ is also subsequently scaled for non-top-level hiearchical depths, as follows:
-
-$\lambda = \lambda_{base} \times max(2, min(4, (sliceQP-12)/6))$
-
-In addition, independent on the IntraQPFactor, if HadamardME=false, then for an inter slice the final $\lambda$ is scaled by a factor of $0.95$.
-\\
-
 \Option{CbQpOffset (-cbqpofs)}%
 \Option{CrQpOffset (-crqpofs)} &
 %\ShortOption{-cbqpofs}%
@@ -1273,74 +1202,6 @@ Global offset to apply to the luma QP to derive the QP of Cb and Cr
 respectively.  These options correspond to the values of cb_qp_offset
 and cr_qp_offset, that are transmitted in the PPS.  Valid values are in
 the range $[-12, 12]$.
-\\
-
-\Option{LumaLevelToDeltaQPMode} &
-\Default{0} &
-Luma-level based Delta QP modulation.
-\par
-\begin{tabular}{cp{0.45\textwidth}}
- 0 & not used \\
- 1 & Based on CTU average \\
- 2 & Based on Max luma in CTU\\
-\end{tabular}
-\\
-
-\Option{LumaLevelToDeltaQPMaxValWeight} &
-\Default{1.0} &
-Weight of per block maximum luma value when LumaLevelToDeltaQPMode=2.
-\\
-
-\Option{LumaLevelToDeltaQPMappingLuma} &
-\Default{\NotSet} &
-Specify luma values to use for the luma to delta QP mapping instead of using default values. Default values are: 0, 301, 367, 434, 501, 567, 634, 701, 767, 834.
-\\
-
-\Option{LumaLevelToDeltaQPMappingDQP} &
-\Default{\NotSet} &
-Specify DQP values to use for the luma to delta QP mapping instead of using default values. Default values are: -3, -2, -1, 0, 1, 2, 3, 4, 5, 6.
-\\
-
-\Option{WCGPPSEnable} &
-\Default{0} &
-Enable the WCG PPS modulation of the chroma QP, rather than the slice,
-which, unlike slice-level modulation, allows the deblocking process
-to consider the adjustment.
-To use, specify a fractional QP:
-the first part of the sequence will use $qpc=floor(QP)$ in the following
-calculation and PPS-0; the second part of the sequence will use $qpc=ceil(QP)$
-and PPS-1. The $chromaQp$ that is then stored in the PPS is given as:
-$clip(round(WCGPPSXXQpScale*baseCQp)+XXQpOffset)$ where $baseCQp=(WCGPPSChromaQpScale*qpc+WCGPPSChromaQpOffset)$.
-Note that the slices will continue to have a delta QP applied.
-\\
-
-\Option{WCGPPSChromaQpScale} &
-\Default{0.0} &
-Scale parameter for the linear chroma QP offset mapping used for WCG content.
-\\
-
-\Option{WCGPPSChromaQpOffset} &
-\Default{0.0} &
-Offset parameter for the linear chroma QP offset mapping used for WCG content.
-\\
-
-\Option{WCGPPSCbQpScale}%
-\Option{WCGPPSCrQpScale} &
-\Default{1.0} &
-Per chroma component QP scale factor depending on capture and representation color space.
-For Cb component with BT.2020 container use 1.14; for BT.709 material and 1.04 for P3 material.
-For Cr component with BT.2020 container use 1.79; for BT.709 material and 1.39 for P3 material.
-\\
-
-\Option{SliceChromaQPOffsetPeriodicity} &
-\Default{0} &
-Defines the periodicity for inter slices that use the slice-level chroma QP offsets, as defined by SliceCbQpOffsetIntraOrPeriodic and SliceCrQpOffsetIntraOrPeriodic. A value of 0 disables the periodicity. It is intended to be used in low-delay configurations where an regular intra period is not defined.
-\\
-
-\Option{SliceCbQpOffsetIntraOrPeriodic}%
-\Option{SliceCrQpOffsetIntraOrPeriodic} &
-\Default{0} &
-Defines the slice-level QP offset to be used for intra slices, or once every 'SliceChromaQPOffsetPeriodicity' pictures.
 \\
 
 \Option{MaxCuDQPDepth (-dqd)} &
@@ -1601,9 +1462,9 @@ shall be an integer number in the range $-6..6$.
 
 \Option{DeblockingFilterMetric}&
 %\ShortOption{\None}&
-\Default{0}&
-Specifies the use of a deblocking filter metric to evaluate the suitability of deblocking. If non-zero then
-LoopFilterOffsetInPPS and LoopFilterDisable must be 0. Currently excepted values are 0, 1 and 2.
+\Default{false}&
+Enables or disables the use of a deblocking filter metric to evaluate the suitability of deblocking. If enabled then
+LoopFilterOffsetInPPS and LoopFilterDisable must be 0.
 \\
 
 \Option{LFCrossSliceBoundaryFlag}&
@@ -1621,12 +1482,6 @@ Enables or disables the use of a deblocking across tile boundaries.
 %%
 
 \begin{OptionTableNoShorthand}{Coding tools parameters}{tab:coding-tools}
-
-\Option{AMP} &
-%\ShortOption{\None} &
-\Default{true} &
-Enables or disables the use of asymmetric motion partitions.
-\\
 
 \Option{SAO} &
 %\ShortOption{\None} &
@@ -1659,12 +1514,6 @@ Enables or disables SAO parameter estimation using non-deblocked pixels
 for LCU bottom and right boundary areas.
 \\
 
-\Option{SAOResetEncoderStateAfterIRAP} &
-%\ShortOption{\None} &
-\Default{false} &
-When true, resets the encoder's SAO state after an IRAP (POC order).
-\\
-
 \Option{ConstrainedIntraPred} &
 %\ShortOption{\None} &
 \Default{false} &
@@ -1691,13 +1540,13 @@ If enabled use a fast ME for generalised B Low Delay slices
 Enables use of B-Lambda for non-key low-delay pictures
 \\
 
-\Option{TransquantBypassEnable} &
+\Option{TransquantBypassEnableFlag} &
 %\ShortOption{\None} &
 \Default{false} &
 Enables or disables the ability to bypass the transform,
 quantization and filtering stages at CU level.
 This option corresponds to the value of
-transquant_bypass_enabled_flag that is transmitted in the PPS.
+transquant_bypass_enable_flag that is transmitted in the PPS.
 
 See CUTransquantBypassFlagForce for further details.
 \\
@@ -1714,7 +1563,7 @@ This option controls the value of the per CU cu_transquant_bypass_flag.
  1 & Bypass is forced for all CUs. \\
 \end{tabular}
 
-This option has no effect if TransquantBypassEnable is disabled.
+This option has no effect if TransquantBypassEnableFlag is disabled.
 \\
 
 \Option{PCMEnabledFlag} &
@@ -1769,21 +1618,6 @@ Enables the use of weighted prediction in P slices.
 \Default{false} &
 Enables the use of weighted prediction in B slices.
 \\
-
-\Option{WPMethod (-wpM)} &
-%\ShortOption{\-wpM} &
-\Default{0} &
-Sets the Weighted Prediction method to be used.
-\par
-\begin{tabular}{cp{0.45\textwidth}}
-  0 & Image DC based method with joint colour component decision. \\
-  1 & Image DC based method with separate colour component decision. \\
-  2 & DC + Histogram refinement method (no clipping). \\
-  3 & DC + Histogram refinement method (with clipping). \\
-  4 & DC + Dual Histogram refinement method (with clipping). \\
-\end{tabular}
-\\
-
 
 \Option{Log2ParallelMergeLevel} &
 %\ShortOption{\None} &
@@ -1840,6 +1674,190 @@ luma TUs are also skipped.
 \par
 This option has no effect if TransformSkip is disabled.
 \\
+
+\Option{ATMVP} &
+%\ShortOption{\None} &
+\Default{true} &
+Enables sub-CU level motion vector prediction.
+\\
+
+\Option{SubPUTempLog2Size} &
+%\ShortOption{\None} &
+\Default{2} &
+Defines the block size in sub-CU level motion vector prediction.
+\\
+
+\Option{OBMC} &
+%\ShortOption{\None} &
+\Default{true} &
+Enables overlapped block motion compensation.
+\\
+
+\Option{OBMCBLK} &
+%\ShortOption{\None} &
+\Default{4} &
+Defines the block size in overlapped block motion compensation.
+\\
+
+\Option{IMV} &
+%\ShortOption{\None} &
+\Default{true} &
+Enables locally adaptive motion vector resolution. 
+\\
+
+\Option{IMVMaxCand} &
+%\ShortOption{\None} &
+\Default{4} &
+Defines the maximum number of candidates searched in locally adaptive motion vector resolution.
+\\
+
+\Option{FRUC} &
+%\ShortOption{\None} &
+\Default{true} &
+Enables pattern matched motion vector derivation. 
+\\
+
+\Option{FRUCF} &
+%\ShortOption{\None} &
+\Default{true} &
+Enables bilinear filter in pattern matched motion vector derivation.
+\\
+
+\Option{FRUCR} &
+%\ShortOption{\None} &
+\Default{8} &
+Defines search range (in pixel) in pattern matched motion vector derivation. 
+\\
+
+\Option{FRUCRDepth} &
+%\ShortOption{\None} &
+\Default{4} &
+Defines refine depth in pattern matched motion vector derivation. 
+\\
+
+\Option{IlluCompEnable} &
+%\ShortOption{\None} &
+\Default{true} &
+Enables local illumination compensation.
+\\
+
+\Option{ALF} &
+%\ShortOption{\None} &
+\Default{true} &
+Enables adaptive loop filter.
+\\
+
+\Option{EMT (-emt)} &
+%\ShortOption{-emt} &
+\Default{3} &
+Enables explicit multiple core transform.
+\par
+\begin{tabular}{cp{0.45\textwidth}}
+  0 & Disabled for all blocks. \\
+  1 & Enabled for intra blocks. \\
+  2 & Enabled for inter blocks. \\
+  3 & Enabled for all blocks. \\
+\end{tabular}
+\\
+
+\Option{EMTFAST (-femt)} &
+%\ShortOption{-femt} &
+\Default{3} &
+Enables fast methods for explicit multiple core transform.
+\par
+\begin{tabular}{cp{0.45\textwidth}}
+  0 & Disabled for all blocks. \\
+  1 & Enabled for intra blocks. \\
+  2 & Enabled for inter blocks. \\
+  3 & Enabled for all blocks. \\
+\end{tabular}
+\\
+
+\Option{KLT} &
+%\ShortOption{-klt} &
+\Default{0} &
+Enables signal dependent transform.
+\par
+\begin{tabular}{cp{0.45\textwidth}}
+  0 & Disabled for all blocks. \\
+  1 & Enabled for intra blocks. \\
+  2 & Enabled for inter blocks. \\
+  3 & Enabled for all blocks. \\
+\end{tabular}
+\\
+
+\Option{LCTUFast} &
+%\ShortOption{\None} &
+\Default{true} &
+Enables fast methods for large CTU.
+\\
+
+\Option{IntraFourTapFilter} &
+%\ShortOption{\None} &
+\Default{true} &
+Enables 4-tap interpolation filter for intra prediction.
+\\
+
+\Option{IntraBoundaryFilter} &
+%\ShortOption{\None} &
+\Default{true} &
+Enables additional boundary filter for intra prediction.
+\\
+
+\Option{LMChroma} &
+%\ShortOption{\None} &
+\Default{true} &
+Enables cross-component linear model prediction.
+\\
+
+\Option{BIO} &
+%\ShortOption{\None} &
+\Default{true} &
+Enables bi-directional optical flow.
+\\
+
+\Option{PDPC} &
+%\ShortOption{\None} &
+\Default{true} &
+Enables position dependent intra prediction combination.
+\\
+
+\Option{NSST} &
+%\ShortOption{\None} &
+\Default{true} &
+Enables mode dependent non-separable secondary transforms.
+\\
+
+\Option{AFFINE} &
+%\ShortOption{\None} &
+\Default{true} &
+Enables affine motion prediction.
+\\
+
+\Option{RSAF} &
+%\ShortOption{\None} &
+\Default{true} &
+Enables adaptive reference sample smoothing.
+\\
+
+\Option{AClip (-aclip)} &
+%\ShortOption{\None} &
+\Default{true} &
+Enables slice level adaptive clipping.
+\\
+
+\Option{DMVR} &
+%\ShortOption{\None} &
+\Default{true} &
+Enable decoder-side motion vector refinement for merge candidates.
+\\
+
+\Option{BilateralFilter} &
+%\ShortOption{\None} &
+\Default{true} &
+Enables bilateral filtering.
+\\
+
 \end{OptionTableNoShorthand}
 
 %%
@@ -1892,25 +1910,6 @@ Rate control: initial QP value for the first picture.
 %\ShortOption{\None} &
 \Default{false} &
 Rate control: force intra QP to be equal to initial QP or not.
-\\
-
-\Option{RCCpbSaturation} &
-%\ShortOption{\None} &
-\Default{false} &
-Rate control: enable target bits saturation to avoid CPB overflow and underflow or not.
-\\
-
-\Option{RCCpbSize} &
-%\ShortOption{\None} &
-\Default{0} &
-Rate control: CPB size, in bps.
-\\
-
-\Option{RCInitialCpbFullness} &
-%\ShortOption{\None} &
-\Default{0.9} &
-Rate control: ratio of initial CPB fullness per CPB size. (InitalCpbFullness/CpbSize)
-RCInitialCpbFullness should be smaller than or equal to 1.
 \\
 \end{OptionTableNoShorthand}
 
@@ -2172,7 +2171,6 @@ The table below lists the SEI messages defined for Version 1 and Range-Extension
    23 & Tone mapping information                 & Table \ref{tab:sei-tone-mapping-info} \\
    45 & Frame packing arrangement                & Table \ref{tab:sei-frame-packing-arrangement} \\
    47 & Display orientation                      & Table \ref{tab:sei-display-orientation} \\
-   56 & Green Metadata                           & Table \ref{tab:sei-green-metadata} \\
   128 & Structure of pictures information        & Table \ref{tab:sei-sop-info} \\
   129 & Active parameter sets                    & Table \ref{tab:sei-active-parameter-sets} \\
   130 & Decoding unit information                & Table \ref{tab:sei-decoding-unit-info} \\
@@ -2187,7 +2185,7 @@ The table below lists the SEI messages defined for Version 1 and Range-Extension
   139 & Temporal motion-constrained tile sets    & Table \ref{tab:sei-tmcts} \\
   140 & Chroma resampling filter hint            & Table \ref{tab:chroma-resampling-filter-hint} \\
   141 & Knee function information                & Table \ref{tab:sei-knee-function} \\
-  142 & Colour remapping information             & Table \ref{tab:sei-colour-remapping}\\
+  142 & Colour remapping information             & (Not handled)\\
   143 & Deinterlaced field identification        & (Not handled)\\
 \end{SEIListTable}
 %%
@@ -2462,28 +2460,6 @@ SEI messages.
 
 
 
-\begin{OptionTableNoShorthand}{Green Metadata SEI message encoder parameters}{tab:sei-green-metadata}
-\Option{SEIGreenMetadataType} &
-\Default{0} &
-Specifies the type of metadata that is present in the SEI message.
-\par
-\begin{tabular}{cp{0.35\textwidth}}
-  0 & Reserved \\
-  1 & Metadata enabling quality recovery after low-power encoding is present \\
-\end{tabular}
-\\
-\Option{SEIXSDMetricType} &
-\Default{0} &
-Indicates the type of the objective quality metric.
-\par
-\begin{tabular}{cp{0.35\textwidth}}
-  0 & PSNR is used as objective quality metric \\
-\end{tabular}
-\\
-\end{OptionTableNoShorthand}
-
-
-
 \begin{OptionTableNoShorthand}{Structure of pictures information SEI message encoder parameters}{tab:sei-sop-info}
 \Option{SEISOPDescription} &
 \Default{0} &
@@ -2700,11 +2676,11 @@ When true (non-zero), generates example temporal motion constrained tile sets SE
 
 
 \begin{OptionTableNoShorthand}{Chroma resampling filter hint SEI message encoder parameters}{tab:chroma-resampling-filter-hint}
-\Option{SEIChromaResamplingFilterHint} &
+\Option{SEIChromaSamplingFilterHint} &
 \Default{false} &
 When true (non-zero), generates example chroma sampling filter hint SEI messages.
 \\
-\Option{SEIChromaResamplingHorizontalFilterType} &
+\Option{SEIChromaSamplingHorizontalFilterType} &
 \Default{2} &
 Defines the index of the chroma sampling horizontal filter:
 \par
@@ -2714,7 +2690,7 @@ Defines the index of the chroma sampling horizontal filter:
   2 & Filters as described by SMPTE RP 2050-1:2012\\
 \end{tabular}
 \\
-\Option{SEIChromaResamplingVerticalFilterType} &
+\Option{SEIChromaSamplingVerticalFilterType} &
 \Default{2} &
 Defines the index of the chroma sampling vertical filter:
 \par
@@ -2780,16 +2756,6 @@ Array of output knee point. Default table can be set to the following:
 \begin{tabular}{cp{0.45\textwidth}}
 100 250 450
 \end{tabular}
-\\
-\end{OptionTableNoShorthand}
-
-
-\begin{OptionTableNoShorthand}{Colour remapping SEI message encoder parameters}{tab:sei-colour-remapping}
-\Option{SEIColourRemappingInfoFileRoot (-cri)} &
-\Default{\NotSet} &
-Specifies the prefix of input Colour Remapping Information file. Prefix is completed by ``_x.txt'' where x is the  POC number.
-The contents of the file are a list of the SEI message's syntax element names (in decoding order) immediately followed by a `:' and then the associated value.
-An example file can be found in cfg/misc/example_colour_remapping_sei_encoder_0.txt.
 \\
 \end{OptionTableNoShorthand}
 
@@ -2970,13 +2936,6 @@ has the following behaviour:
 %\ShortOption{\None} &
 \Default{\NotSet} &
 When a non-empty file name is specified, information regarding any decoded SEI messages will be output to the indicated file. If the file name is '-', then stdout is used instead.
-\\
-
-\Option{SEIColourRemappingInfoFilename} &
-%\ShortOption{\None} &
-\Default{\NotSet} &
-Specifies that the colour remapping SEI message should be applied to the output video, with the output written to this file.
-If no value is specified, the SEI message is ignored and no mapping is applied.
 \\
 
 \Option{RespectDefDispWindow (-w)} &
