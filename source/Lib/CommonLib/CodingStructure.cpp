@@ -734,12 +734,13 @@ void CodingStructure::initSubStructure( CodingStructure& subStruct, const UnitAr
   subStruct.vps       = vps;
   subStruct.pps       = pps;
   subStruct.slice     = slice;
-  subStruct.prevQP    = prevQP;
+  subStruct.prevQP[chType] 
+                      = prevQP[chType];
   subStruct.pcv       = pcv;
 
   subStruct.m_isTuEnc = isTuEnc;
 
-  subStruct.initStructData( currQP, isLossless );
+  subStruct.initStructData( currQP[chType], isLossless );
 
   if( isTuEnc )
   {
@@ -962,8 +963,8 @@ void CodingStructure::initStructData( const int &QP, const bool &_isLosses )
 
   if( QP >= 0 )
   {
-    currQP     = QP;
-    isLossless = _isLosses;
+    currQP[chType] = QP;
+    isLossless     = _isLosses;
   }
 
   if( !parent || ( ( slice->getSliceType() != I_SLICE ) && !m_isTuEnc ) )

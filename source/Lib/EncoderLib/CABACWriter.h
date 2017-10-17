@@ -79,7 +79,7 @@ public:
   void        end_of_slice              ();
 
   // coding tree unit (clause 7.3.8.2)
-  void        coding_tree_unit          (       CodingStructure&        cs,       const UnitArea&   area,       int& qp,            unsigned ctuRsAddr,  bool skipSao = false );
+  void        coding_tree_unit          (       CodingStructure&        cs,       const UnitArea&   area,       int& qpL,           int& qpC,            unsigned ctuRsAddr,  bool skipSao = false );
 
   // sao (clause 7.3.8.3)
   void        sao                       ( const Slice&                  slice,    unsigned          ctuRsAddr );

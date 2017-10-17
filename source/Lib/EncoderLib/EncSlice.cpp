@@ -941,9 +941,10 @@ Void EncSlice::compressSlice( Picture* pcPic, const Bool bCompressEntireSlice, c
 
   if(!pcSlice->getDependentSliceSegmentFlag())
   {
-    pcPic->setPrevQP(pcSlice->getSliceQp());
+    pcPic->setPrevQP( pcSlice->getSliceQp(), CHANNEL_TYPE_LUMA );
+    pcPic->setPrevQP( pcSlice->getSliceQp(), CHANNEL_TYPE_CHROMA );
   }
-  CHECK(!(pcPic->getPrevQP() != std::numeric_limits<Int>::max()), "Unspecified error");
+  CHECK(!(pcPic->getPrevQP(CHANNEL_TYPE_LUMA) != std::numeric_limits<Int>::max()), "Unspecified error");
 
 
   CodingStructure&  cs          = *pcPic->cs;
@@ -1021,7 +1022,8 @@ Void EncSlice::compressSlice( Picture* pcPic, const Bool bCompressEntireSlice, c
     if (ctuRsAddr == firstCtuRsAddrOfTile)
     {
       m_CABACEstimator->initCtxModels( *pcSlice, m_CABACEncoder );
-      pcPic->setPrevQP(pcSlice->getSliceQp());
+      pcPic->setPrevQP( pcSlice->getSliceQp(), CHANNEL_TYPE_LUMA );
+      pcPic->setPrevQP( pcSlice->getSliceQp(), CHANNEL_TYPE_CHROMA );
     }
     else if (ctuXPosInCtus == tileXPosInCtus && m_pcCfg->getEntropyCodingSyncEnabledFlag())
     {
@@ -1032,7 +1034,8 @@ Void EncSlice::compressSlice( Picture* pcPic, const Bool bCompressEntireSlice, c
         // Top-right is available, we use it.
         m_CABACEstimator->getCtx() = m_entropyCodingSyncContextState;
       }
-      pcPic->setPrevQP(pcSlice->getSliceQp());
+      pcPic->setPrevQP( pcSlice->getSliceQp(), CHANNEL_TYPE_LUMA );
+      pcPic->setPrevQP( pcSlice->getSliceQp(), CHANNEL_TYPE_CHROMA );
     }
 
     // load CABAC context from previous frame
@@ -1104,7 +1107,7 @@ Void EncSlice::compressSlice( Picture* pcPic, const Bool bCompressEntireSlice, c
         const UInt uiCUIndex = ctuTsAddr - startCtuTsAddr;
         iSrcOffset = Clip3(0, MAX_QP, iQPIndex + apprI2Log2(m_uEnerHpCtu[uiCUIndex] * hpEnerPic));
         if (ctuTsAddr == 0) {
-          cs.currQP = iSrcOffset; // avoid mismatch, see if (startCtuTsAddr == 0) cs.initStructData
+          cs.currQP[0] = cs.currQP[1] = iSrcOffset; // avoid mismatch, see if (startCtuTsAddr == 0) cs.initStructData
         }
         pcSlice->setSliceQp (iSrcOffset); // update actual QP index and lambda values for the slice
         const Double newLambda = oldLambda * pow (2.0, Double(iSrcOffset - iQPIndex) / 3.0);
@@ -1124,9 +1127,10 @@ Void EncSlice::compressSlice( Picture* pcPic, const Bool bCompressEntireSlice, c
     // CTU estimation
     //////////////////////////////////////////////////////////////////////////
 
-    cs.pcv    = pcSlice->getPPS()->pcv;
-    cs.prevQP = pcPic->getPrevQP();
-    cs.fracBits = 0;
+    cs.pcv       = pcSlice->getPPS()->pcv;
+    cs.prevQP[0] = pcPic->getPrevQP( CHANNEL_TYPE_LUMA );
+    cs.prevQP[1] = pcPic->getPrevQP( CHANNEL_TYPE_CHROMA );
+    cs.fracBits  = 0;
 
     if( pcSlice->getSPS()->getSpsNext().getUseFRUCMrgMode() && !pcSlice->isIntra() )
     {
@@ -1136,7 +1140,7 @@ Void EncSlice::compressSlice( Picture* pcPic, const Bool bCompressEntireSlice, c
 
     m_pcCuEncoder->compressCtu( cs, ctuArea, ctuRsAddr );
     m_CABACEstimator->resetBits();
-    m_CABACEstimator->coding_tree_unit( cs, ctuArea, pcPic->getPrevQP(), ctuRsAddr, true );
+    m_CABACEstimator->coding_tree_unit( cs, ctuArea, pcPic->getPrevQP( CHANNEL_TYPE_LUMA ), pcPic->getPrevQP( CHANNEL_TYPE_CHROMA ), ctuRsAddr, true );
     const int numberOfWrittenBits = int( m_CABACEstimator->getEstFracBits() >> SCALE_BITS );
 
     // Calculate if this CTU puts us over slice bit size.
@@ -1265,8 +1269,9 @@ Void EncSlice::encodeSlice   ( Picture* pcPic, OutputBitstream* pcSubstreams, UI
 
   if( !pcSlice->getDependentSliceSegmentFlag())
   {
-    pcPic->setPrevQP(pcSlice->getSliceQp());
-    cs.prevQP = pcSlice->getSliceQp();
+    pcPic->setPrevQP( pcSlice->getSliceQp(), CHANNEL_TYPE_LUMA );
+    pcPic->setPrevQP( pcSlice->getSliceQp(), CHANNEL_TYPE_CHROMA );
+    cs.prevQP[0] = cs.prevQP[1] = pcSlice->getSliceQp();
   }
 
   const PreCalcValues& pcv = *cs.pcv;
@@ -1326,7 +1331,7 @@ Void EncSlice::encodeSlice   ( Picture* pcPic, OutputBitstream* pcSubstreams, UI
       m_CABACWriter->alf( *pcSlice, alfParam );
     }
 
-    m_CABACWriter->coding_tree_unit( cs, ctuArea, pcPic->getPrevQP(), ctuRsAddr );
+    m_CABACWriter->coding_tree_unit( cs, ctuArea, pcPic->getPrevQP( CHANNEL_TYPE_LUMA ), pcPic->getPrevQP( CHANNEL_TYPE_CHROMA ), ctuRsAddr );
 
     // store probabilities of second CTU in line into buffer
     if( ctuXPosInCtus == tileXPosInCtus + 1 && wavefrontsEnabled )
