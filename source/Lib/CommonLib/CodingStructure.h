@@ -79,9 +79,9 @@ public:
   UnitScale        unitScale[MAX_NUM_COMPONENT];
 
   ChannelType chType;
-  int         prevQP;
+  int         prevQP[MAX_NUM_CHANNEL_TYPE];
   int         chromaQpAdj;
-  int         currQP;
+  int         currQP[MAX_NUM_CHANNEL_TYPE];
   bool        isLossless;
 
   const SPS *sps;

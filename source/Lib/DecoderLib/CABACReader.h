@@ -65,7 +65,7 @@ public:
   void        remaining_bytes           ( bool                          noTrailingBytesExpected );
 
   // coding tree unit (clause 7.3.8.2)
-  bool        coding_tree_unit          ( CodingStructure&              cs,     const UnitArea& area,     int& qp,   unsigned  ctuRsAddr );
+  bool        coding_tree_unit          ( CodingStructure&              cs,     const UnitArea& area,     int& qpL, int& qpC,   unsigned  ctuRsAddr );
 
   // sao (clause 7.3.8.3)
   void        sao                       ( CodingStructure&              cs,     unsigned        ctuRsAddr );

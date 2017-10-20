@@ -326,10 +326,10 @@ int CU::predictQP (const CodingUnit& cu, const int prevQP)
 
 
   // only predict within the same CTU, use HEVC's above+left prediction
-  const int a = (cu.lumaPos().y & cs.pcv->maxCUHeightMask) ? (cs.getCU (cu.lumaPos().offset ( 0,-1)))->qp : prevQP;
-  const int b = (cu.lumaPos().x & cs.pcv->maxCUWidthMask ) ? (cs.getCU (cu.lumaPos().offset (-1, 0)))->qp : prevQP;
+  const int a = ( cu.blocks[cs.chType].y & ( cs.pcv->maxCUHeightMask >> getChannelTypeScaleY( cs.chType, cu.chromaFormat ) ) ) ? ( cs.getCU( cu.blocks[cs.chType].pos().offset( 0, -1 ) ) )->qp : prevQP;
+  const int b = ( cu.blocks[cs.chType].x & ( cs.pcv->maxCUWidthMask  >> getChannelTypeScaleX( cs.chType, cu.chromaFormat ) ) ) ? ( cs.getCU( cu.blocks[cs.chType].pos().offset( -1, 0 ) ) )->qp : prevQP;
 
-  return (a + b + 1) >> 1;
+  return ( a + b + 1 ) >> 1;
 }
 
 bool CU::isQGStart( const CodingUnit& cu )
@@ -337,8 +337,8 @@ bool CU::isQGStart( const CodingUnit& cu )
   const SPS &sps = *cu.cs->sps;
   const PPS &pps = *cu.cs->pps;
 
-  return ( cu.Y().x % ( 1 << ( g_aucLog2[sps.getMaxCUWidth()]  - pps.getMaxCuDQPDepth() ) ) == 0 &&
-           cu.Y().y % ( 1 << ( g_aucLog2[sps.getMaxCUHeight()] - pps.getMaxCuDQPDepth() ) ) == 0 );
+  return ( cu.blocks[cu.cs->chType].x % ( ( 1 << ( g_aucLog2[sps.getMaxCUWidth()]  - pps.getMaxCuDQPDepth() ) ) >> getChannelTypeScaleX( cu.cs->chType, cu.chromaFormat ) ) ) == 0 &&
+         ( cu.blocks[cu.cs->chType].y % ( ( 1 << ( g_aucLog2[sps.getMaxCUHeight()] - pps.getMaxCuDQPDepth() ) ) >> getChannelTypeScaleY( cu.cs->chType, cu.chromaFormat ) ) ) == 0;
 }
 
 UInt CU::getNumPUs(const CodingUnit& cu)

@@ -1679,7 +1679,7 @@ Bool EncAppCfg::parseCfg( Int argc, TChar* argv[] )
     msg( DETAILS, "** WARNING: QPA on with LargeCTU for incompatible size - disabling LCTU! **\n" );
     msg( DETAILS, "***************************************************************************\n" );
 
-    m_LargeCTU  = false;
+    //m_LargeCTU  = false;
     m_uiCTUSize = m_uiMaxCUWidth;
     m_quadtreeTULog2MaxSize--;
     m_tuLog2MaxSize--;

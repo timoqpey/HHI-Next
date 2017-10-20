@@ -1142,6 +1142,10 @@ private:
 // static vector
 // ---------------------------------------------------------------------------
 
+#if defined( _N )
+#undef _N
+#endif
+
 template<typename T, size_t N>
 class static_vector
 {

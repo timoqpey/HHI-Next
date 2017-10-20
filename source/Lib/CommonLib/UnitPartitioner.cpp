@@ -120,10 +120,10 @@ void AdaptiveDepthPartitioner::setMaxMinDepth( unsigned& minDepth, unsigned& max
   const unsigned    curSliceIdx = cs.slice->getIndependentSliceIdx();
   const unsigned    curTileIdx  = cs.picture->tileMap->getTileIdxMap( currArea().lumaPos() );
 
-  const CodingUnit* cuLeft        = cs.getCURestricted( pos.offset( -1,                   0 ), curSliceIdx, curTileIdx );
-  const CodingUnit* cuBelowLeft   = cs.getCURestricted( pos.offset( -1, cs.pcv->minCUHeight ), curSliceIdx, curTileIdx );  // should use actual block size instead of minCU size
-  const CodingUnit* cuAbove       = cs.getCURestricted( pos.offset(  0,                  -1 ), curSliceIdx, curTileIdx );
-  const CodingUnit* cuAboveRight  = cs.getCURestricted( pos.offset( cs.pcv->minCUWidth,  -1 ), curSliceIdx, curTileIdx );  // should use actual block size instead of minCU size
+  const CodingUnit* cuLeft        = cs.getCURestricted( pos.offset( -1,                                                                           0 ), curSliceIdx, curTileIdx );
+  const CodingUnit* cuBelowLeft   = cs.getCURestricted( pos.offset( -1, cs.pcv->minCUHeight >> getChannelTypeScaleY( cs.chType, cs.pcv->chrFormat ) ), curSliceIdx, curTileIdx );  // should use actual block size instead of minCU size
+  const CodingUnit* cuAbove       = cs.getCURestricted( pos.offset(  0,                                                                          -1 ), curSliceIdx, curTileIdx );
+  const CodingUnit* cuAboveRight  = cs.getCURestricted( pos.offset( cs.pcv->minCUWidth >> getChannelTypeScaleX( cs.chType, cs.pcv->chrFormat ),  -1 ), curSliceIdx, curTileIdx );  // should use actual block size instead of minCU size
 
   minDepth = stdMaxDepth;
   maxDepth = stdMinDepth;

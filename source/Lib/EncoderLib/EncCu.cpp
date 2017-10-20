@@ -611,16 +611,7 @@ void EncCu::xCompressCU( CodingStructure *&tempCS, CodingStructure *&bestCS, Par
   m_CABACEstimator->getCtx() = m_CurrCtx->best;
 
   // QP from last processed CU for further processing
-  bestCS->prevQP = bestCS->cus.back()->qp;
-
-  //////////////////////////////////////////////////////////////////////////
-  // Finishing CU
-
-  // set context states
-  m_CABACEstimator->getCtx() = m_CurrCtx->best;
-
-  // QP from last processed CU for further processing
-  bestCS->prevQP = bestCS->cus.back()->qp;
+  bestCS->prevQP[bestCS->chType] = bestCS->cus.back()->qp;
 
   const UnitArea currCsArea = CS::getArea( *bestCS, bestCS->area );
   bestCS->picture->getRecoBuf( currCsArea ).copyFrom( bestCS->getRecoBuf( currCsArea ) );
@@ -645,7 +636,7 @@ void EncCu::xCheckModeSplit(CodingStructure *&tempCS, CodingStructure *&bestCS, 
   const PPS &pps              = *tempCS->pps;
   const Slice &slice          = *tempCS->slice;
   const Bool bIsLosslessMode  = false; // False at this level. Next level down may set it to true.
-  const int oldPrevQp         = tempCS->prevQP;
+  const int oldPrevQp         = tempCS->prevQP[tempCS->chType];
   const UInt currDepth        = partitioner.currDepth;
 
   const PartSplit split = getPartSplit( encTestMode );
@@ -706,7 +697,7 @@ void EncCu::xCheckModeSplit(CodingStructure *&tempCS, CodingStructure *&bestCS, 
 
       if(currDepth < pps.getMaxCuDQPDepth())
       {
-        tempCS->prevQP = bestSubCS->prevQP;
+        tempCS->prevQP[tempCS->chType] = bestSubCS->prevQP[bestSubCS->chType];
       }
 
 #if SHARP_LUMA_DELTA_QP
@@ -805,7 +796,7 @@ void EncCu::xCheckModeSplit(CodingStructure *&tempCS, CodingStructure *&bestCS, 
 
   tempCS->releaseIntermediateData();
 
-  tempCS->prevQP = oldPrevQp;
+  tempCS->prevQP[tempCS->chType] = oldPrevQp;
 }
 
 
@@ -1062,7 +1053,7 @@ void EncCu::xCheckDQP( CodingStructure& cs, bool bKeepCtx )
     }
   }
 
-  int predQP = CU::predictQP( *cs.getCU(), cs.prevQP );
+  int predQP = CU::predictQP( *cs.getCU(), cs.prevQP[cs.chType] );
 
   if( hasResidual )
   {
@@ -1653,7 +1644,7 @@ void EncCu::xCheckRDCostInter( CodingStructure *&tempCS, CodingStructure *&bestC
         }
         else
         {
-          tempCS->initStructData( bestCS->currQP, bestCS->isLossless );
+          tempCS->initStructData( bestCS->currQP[bestCS->chType], bestCS->isLossless );
           tempCS->copyStructure ( *bestCS );
           tempCS->getPredBuf().copyFrom( bestCS->getPredBuf() );
         }
@@ -1780,7 +1771,7 @@ void EncCu::xCheckRDCostInterWoOBMC( CodingStructure *&tempCS, CodingStructure *
         }
         else
         {
-          tempCS->initStructData( bestCS->currQP, bestCS->isLossless );
+          tempCS->initStructData( bestCS->currQP[bestCS->chType], bestCS->isLossless );
           tempCS->copyStructure ( *CSWoOBMC );
           tempCS->getPredBuf().copyFrom( m_pPredBufWoOBMC[wIdx][hIdx] );
           cu           = tempCS->getCU();
@@ -1899,7 +1890,7 @@ void EncCu::xCheckRDCostMerge2Nx2NFRUC( CodingStructure *&tempCS, CodingStructur
           cu.LICFlag          = ( ( encTestMode.opts & ETO_LIC ) != 0 );
           cu.transQuantBypass = transQuantBypass;
           cu.chromaQpAdj      = transQuantBypass ? 0 : m_cuChromaQpOffsetIdxPlus1;
-          cu.qp               = tempCS->currQP;
+          cu.qp               = tempCS->currQP[tempCS->chType];
           cu.emtFlag          = emtCuFlag;
           cu.obmcFlag         = sps.getSpsNext().getUseOBMC();
 
@@ -2120,7 +2111,7 @@ bool EncCu::xCheckRDCostInterIMV( CodingStructure *&tempCS, CodingStructure *&be
         }
         else
         {
-          tempCS->initStructData( bestCS->currQP, bestCS->isLossless );
+          tempCS->initStructData( bestCS->currQP[bestCS->chType], bestCS->isLossless );
           tempCS->copyStructure( *bestCS );
           tempCS->getPredBuf().copyFrom( bestCS->getPredBuf() );
         }
