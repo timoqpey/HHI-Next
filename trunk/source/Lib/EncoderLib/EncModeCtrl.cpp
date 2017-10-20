@@ -150,8 +150,8 @@ void EncModeCtrl::xGetMinMaxQP( int& minQP, int& maxQP, const CodingStructure& c
     }
     else
     {
-      minQP = cs.currQP;
-      maxQP = cs.currQP;
+      minQP = cs.currQP[cs.chType];
+      maxQP = cs.currQP[cs.chType];
     }
 
 #if SHARP_LUMA_DELTA_QP
@@ -183,8 +183,8 @@ void EncModeCtrl::xGetMinMaxQP( int& minQP, int& maxQP, const CodingStructure& c
     }
     else
     {
-      minQP = cs.currQP;
-      maxQP = cs.currQP;
+      minQP = cs.currQP[cs.chType];
+      maxQP = cs.currQP[cs.chType];
     }
 
 #if SHARP_LUMA_DELTA_QP

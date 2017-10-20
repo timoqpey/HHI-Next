@@ -157,8 +157,8 @@ struct Picture : public UnitArea
   int  getPOC()                               const { return poc; }
   Void setBorderExtension( bool bFlag)              { m_bIsBorderExtended = bFlag;}
 
-  Void setPrevQP(Int qp)                            { m_prevQP = qp; }
-  Int& getPrevQP()                                  { return m_prevQP; }
+  Void setPrevQP(Int qp, const ChannelType chType)                          { m_prevQP[chType] = qp; }
+  Int& getPrevQP(const ChannelType chType)                                  { return m_prevQP[chType]; }
 
 public:
   bool m_bIsBorderExtended;
@@ -169,7 +169,7 @@ public:
   bool longTerm;
   bool topField;
   bool fieldPic;
-  int  m_prevQP;
+  int  m_prevQP[MAX_NUM_CHANNEL_TYPE];
 
   Int  poc;
   UInt layer;

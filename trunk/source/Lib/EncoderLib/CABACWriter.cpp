@@ -226,9 +226,9 @@ void CABACWriter::end_of_slice()
 //    bool  coding_tree_unit( cs, area, qp, ctuRsAddr, skipSao )
 //================================================================================
 
-void CABACWriter::coding_tree_unit( CodingStructure& cs, const UnitArea& area, int& qp, unsigned ctuRsAddr, bool skipSao /* = false */ )
+void CABACWriter::coding_tree_unit( CodingStructure& cs, const UnitArea& area, int& qpL, int& qpC, unsigned ctuRsAddr, bool skipSao /* = false */ )
 {
-  CUCtx cuCtx( qp );
+  CUCtx cuCtx( qpL );
   Partitioner *partitioner = PartitionerFactory::get( *cs.slice );
 
   partitioner->initCtu( area );
@@ -239,17 +239,17 @@ void CABACWriter::coding_tree_unit( CodingStructure& cs, const UnitArea& area, i
   }
 
   coding_tree( cs, *partitioner, cuCtx );
+  qpL = cuCtx.qp;
 
   if( CS::isDoubleITree( cs ) && cs.pcv->chrFormat != CHROMA_400 )
   {
+    CUCtx cuCtxChroma( qpC );
     partitioner->initCtu( area );
-
     cs.chType = CHANNEL_TYPE_CHROMA;
-    coding_tree( cs, *partitioner, cuCtx );
+    coding_tree( cs, *partitioner, cuCtxChroma );
     cs.chType = CHANNEL_TYPE_LUMA;
+    qpC = cuCtxChroma.qp;
   }
-
-  qp = cuCtx.qp;
 
   delete partitioner;
 }
@@ -1049,7 +1049,7 @@ void CABACWriter::split_cu_mode_mt(const PartSplit split, const CodingStructure&
 
   DecisionTree dt( g_qtbtSplitDTT );
 
-  unsigned minBTSize = cs.slice->isIntra() ? MIN_BT_SIZE : MIN_BT_SIZE_INTER;
+  unsigned minBTSize = cs.slice->isIntra() ? ( cs.chType == 0 ? MIN_BT_SIZE : MIN_BT_SIZE_C ) : MIN_BT_SIZE_INTER;
 
   dt.setAvail( DTT_SPLIT_BT_HORZ, height > minBTSize && ( partitioner.canSplit( CU_HORZ_SPLIT, cs ) || width  == minBTSize ) );
   dt.setAvail( DTT_SPLIT_BT_VERT, width  > minBTSize && ( partitioner.canSplit( CU_VERT_SPLIT, cs ) || height == minBTSize ) );
@@ -2452,7 +2452,7 @@ void CABACWriter::cu_qp_delta( const CodingUnit& cu, int predQP )
     m_BinEncoder.encodeBinEP( DQp < 0 );
   }
 
-  DTRACE_COND( ( isEncoding() ), g_trace_ctx, D_DQP, "x=%d, y=%d, d=%d, pred_qp=%d, DQp=%d, qp=%d\n", cu.Y().x, cu.Y().y, cu.depth, predQP, DQp, cu.qp );
+  DTRACE_COND( ( isEncoding() ), g_trace_ctx, D_DQP, "x=%d, y=%d, d=%d, pred_qp=%d, DQp=%d, qp=%d\n", cu.blocks[cu.cs->chType].lumaPos().x, cu.blocks[cu.cs->chType].lumaPos().y, cu.qtDepth, predQP, DQp, cu.qp );
 }
 
 

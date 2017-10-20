@@ -117,9 +117,10 @@ Void DecSlice::decompressSlice( Slice* slice, InputBitstream* bitstream )
   // Quantization parameter
   if(!slice->getDependentSliceSegmentFlag())
   {
-    pic->setPrevQP(slice->getSliceQp());
+    pic->setPrevQP( slice->getSliceQp(), CHANNEL_TYPE_LUMA );
+    pic->setPrevQP( slice->getSliceQp(), CHANNEL_TYPE_CHROMA );
   }
-  CHECK(pic->getPrevQP() == std::numeric_limits<Int>::max(), "Invalid previous QP");
+  CHECK(pic->getPrevQP( CHANNEL_TYPE_LUMA ) == std::numeric_limits<Int>::max(), "Invalid previous QP");
 
   DTRACE( g_trace_ctx, D_HEADER, "=========== POC: %d ===========\n", slice->getPOC() );
 
@@ -175,7 +176,8 @@ Void DecSlice::decompressSlice( Slice* slice, InputBitstream* bitstream )
       {
         cabacReader.initCtxModels( *slice, m_CABACDecoder );
       }
-      pic->setPrevQP(slice->getSliceQp());
+      pic->setPrevQP( slice->getSliceQp(), CHANNEL_TYPE_LUMA );
+      pic->setPrevQP( slice->getSliceQp(), CHANNEL_TYPE_CHROMA );
     }
     else if( ctuXPosInCtus == tileXPosInCtus && wavefrontsEnabled )
     {
@@ -189,7 +191,8 @@ Void DecSlice::decompressSlice( Slice* slice, InputBitstream* bitstream )
         // Top-right is available, so use it.
         cabacReader.getCtx() = m_entropyCodingSyncContextState;
       }
-      pic->setPrevQP(slice->getSliceQp());
+      pic->setPrevQP( slice->getSliceQp(), CHANNEL_TYPE_LUMA );
+      pic->setPrevQP( slice->getSliceQp(), CHANNEL_TYPE_CHROMA );
     }
 
 
@@ -197,7 +200,7 @@ Void DecSlice::decompressSlice( Slice* slice, InputBitstream* bitstream )
     {
       cabacReader.alf( cs );
     }
-    isLastCtuOfSliceSegment = cabacReader.coding_tree_unit( cs, ctuArea, pic->getPrevQP(), ctuRsAddr );
+    isLastCtuOfSliceSegment = cabacReader.coding_tree_unit( cs, ctuArea, pic->getPrevQP( CHANNEL_TYPE_LUMA ), pic->getPrevQP( CHANNEL_TYPE_CHROMA ), ctuRsAddr );
 
     m_pcCuDecoder->decompressCtu( cs, ctuArea );
 
