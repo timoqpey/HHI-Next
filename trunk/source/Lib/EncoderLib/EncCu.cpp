@@ -889,10 +889,7 @@ void EncCu::xCheckRDCostIntra( CodingStructure *&tempCS, CodingStructure *&bestC
 
     for( UInt t = 0; t < getNumberValidTBlocks( *cu.cs->pcv ); t++ )
     {
-      if( cu.firstTU->blocks[t].valid() )
-      {
-        cu.rootCbf |= cu.firstTU->cbf[t] != 0;
-      }
+      cu.rootCbf |= cu.firstTU->cbf[t] != 0;
     }
 
     m_CABACEstimator->resetBits();
