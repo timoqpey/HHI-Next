@@ -132,11 +132,14 @@ enum DTRACE_CHANNEL
   D_DECISIONTREE,         // decision tree tracing
   D_TU_ABS_SUM,
   D_EST_FRAC_BITS,
-  D_TMP,
   D_INTRA_COST,           //intra cost
   D_PRED,
   D_RESIDUALS,
-  D_TCOEFF
+  D_TCOEFF,
+  D_RDOQ,
+  D_RDOQ_MORE,
+  D_RDOQ_COST,
+  D_TMP
 };
 
 #define _CNL_DEF(_s) {_s,(std::string(#_s))}
@@ -224,11 +227,14 @@ inline CDTrace* tracing_init( std::string& sTracingFile, std::string& sTracingRu
     _CNL_DEF( D_DECISIONTREE ),
     _CNL_DEF( D_TU_ABS_SUM ),
     _CNL_DEF( D_EST_FRAC_BITS ),
-    _CNL_DEF( D_TMP ),
     _CNL_DEF( D_INTRA_COST ),
     _CNL_DEF( D_PRED ),
     _CNL_DEF( D_RESIDUALS ),
     _CNL_DEF( D_TCOEFF ),
+    _CNL_DEF( D_RDOQ ),
+    _CNL_DEF( D_RDOQ_MORE ),
+    _CNL_DEF( D_RDOQ_COST ),
+    _CNL_DEF( D_TMP )
   };
   dtrace_channels_t channels( next_channels, &next_channels[sizeof( next_channels ) / sizeof( next_channels[0] )] );
 

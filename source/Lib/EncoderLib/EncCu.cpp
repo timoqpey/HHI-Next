@@ -184,8 +184,8 @@ void EncCu::create( EncCfg* encCfg )
 
 void EncCu::destroy()
 {
-  bool          BTnoRQT       = m_pcEncCfg->getQTBT();
-  unsigned      maxMEPart     = BTnoRQT ? 1 : NUMBER_OF_PART_SIZES;
+  bool          BTnoRQT   = m_pcEncCfg->getQTBT();
+  unsigned      maxMEPart = BTnoRQT ? 1 : NUMBER_OF_PART_SIZES;
 
   unsigned numWidths  = gp_sizeIdxInfo->numWidths();
   unsigned numHeights = gp_sizeIdxInfo->numHeights();
@@ -486,9 +486,6 @@ void EncCu::xCheckBestMode( CodingStructure *&tempCS, CodingStructure *&bestCS, 
   {
     DTRACE_BEST_MODE( tempCS, bestCS, m_pcRdCost->getLambda() );
 
-    //Position bottomRight = clipArea( bestCS->area.Y(), bestCS->picture->Y() ).bottomRight();
-    //CHECK( !tempCS->getCU( bottomRight ), "No possible encoding found" );
-
     if( m_modeCtrl->useModeResult( encTestMode, tempCS, partitioner ) )
     {
       if( tempCS->cus.size() == 1 )
@@ -502,7 +499,6 @@ void EncCu::xCheckBestMode( CodingStructure *&tempCS, CodingStructure *&bestCS, 
         }
       }
 
-
       std::swap( tempCS, bestCS );
       // store temp best CI for next CU coding
       m_CurrCtx->best = m_CABACEstimator->getCtx();
@@ -515,7 +511,7 @@ void EncCu::xCheckBestMode( CodingStructure *&tempCS, CodingStructure *&bestCS, 
 
 void EncCu::xCompressCU( CodingStructure *&tempCS, CodingStructure *&bestCS, Partitioner &partitioner )
 {
-  const Slice &slice  = *tempCS->slice;
+  Slice&     slice    = *tempCS->slice;
   const PPS &pps      = *tempCS->pps;
   const SPS &sps      = *tempCS->sps;
   const UInt uiLPelX  = tempCS->area.Y().lumaPos().x;
@@ -524,10 +520,6 @@ void EncCu::xCompressCU( CodingStructure *&tempCS, CodingStructure *&bestCS, Par
   m_CurrCtx->start    = m_CABACEstimator->getCtx();
 
   m_modeCtrl->initCULevel( partitioner, *tempCS );
-
-#if SHARP_LUMA_DELTA_QP
-  Double totalSplitCost = 0;
-#endif
 
   m_cuChromaQpOffsetIdxPlus1 = 0;
 
@@ -544,12 +536,22 @@ void EncCu::xCompressCU( CodingStructure *&tempCS, CodingStructure *&bestCS, Par
     return;
   }
 
+  DTRACE_UPDATE( g_trace_ctx, std::make_pair( "cux", uiLPelX ) );
+  DTRACE_UPDATE( g_trace_ctx, std::make_pair( "cuy", uiTPelY ) );
+  DTRACE_UPDATE( g_trace_ctx, std::make_pair( "cuw", tempCS->area.lwidth() ) );
+  DTRACE_UPDATE( g_trace_ctx, std::make_pair( "cuh", tempCS->area.lheight() ) );
   DTRACE( g_trace_ctx, D_COMMON, "@(%4d,%4d) [%2dx%2d]\n", tempCS->area.lx(), tempCS->area.ly(), tempCS->area.lwidth(), tempCS->area.lheight() );
-
 
   do
   {
     const EncTestMode currTestMode = m_modeCtrl->currTestMode();
+
+#if SHARP_LUMA_DELTA_QP
+    if( m_pcEncCfg->getLumaLevelToDeltaQPMapping().isEnabled() && partitioner.currDepth <= pps.getMaxCuDQPDepth() )
+    {
+      m_modeCtrl->getSliceEncoder()->updateLambda( &slice, currTestMode.qp );
+    }
+#endif
 
     if( currTestMode.type == ETM_INTER_ME )
     {
@@ -592,11 +594,7 @@ void EncCu::xCompressCU( CodingStructure *&tempCS, CodingStructure *&bestCS, Par
     else if( isModeSplit( currTestMode ) )
     {
 
-#if SHARP_LUMA_DELTA_QP
-      xCheckModeSplit( tempCS, bestCS, partitioner, currTestMode, totalSplitCost );
-#else
       xCheckModeSplit( tempCS, bestCS, partitioner, currTestMode );
-#endif
     }
     else
     {
@@ -626,11 +624,7 @@ void EncCu::xCompressCU( CodingStructure *&tempCS, CodingStructure *&bestCS, Par
   CHECK( bestCS->cost             == MAX_DOUBLE                , "No possible encoding found" );
 }
 
-#if SHARP_LUMA_DELTA_QP
-void EncCu::xCheckModeSplit(CodingStructure *&tempCS, CodingStructure *&bestCS, Partitioner &partitioner, const EncTestMode& encTestMode , Double& splitTotalCost)
-#else
 void EncCu::xCheckModeSplit(CodingStructure *&tempCS, CodingStructure *&bestCS, Partitioner &partitioner, const EncTestMode& encTestMode)
-#endif
 {
   const Int qp                = encTestMode.qp;
   const PPS &pps              = *tempCS->pps;
@@ -700,13 +694,6 @@ void EncCu::xCheckModeSplit(CodingStructure *&tempCS, CodingStructure *&bestCS, 
         tempCS->prevQP[tempCS->chType] = bestSubCS->prevQP[bestSubCS->chType];
       }
 
-#if SHARP_LUMA_DELTA_QP
-      if ( m_pcEncCfg->getLumaLevelToDeltaQPMapping().isEnabled() && pps.getMaxCuDQPDepth() >= 1 )
-      {
-        splitTotalCost += bestSubCS->cost;
-      }
-#endif
-
       tempSubCS->releaseIntermediateData();
       bestSubCS->releaseIntermediateData();
     }
@@ -722,7 +709,6 @@ void EncCu::xCheckModeSplit(CodingStructure *&tempCS, CodingStructure *&bestCS, 
   {
     bool enforceQT = implicitSplit == CU_QUAD_SPLIT;
 
-
     if( !enforceQT )
     {
       m_CABACEstimator->resetBits();
@@ -736,29 +722,11 @@ void EncCu::xCheckModeSplit(CodingStructure *&tempCS, CodingStructure *&bestCS, 
         m_CABACEstimator->split_cu_mode_mt( split, *tempCS, partitioner );
       }
 
-#if SHARP_LUMA_DELTA_QP
-      if( m_pcEncCfg->getLumaLevelToDeltaQPMapping().isEnabled() && pps.getMaxCuDQPDepth() >= 1 )
-      {
-        splitTotalCost += m_pcRdCost->calcRdCost( m_CABACEstimator->getEstFracBits(), 0 );
-      }
-#endif
-
       tempCS->fracBits += m_CABACEstimator->getEstFracBits(); // split bits
     }
   }
 
-#if SHARP_LUMA_DELTA_QP
-  if ( m_pcEncCfg->getLumaLevelToDeltaQPMapping().isEnabled() && pps.getMaxCuDQPDepth() >= 1 )
-  {
-    tempCS->cost = splitTotalCost;
-  }
-  else
-  {
-#endif
-    tempCS->cost = m_pcRdCost->calcRdCost( tempCS->fracBits, tempCS->dist );
-#if SHARP_LUMA_DELTA_QP
-  }
-#endif
+  tempCS->cost = m_pcRdCost->calcRdCost( tempCS->fracBits, tempCS->dist );
 
   // Check Delta QP bits for splitted structure
   if( pps.getUseDQP() && currDepth == pps.getMaxCuDQPDepth() )
@@ -810,11 +778,13 @@ void EncCu::xCheckRDCostIntra( CodingStructure *&tempCS, CodingStructure *&bestC
   const SPS &sps = *tempCS->sps;
   const PPS &pps = *tempCS->pps;
 
-  const int maxSizeEMT              = pps.pcv->noRQT ? EMT_INTRA_MAX_CU_WITH_QTBT : EMT_INTRA_MAX_CU;
-  const UChar considerEmtSecondPass = sps.getSpsNext().getUseIntraEMT() && isLuma( tempCS->chType ) && partitioner.currArea().lwidth() <= maxSizeEMT && partitioner.currArea().lheight() <= maxSizeEMT ? 1 : 0;
-
   const int nsstIdx  = ( encTestMode.opts & ETO_NSST ) >> ETO_NSST_SHIFT;
-  const bool usePDPC =  sps.getSpsNext().isPlanarPDPC() ? false : ((encTestMode.opts & ETO_PDPC) != 0);
+  const bool usePDPC = ( encTestMode.opts & ETO_PDPC ) != 0;
+
+  const int maxSizeEMT              = pps.pcv->noRQT ? EMT_INTRA_MAX_CU_WITH_QTBT : EMT_INTRA_MAX_CU;
+  const UChar considerEmtSecondPass = ( sps.getSpsNext().getUseIntraEMT() && isLuma( tempCS->chType ) && partitioner.currArea().lwidth() <= maxSizeEMT && partitioner.currArea().lheight() <= maxSizeEMT && ( nsstIdx == 0 || !tempCS->pcv->noRQT ) ) ? 1 : 0;
+
+  CHECK( usePDPC && sps.getSpsNext().getUseIntraPDPC(), "PDPC cannot be on with intra PDPC" );
 
   Distortion interHad = m_modeCtrl->getInterHad();
 
@@ -866,21 +836,21 @@ void EncCu::xCheckRDCostIntra( CodingStructure *&tempCS, CodingStructure *&bestC
     {
       m_pcIntraSearch->estIntraPredLumaQT( cu, partitioner );
 
-      if( m_pcEncCfg->getUsePbIntraFast() && tempCS->dist == MAX_UINT )
+      if( m_pcEncCfg->getUsePbIntraFast() && tempCS->dist == MAX_UINT && tempCS->interHad == 0 )
       {
-        // JEM assumes only perfect reconstructions can from now on beat the inter mode
         interHad = 0;
-        m_modeCtrl->enforceInterHad( interHad );
+        // JEM assumes only perfect reconstructions can from now on beat the inter mode
+        m_modeCtrl->enforceInterHad( 0 );
         continue;
       }
 
-      if( !CS::isDoubleITree( *tempCS ) )
+      if( !CS::isDualITree( *tempCS ) )
       {
         cu.cs->picture->getRecoBuf( cu.Y() ).copyFrom( cu.cs->getRecoBuf( COMPONENT_Y ) );
       }
     }
 
-    if( tempCS->area.chromaFormat != CHROMA_400 && ( tempCS->chType == CHANNEL_TYPE_CHROMA || !CS::isDoubleITree( *tempCS ) ) )
+    if( tempCS->area.chromaFormat != CHROMA_400 && ( tempCS->chType == CHANNEL_TYPE_CHROMA || !CS::isDualITree( *tempCS ) ) )
     {
       m_pcIntraSearch->estIntraPredChromaQT( cu, partitioner );
     }
@@ -929,23 +899,27 @@ void EncCu::xCheckRDCostIntra( CodingStructure *&tempCS, CodingStructure *&bestC
     }
 
     // Check if secondary transform (NSST) is too expensive
-    const int nonZeroCoeffThr = CS::isDoubleITree( *tempCS ) ? ( isLuma( tempCS->chType ) ? NSST_SIG_NZ_LUMA : NSST_SIG_NZ_CHROMA ) : NSST_SIG_NZ_LUMA + NSST_SIG_NZ_CHROMA;
+    const int nonZeroCoeffThr = CS::isDualITree( *tempCS ) ? ( isLuma( tempCS->chType ) ? NSST_SIG_NZ_LUMA : NSST_SIG_NZ_CHROMA ) : NSST_SIG_NZ_LUMA + NSST_SIG_NZ_CHROMA;
     if( nsstIdx && tempCS->pcv->noRQT && cuCtx.numNonZeroCoeffNonTs <= nonZeroCoeffThr )
     {
       Bool isMDIS = false;
-      if (sps.getSpsNext().isPlanarPDPC() )
+      if( sps.getSpsNext().isPlanarPDPC() )
       {
-        for (auto &pu : CU::traversePUs(cu))
-        {
-          isMDIS = IntraPrediction::useFilteredIntraRefSamples(COMPONENT_Y, pu, true, pu);
-        }
+        CHECK( CU::getNumPUs( cu ) > 1, "PLanarPDPC: encoder MDIS condition not defined for multi PU" );
+        const PredictionUnit* pu = cu.firstPU;
+        isMDIS = IntraPrediction::useFilteredIntraRefSamples( COMPONENT_Y, *pu, true, *pu );
+        if( pu->intraDir[0] == PLANAR_IDX ) { isMDIS |= IntraPrediction::getPlanarMDISCondition( *pu ); }
       }
 
-      if (cuCtx.numNonZeroCoeffNonTs > 0 || isMDIS)
+      if( cuCtx.numNonZeroCoeffNonTs > 0 || isMDIS )
       {
         CHECKD( !sps.getSpsNext().getUseNSST(), "Expecting NSST mode" );
         tempCS->cost = MAX_DOUBLE;
       }
+    }
+    if( nsstIdx && !tempCS->pcv->noRQT && cu.rootCbf == 0 )
+    {
+      tempCS->cost = MAX_DOUBLE;
     }
 
     // we save the cost of the modes for the first EMT pass
@@ -1165,12 +1139,12 @@ void EncCu::xCheckRDCostMerge2Nx2N( CodingStructure *&tempCS, CodingStructure *&
     uiNumMrgSATDCand = NUM_MRG_SATD_CAND;
     bestIsSkip       = false;
 
-    if( auto blkCache = dynamic_cast<CacheBlkInfoCtrl*>( m_modeCtrl ) )
+    if( auto blkCache = dynamic_cast< CacheBlkInfoCtrl* >( m_modeCtrl ) )
     {
       bestIsSkip = blkCache->isSkip( tempCS->area );
     }
 
-    static_vector<double,   MRG_MAX_NUM_CANDS>  candCostList( MRG_MAX_NUM_CANDS, MAX_DOUBLE );
+    static_vector<double, MRG_MAX_NUM_CANDS>  candCostList( MRG_MAX_NUM_CANDS, MAX_DOUBLE );
 
     // 1. Pass: get SATD-cost for selected candidates and reduce their count
     if( !bestIsSkip )
@@ -1216,13 +1190,6 @@ void EncCu::xCheckRDCostMerge2Nx2N( CodingStructure *&tempCS, CodingStructure *&
         pu.mvRefine = false;
 
         m_pcInterSearch->subBlockOBMC      ( pu, &acMergeBuffer[uiMergeCand], false );
-/*
-        DTRACE( g_trace_ctx, D_TMP, "TMP: MV0(%7d %7d %7d) MV1(%7d %7d %7d)\n",
-          mergeCtx.mvFieldNeighbours[0 + 2*uiMergeCand].mv.getHor(), mergeCtx.mvFieldNeighbours[0 + 2*uiMergeCand].mv.getVer(), mergeCtx.mvFieldNeighbours[0 + 2*uiMergeCand].refIdx,
-          mergeCtx.mvFieldNeighbours[1 + 2*uiMergeCand].mv.getHor(), mergeCtx.mvFieldNeighbours[1 + 2*uiMergeCand].mv.getVer(), mergeCtx.mvFieldNeighbours[1 + 2*uiMergeCand].refIdx);
-
-        DTRACE_CRC( g_trace_ctx, D_TMP, tempCS, acMergeBuffer[uiMergeCand] );
-*/
         if( mergeCtx.interDirNeighbours[uiMergeCand] == 3 && mergeCtx.mrgTypeNeighnours[uiMergeCand] == MRG_TYPE_DEFAULT_N )
         {
           mergeCtx.mvFieldNeighbours[2*uiMergeCand].mv   = pu.mv[0];
@@ -1302,7 +1269,6 @@ void EncCu::xCheckRDCostMerge2Nx2N( CodingStructure *&tempCS, CodingStructure *&
             PredictionUnit &pu  = tempCS->addPU( cu );
 
             mergeCtx.setMergeInfo( pu, uiMergeCand );
-
             PU::spanMotionInfo( pu, mergeCtx );
 
             if( mrgTempBufSet )
@@ -1316,12 +1282,6 @@ void EncCu::xCheckRDCostMerge2Nx2N( CodingStructure *&tempCS, CodingStructure *&
               pu.mvRefine = false;
 
               m_pcInterSearch->subBlockOBMC      ( pu );
-
-              if( mergeCtx.interDirNeighbours[uiMergeCand] == 3 && mergeCtx.mrgTypeNeighnours[uiMergeCand] == MRG_TYPE_DEFAULT_N )
-              {
-                mergeCtx.mvFieldNeighbours[2*uiMergeCand].mv   = pu.mv[0];
-                mergeCtx.mvFieldNeighbours[2*uiMergeCand+1].mv = pu.mv[1];
-              }
             }
             // estimate residual and encode everything
             m_CABACEstimator->getCtx() = m_CurrCtx->start;
@@ -2144,5 +2104,6 @@ void EncCu::xEncodeDontSplit( CodingStructure &cs, Partitioner &partitioner )
   cs.cost      = m_pcRdCost->calcRdCost( cs.fracBits, cs.dist );
 
 }
+
 
 //! \}

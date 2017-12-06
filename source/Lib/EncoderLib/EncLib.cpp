@@ -64,7 +64,7 @@ EncLib::EncLib()
   m_iMaxRefPicNum     = 0;
   g_isEncoder         = true;
 
-#if HHI_SIMD_OPT_MCIF
+#if HHI_SIMD_OPT_BUFFER
   g_pelBufOP.initPelBufOpsX86();
 #endif
 }
@@ -164,14 +164,14 @@ Void EncLib::init(Bool isFieldCoding)
   // TODO: WARNING: xInitScalingLists() calls a TrQuant member function, but TrQuant is not initialized yet.
 
 #if ER_CHROMA_QP_WCG_PPS
-  xInitScalingLists(sps0, pps0);
-
+//   xInitScalingLists(sps0, pps0);
+// 
   if (m_wcgChromaQpControl.isEnabled())
   {
     PPS &pps1=*(m_ppsMap.allocatePS(1));
     xInitPPS(pps1, sps0);
 
-    xInitScalingLists(sps0, pps1);
+//     xInitScalingLists(sps0, pps1);
   }
 #endif
 
@@ -184,12 +184,16 @@ Void EncLib::init(Bool isFieldCoding)
 #endif
 
   // initialize transform & quantization class
+
+
   m_cTrQuant.init( 1 << m_uiQuadtreeTULog2MaxSize,
                    m_useRDOQ,
                    m_useRDOQTS,
 #if T0196_SELECTIVE_RDOQ
                    m_useSelectiveRDOQ,
 #endif
+                   sps0.getSpsNext().getAltResiCompId(),
+                   m_RDOQfn,
                    true,
                    m_useTransformSkipFast,
                    m_Intra65Ang,
@@ -207,10 +211,23 @@ Void EncLib::init(Bool isFieldCoding)
   m_cInterSearch.setTempBuffers( m_cIntraSearch.getSplitCSBuf(), m_cIntraSearch.getFullCSBuf(), m_cIntraSearch.getSaveCSBuf() );
 
   m_iMaxRefPicNum = 0;
-#if !ER_CHROMA_QP_WCG_PPS
 
-  xInitScalingLists(sps0, pps0);
+#if ER_CHROMA_QP_WCG_PPS
+  if( m_wcgChromaQpControl.isEnabled() )
+  {
+    xInitScalingLists( sps0, *m_ppsMap.getPS(1) );
+    xInitScalingLists( sps0, pps0 );
+  }
+  else
 #endif
+  {
+    xInitScalingLists( sps0, pps0 );
+  }
+
+// #if !ER_CHROMA_QP_WCG_PPS
+// 
+//   xInitScalingLists(sps0, pps0);
+// #endif
 }
 
 Void EncLib::xInitScalingLists(SPS &sps, PPS &pps)
@@ -222,10 +239,13 @@ Void EncLib::xInitScalingLists(SPS &sps, PPS &pps)
       sps.getMaxLog2TrDynamicRange(CHANNEL_TYPE_LUMA),
       sps.getMaxLog2TrDynamicRange(CHANNEL_TYPE_CHROMA)
   };
+
+  Quant* quant = getTrQuant()->getQuant();
+
   if(getUseScalingListId() == SCALING_LIST_OFF)
   {
-    getTrQuant()->setFlatScalingList(maxLog2TrDynamicRange, sps.getBitDepths());
-    getTrQuant()->setUseScalingList(false);
+    quant->setFlatScalingList(maxLog2TrDynamicRange, sps.getBitDepths());
+    quant->setUseScalingList(false);
     sps.setScalingListPresentFlag(false);
     pps.setScalingListPresentFlag(false);
   }
@@ -235,22 +255,22 @@ Void EncLib::xInitScalingLists(SPS &sps, PPS &pps)
     sps.setScalingListPresentFlag(false);
     pps.setScalingListPresentFlag(false);
 
-    getTrQuant()->setScalingList(&(sps.getScalingList()), maxLog2TrDynamicRange, sps.getBitDepths());
-    getTrQuant()->setUseScalingList(true);
+    quant->setScalingList(&(sps.getScalingList()), maxLog2TrDynamicRange, sps.getBitDepths());
+    quant->setUseScalingList(true);
   }
   else if(getUseScalingListId() == SCALING_LIST_FILE_READ)
   {
     sps.getScalingList().setDefaultScalingList ();
     if(sps.getScalingList().xParseScalingList(getScalingListFileName()))
     {
-//      Bool bParsedScalingList=false; // Use of boolean so that assertion outputs useful string
       THROW( "parse scaling list");
     }
     sps.getScalingList().checkDcOfMatrix();
     sps.setScalingListPresentFlag(sps.getScalingList().checkDefaultScalingList());
     pps.setScalingListPresentFlag(false);
-    getTrQuant()->setScalingList(&(sps.getScalingList()), maxLog2TrDynamicRange, sps.getBitDepths());
-    getTrQuant()->setUseScalingList(true);
+
+    quant->setScalingList(&(sps.getScalingList()), maxLog2TrDynamicRange, sps.getBitDepths());
+    quant->setUseScalingList(true);
   }
   else
   {
@@ -323,6 +343,7 @@ Void EncLib::encode( Bool flush, PelStorage* pcPicYuvOrg, PelStorage* cPicYuvTru
     if (getWCGChromaQPControl().isEnabled())
     {
       ppsID=getdQPs()[ m_iPOCLast+1 ];
+      ppsID+=(getSwitchPOC() != -1 && (m_iPOCLast+1 >= getSwitchPOC())?1:0);
     }
     xGetNewPicBuffer( rcListPicYuvRecOut, pcPicCurr, ppsID );
 #else
@@ -613,7 +634,7 @@ Void EncLib::xInitSPS(SPS &sps)
   sps.getSpsNext().setMinQTSizes            ( m_uiMinQT );
   sps.getSpsNext().setUseLargeCTU           ( m_LargeCTU );
   sps.getSpsNext().setMaxBTDepth            ( m_uiMaxBTDepth, m_uiMaxBTDepthI, m_uiMaxBTDepthIChroma );
-  sps.getSpsNext().setUseQtbtDoubleITree    ( m_qtbtDualITree );
+  sps.getSpsNext().setUseDualITree          ( m_dualITree );
   sps.getSpsNext().setUseNSST               ( m_NSST );
   sps.getSpsNext().setUseIntra4Tap          ( m_Intra4Tap );
   sps.getSpsNext().setUseIntra65Ang         ( m_Intra65Ang );
@@ -969,7 +990,8 @@ Void EncLib::xInitPPS(PPS &pps, const SPS &sps)
   }
 #endif
 #if HHI_HLM_USE_QPA
-  else if (getUsePerceptQPA() && !bUseDQP) {
+  if (getUsePerceptQPA() && !bUseDQP) 
+  {
     CHECK( m_iMaxCuDQPDepth != 0, "max. delta-QP depth must be zero!" );
     bUseDQP = true;
   }
@@ -1012,6 +1034,22 @@ Void EncLib::xInitPPS(PPS &pps, const SPS &sps)
   pps.getPpsRangeExtension().setCrossComponentPredictionEnabledFlag(m_crossComponentPredictionEnabledFlag);
   pps.getPpsRangeExtension().setLog2SaoOffsetScale(CHANNEL_TYPE_LUMA,   m_log2SaoOffsetScale[CHANNEL_TYPE_LUMA  ]);
   pps.getPpsRangeExtension().setLog2SaoOffsetScale(CHANNEL_TYPE_CHROMA, m_log2SaoOffsetScale[CHANNEL_TYPE_CHROMA]);
+
+  {
+    int baseQp = 26;
+    if( 16 == getGOPSize() ) 
+    {
+      baseQp = getBaseQP()-24;
+    }
+    else
+    {
+      baseQp = getBaseQP()-26;
+    }
+    const int maxDQP = 25;
+    const int minDQP = -26 + sps.getQpBDOffset(CHANNEL_TYPE_LUMA);
+
+    pps.setPicInitQPMinus26( std::min( maxDQP, std::max( minDQP, baseQp ) ));
+  }
 
 #if ER_CHROMA_QP_WCG_PPS
   if (getWCGChromaQPControl().isEnabled())

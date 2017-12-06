@@ -87,7 +87,7 @@ public:
   void        sao_offset_pars           ( const SAOOffset&              ctbPars,  ComponentID       compID,     bool sliceEnabled,  int bitDepth );
 
   void        alf                       ( const Slice&                  slice,    const ALFParam& alfParam );
-  void        alf                       ( const ALFParam&               alfParam, unsigned maxTotalCuDepth, SliceType sliceType, bool isGALF );
+  void        alf                       ( const ALFParam&               alfParam, SliceType sliceType, bool isGALF );
 
   // coding (quad)tree (clause 7.3.8.4)
   void        coding_tree               ( const CodingStructure&        cs,       Partitioner&      pm,         CUCtx& cuCtx );
@@ -143,6 +143,7 @@ public:
   void        transform_unit_qtbt       ( const TransformUnit&          tu,       CUCtx&            cuCtx,  ChromaCbfs& chromaCbfs );
   void        cu_qp_delta               ( const CodingUnit&             cu,       int               predQP );
   void        cu_chroma_qp_offset       ( const CodingUnit&             cu );
+  void        cu_emt_noqrt_idx          ( const CodingUnit&             cu );
 
   // residual coding (clause 7.3.8.11)
   void        residual_nsst_mode        ( const CodingUnit&             cu,       CUCtx&            cuCtx  );
@@ -167,7 +168,7 @@ private:
   // alf
   void        alf_aux                   ( const ALFParam&               alfParam, bool isGALF );
   void        alf_filter                ( const ALFParam&               alfParam, bool isGALF, bool bChroma = false );
-  void        alf_cu_ctrl               ( const ALFParam&               alfParam, unsigned maxTotalCuDepth );
+  void        alf_cu_ctrl               ( const ALFParam&               alfParam );
   void        alf_chroma                ( const ALFParam&               alfParam );
   Int         alf_lengthGolomb          ( int coeffVal, int k );
   void        codeAlfUvlc               ( UInt uiCode );

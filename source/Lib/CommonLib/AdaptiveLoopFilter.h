@@ -72,7 +72,7 @@ protected:
 
   static const Int m_ALF_NUM_BIT_SHIFT     = 8;                                     ///< bit shift parameter for quantization of ALF param.
   static const Int m_ALF_ROUND_OFFSET      = ( 1 << ( m_ALF_NUM_BIT_SHIFT - 1 ) );  ///< rounding offset for ALF quantization
-  
+
   static const Int m_VAR_SIZE              = 1;                                     ///< JCTVC-E323+E046
 
   static const Int m_FILTER_LENGTH         = 9;
@@ -81,7 +81,7 @@ protected:
   static const Int m_ALF_HM3_QC_CLIP_OFFSET= 384;
 
 public:
-  
+
   static const Int m_NO_TEST_FILT          =  3;                                    ///< Filter supports (5/7/9)
 
   #define NO_VALS_LAGR                     5    //galf stuff
@@ -98,7 +98,7 @@ public:
   static const Int m_SQR_FILT_LENGTH_5SYM = ((5 * 5) / 4 + 1);
 #else
   static const Int m_NUM_BITS              = 9;
-  static const Int m_NO_VAR_BINS           = 16; 
+  static const Int m_NO_VAR_BINS           = 16;
   static const Int m_NO_FILTERS            = 16;
   static const Int m_MAX_SQR_FILT_LENGTH = ((m_FILTER_LENGTH*m_FILTER_LENGTH) / 2 + 2);
   static const Int m_SQR_FILT_LENGTH_9SYM = ((9 * 9) / 4 + 2 - 1);
@@ -115,7 +115,7 @@ public:
   static const Int m_aiSymmetricMag7x7[25];                                         ///< quantization scaling factor for 7x7 filter
   static const Int m_aiSymmetricMag5x5[13];                                         ///< quantization scaling factor for 5x5 filter
   static const Int m_aiSymmetricMag9x7[32];                                         ///< quantization scaling factor for 9x7 filter
-  
+
   // temporary picture buffer
   PelStorage   m_tmpRecExtBuf;                                                     ///< temporary picture buffer for extended reconstructed frame
 
@@ -152,14 +152,14 @@ protected:
   static const Int m_pattern9x9Sym_9[39];
   static const Int m_pattern9x9Sym_7[25];
   static const Int m_pattern9x9Sym_5[13];
-  
+
   static const Int m_flTab[m_NO_TEST_FILT];
-  static const Int *m_patternTab[m_NO_TEST_FILT]; 
+  static const Int *m_patternTab[m_NO_TEST_FILT];
   static const Int *m_patternMapTab[m_NO_TEST_FILT];
   static const Int *m_weightsTab[m_NO_TEST_FILT];
   static const Int m_sqrFiltLengthTab[m_NO_TEST_FILT];
   static const Int m_mapTypeToNumOfTaps[m_NO_TEST_FILT];
-  
+
   Int       m_img_height,m_img_width;
   Int       m_nInputBitDepth;
   Int       m_nInternalBitDepth;
@@ -172,7 +172,7 @@ protected:
 
   Pel**     m_imgY_var;
   Int**     m_imgY_temp;
-  
+
   Int**     m_imgY_ver;
   Int**     m_imgY_hor;
   Int**     m_imgY_dig0;
@@ -199,7 +199,7 @@ protected:
   /// ALF for luma component
   Void xALFLuma( CodingStructure& cs, ALFParam* pcAlfParam, PelUnitBuf& recSrcExt, PelUnitBuf& recDst );
 
-  
+
   Void reconstructFilterCoeffs(ALFParam* pcAlfParam,int **pfilterCoeffSym );
   Void getCurrentFilter(int **filterCoeffSym,ALFParam* pcAlfParam);
   Void xFilterFrame  (PelUnitBuf& recSrcExt, PelUnitBuf& recDst, AlfFilterType filtType);
@@ -236,20 +236,20 @@ protected:
   Void xCalcVar(Pel **imgY_var, Pel *imgY_pad, int pad_size, int fl, int img_height, int img_width, int img_stride, int start_width , int start_height );
 
   Void xCUAdaptive( CodingStructure& cs, const PelUnitBuf &recExtBuf, PelUnitBuf &recBuf, ALFParam* pcAlfParam );
-  
+
   /// ALF for chroma component
   Void xALFChroma   ( ALFParam* pcAlfParam,const PelUnitBuf& recExtBuf, PelUnitBuf& recUnitBuf );
   Void xFrameChromaGalf(ALFParam* pcAlfParam, const PelUnitBuf& recExtBuf, PelUnitBuf& recUnitBuf, ComponentID compID);
-  Void xFrameChromaAlf (const PelUnitBuf& recExtBuf, PelUnitBuf& recUnitBuf, Int *qh, Int iTap, ComponentID compID );
+  Void xFrameChromaAlf (ALFParam* pcAlfParam, const PelUnitBuf& recExtBuf, PelUnitBuf& recUnitBuf, ComponentID compID );
 
 public:
   AdaptiveLoopFilter();
   virtual ~AdaptiveLoopFilter() {}
-  
+
   // initialize & destroy temporary buffer
   Void create( const Int iPicWidth, Int iPicHeight, const ChromaFormat chromaFormatIDC, const Int uiMaxCUWidth, const UInt uiMaxCUHeight, const UInt uiMaxCUDepth, const Int nInputBitDepth, const Int nInternalBitDepth, const Int numberOfCTUs );
   Void destroy ();
-  
+
   Void ALFProcess     ( CodingStructure& cs, ALFParam* pcAlfParam); ///< interface function for ALF process
 
   // alloc & free & set functions //TODO move to ALFParam class
@@ -257,8 +257,8 @@ public:
   Void freeALFParam   ( ALFParam* pAlfParam );
   Void copyALFParam   ( ALFParam* pDesAlfParam, ALFParam* pSrcAlfParam, Bool max_depth_copy = true );
 
-  void storeALFParam  ( ALFParam* pAlfParam, bool isISlice, unsigned tLayer, unsigned tLayerMax ); 
-  void loadALFParam   ( ALFParam* pAlfParam, unsigned idx, unsigned tLayer ); 
+  void storeALFParam  ( ALFParam* pAlfParam, bool isISlice, unsigned tLayer, unsigned tLayerMax );
+  void loadALFParam   ( ALFParam* pAlfParam, unsigned idx, unsigned tLayer );
 
   Void resetALFParam  ( ALFParam* pDesAlfParam);
   Void resetALFPredParam(ALFParam *pAlfParam, Bool bIntra);

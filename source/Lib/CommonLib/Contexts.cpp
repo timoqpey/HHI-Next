@@ -923,414 +923,430 @@ CtxSet ContextSetCfg::addCtxSet( std::initializer_list<std::initializer_list<uin
 #define CNU 154 // dummy initialization value for unused context models 'Context model Not Used'
 std::vector<std::vector<uint8_t>> ContextSetCfg::sm_InitTables( NUMBER_OF_SLICE_TYPES );
 
-// set context models and init values
 const CtxSet ContextSetCfg::SplitFlag = ContextSetCfg::addCtxSet
 ({
-  { 107,  139,  126,  255,    0 },
-  { 107,  139,  126,  255,    0 },
-  { 139,  141,  157,  255,    0 }
+  {  107, 139, 126, 255,   0,},
+  {  107, 139, 126, 255,   0,},
+  {  139, 141, 157, 255,   0,},
 });
+
 const CtxSet ContextSetCfg::BTSplitFlag = ContextSetCfg::addCtxSet
 ({
-  { 107,  139,  126,  154,  154,  154,  154,  154,  154,  154,  154,  154 },
-  { 107,  139,  126,  154,  154,  154,  154,  154,  154,  154,  154,  154 },
-  { 139,  141,  157,  154,  154,  154,  154,  154,  154,  154,  154,  154 }
-} );
+  {  107, 139, 126, 154, 154, 154, 154, 154, 154, 154, 154, 154,},
+  {  107, 139, 126, 154, 154, 154, 154, 154, 154, 154, 154, 154,},
+  {  139, 141, 157, 154, 154, 154, 154, 154, 154, 154, 154, 154,},
+});
+
 const CtxSet ContextSetCfg::SkipFlag = ContextSetCfg::addCtxSet
 ({
-  { 197,  185,  201 },
-  { 197,  185,  201 },
-  { CNU,  CNU,  CNU }
+  {  197, 185, 201,},
+  {  197, 185, 201,},
+  {  CNU, CNU, CNU,},
 });
+
 const CtxSet ContextSetCfg::MergeFlag = ContextSetCfg::addCtxSet
 ({
-  { 154 },
-  { 110 },
-  { CNU }
+  {  154,},
+  {  110,},
+  {  CNU,},
 });
+
 const CtxSet ContextSetCfg::MergeIdx = ContextSetCfg::addCtxSet
 ({
-  //  -- extended ctxs for SubPuMvp
-  { 137, CNU, CNU, CNU, CNU },
-  { 122, CNU, CNU, CNU, CNU },
-  { CNU, CNU, CNU, CNU, CNU }
+  {  137, CNU, CNU, CNU, CNU,},
+  {  122, CNU, CNU, CNU, CNU,},
+  {  CNU, CNU, CNU, CNU, CNU,},
 });
+
 const CtxSet ContextSetCfg::PartSize = ContextSetCfg::addCtxSet
 ({
-  { 154, 139, 154, 154 },
-  { 154, 139, 154, 154 },
-  { 184, CNU, CNU, CNU }
+  {  154, 139, 154, 154,},
+  {  154, 139, 154, 154,},
+  {  184, CNU, CNU, CNU,},
 });
+
 const CtxSet ContextSetCfg::PredMode = ContextSetCfg::addCtxSet
 ({
-  { 134 },
-  { 149 },
-  { CNU }
+  {  134,},
+  {  149,},
+  {  CNU,},
 });
+
 const CtxSet ContextSetCfg::IPredMode[] =
 {
   ContextSetCfg::addCtxSet
   ({
-    // luma
-    // MPM flag |   MPM idx
-    { 183, CNU, CNU, CNU },
-    { 154, CNU, CNU, CNU },
-    { 184, CNU, CNU, CNU }
+    {  183, CNU, CNU, CNU,  },
+    {  154, CNU, CNU, CNU,  },
+    {  184, CNU, CNU, CNU,  },
   }),
   ContextSetCfg::addCtxSet
   ({
-    // chroma
-    // LM  DM0  DM1  DM2  DM3  DM4 MMLM  LMC MFLM1 MFLM2 MFLM3 MFLM4
-    { 139, 152, 139, 154, 154, 154, 154, 154,  154,  154,  154,  154 },
-    { 139, 152, 139, 154, 154, 154, 154, 154,  154,  154,  154,  154 },
-    { 139,  63, 139, 154, 154, 154, 154, 154,  154,  154,  154,  154 },
-  })
+    {  139, 152, 139, 154, 154, 154, 154, 154, 154, 154, 154, 154,  },
+    {  139, 152, 139, 154, 154, 154, 154, 154, 154, 154, 154, 154,  },
+    {  139,  63, 139, 154, 154, 154, 154, 154, 154, 154, 154, 154,  },
+  }),
 };
+
 const CtxSet ContextSetCfg::PdpcFlag = ContextSetCfg::addCtxSet
 ({
-  { 107 },
-  { 107 },
-  { 139 },
+  {  107,},
+  {  107,},
+  {  139,},
 });
+
 const CtxSet ContextSetCfg::DeltaQP = ContextSetCfg::addCtxSet
 ({
-  { 154, 154, 154 },
-  { 154, 154, 154 },
-  { 154, 154, 154 }
+  {  154, 154, 154,},
+  {  154, 154, 154,},
+  {  154, 154, 154,},
 });
+
 const CtxSet ContextSetCfg::InterDir = ContextSetCfg::addCtxSet
 ({
-  {  95,  79,  63,  31,  31 },
-  {  95,  79,  63,  31,  31 },
-  { CNU, CNU, CNU, CNU, CNU }
+  {   95,  79,  63,  31,  31,},
+  {   95,  79,  63,  31,  31,},
+  {  CNU, CNU, CNU, CNU, CNU,},
 });
+
 const CtxSet ContextSetCfg::RefPic = ContextSetCfg::addCtxSet
 ({
-  { 153, 153 },
-  { 153, 153 },
-  { CNU, CNU }
+  {  153, 153,},
+  {  153, 153,},
+  {  CNU, CNU,},
 });
+
 const CtxSet ContextSetCfg::AffineFlag = ContextSetCfg::addCtxSet
 ({
-  { 197,  185,  201, },
-  { 197,  185,  201, },
-  { CNU,  CNU,  CNU, },
+  {  197, 185, 201,},
+  {  197, 185, 201,},
+  {  CNU, CNU, CNU,},
 });
+
 const CtxSet ContextSetCfg::Mvd = ContextSetCfg::addCtxSet
 ({
-  { 169,  198, },
-  { 140,  198, },
-  { CNU,  CNU, },
+  {  169, 198,},
+  {  140, 198,},
+  {  CNU, CNU,},
 });
+
 const CtxSet ContextSetCfg::TransSubdivFlag = ContextSetCfg::addCtxSet
 ({
-  { 224,  167,  122 , 122 },
-  { 124,  138,   94 ,  94 },
-  { 153,  138,  138 , 138 }
+  {  224, 167, 122, 122,},
+  {  124, 138,  94,  94,},
+  {  153, 138, 138, 138,},
 });
+
 const CtxSet ContextSetCfg::QtRootCbf = ContextSetCfg::addCtxSet
 ({
-  {  79 },
-  {  79 },
-  { CNU }
+  {   79,},
+  {   79,},
+  {  CNU,},
 });
+
 const CtxSet ContextSetCfg::QtCbf[] =
 {
   ContextSetCfg::addCtxSet
   ({
-  // luma
-    { 153,  111 },
-    { 153,  111 },
-    { 111,  141 }
+    {  153, 111,  },
+    {  153, 111,  },
+    {  111, 141,  },
   }),
   ContextSetCfg::addCtxSet
   ({
-  // chroma
-    { 149,   92,  167,  154,  154 },
-    { 149,  107,  167,  154,  154 },
-    {  94,  138,  182,  154,  154 }
-  })
+    {  149,  92, 167, 154, 154,  },
+    {  149, 107, 167, 154, 154,  },
+    {   94, 138, 182, 154, 154,  },
+  }),
 };
+
 const CtxSet ContextSetCfg::SigCoeffGroup[] =
 {
   ContextSetCfg::addCtxSet
   ({
-  // luma
-    { 121, 140 },
-    { 121, 140 },
-    {  91, 171 }
+    {  121, 140,  },
+    {  121, 140,  },
+    {   91, 171,  },
   }),
   ContextSetCfg::addCtxSet
   ({
-  // chroma
-    {  61, 154 },
-    {  61, 154 },
-    { 134, 141 }
+    {   61, 154,  },
+    {   61, 154,  },
+    {  134, 141,  },
   }),
   ContextSetCfg::addCtxSet
   ({
-  // luma
-    { 122, 143 },
-    {  78, 111 },
-    { 135, 155 }
+    {  122, 143,  },
+    {   78, 111,  },
+    {  135, 155,  },
   }),
   ContextSetCfg::addCtxSet
   ({
-  // chroma
-    {  91, 141 },
-    {  60, 140 },
-    { 104, 139 }
+    {   91, 141,  },
+    {   60, 140,  },
+    {  104, 139,  },
   }),
 };
+
 const CtxSet ContextSetCfg::SigFlag[] =
 {
   ContextSetCfg::addCtxSet
   ({
-  // luma
-  // |-DC-|  |-----------------4x4------------------|  |------8x8 Diagonal Scan------|  |----8x8 Non-Diagonal Scan----|  |-NxN First group-|  |-NxN Other group-| |-Single context-|
-  // |    |  |                                      |  |-First Group-| |-Other Group-|  |-First Group-| |-Other Group-|  |                 |  |                 | |                |
-    { 170,    154, 139, 153, 139, 123, 123,  63, 124,   166, 183, 140,  136, 153, 154,   166, 183, 140,  136, 153, 154,   166,   183,   140,   136,   153,   154,        140 },
-    { 155,    154, 139, 153, 139, 123, 123,  63, 153,   166, 183, 140,  136, 153, 154,   166, 183, 140,  136, 153, 154,   166,   183,   140,   136,   153,   154,        140 },
-    { 111,    111, 125, 110, 110,  94, 124, 108, 124,   107, 125, 141,  179, 153, 125,   107, 125, 141,  179, 153, 125,   107,   125,   141,   179,   153,   125,        141 },
+    {  170, 154, 139, 153, 139, 123, 123,  63, 124, 166, 183, 140, 136, 153, 154, 166, 183, 140, 136, 153, 154, 166, 183, 140, 136, 153, 154, 140,  },
+    {  155, 154, 139, 153, 139, 123, 123,  63, 153, 166, 183, 140, 136, 153, 154, 166, 183, 140, 136, 153, 154, 166, 183, 140, 136, 153, 154, 140,  },
+    {  111, 111, 125, 110, 110,  94, 124, 108, 124, 107, 125, 141, 179, 153, 125, 107, 125, 141, 179, 153, 125, 107, 125, 141, 179, 153, 125, 141,  },
   }),
   ContextSetCfg::addCtxSet
   ({
-  // chroma
-  // |-DC-|  |-----------------4x4------------------|  |-8x8 Any group-|  |-NxN Any group-| |-Single context-|
-    { 170,    153, 138, 138, 122, 121, 122, 121, 167,   151,  183,  140,   151,  183,  140,        140 },
-    { 170,    153, 123, 123, 107, 121, 107, 121, 167,   151,  183,  140,   151,  183,  140,        140 },
-    { 140,    139, 182, 182, 152, 136, 152, 136, 153,   136,  139,  111,   136,  139,  111,        111 },
+    {  170, 153, 138, 138, 122, 121, 122, 121, 167, 151, 183, 140, 151, 183, 140, 140,  },
+    {  170, 153, 123, 123, 107, 121, 107, 121, 167, 151, 183, 140, 151, 183, 140, 140,  },
+    {  140, 139, 182, 182, 152, 136, 152, 136, 153, 136, 139, 111, 136, 139, 111, 111,  },
   }),
   ContextSetCfg::addCtxSet
   ({
-  // luma
-    { 107, 139, 154, 140, 140, 141, 108, 154, 125, 155, 126, 127, 139, 155, 155, 141, 156, 143, 107, 139, 154, 140, 140, 141, 108, 154, 125, 155, 126, 127, 139, 155, 155, 141, 156, 143, 107, 139, 154, 140, 140, 141, 108, 154, 125, 155, 126, 127, 139, 155, 155, 141, 156, 143 },
-    { 121, 167, 153, 139, 154, 140, 137, 168, 139, 154, 169, 155, 167, 169, 169, 184, 199, 156, 121, 167, 153, 139, 154, 140, 137, 168, 139, 154, 169, 155, 167, 169, 169, 184, 199, 156, 121, 167, 153, 139, 154, 140, 137, 168, 139, 154, 169, 155, 167, 169, 169, 184, 199, 156 },
-    { 152, 139, 154, 154, 169, 155, 182, 154, 169, 184, 155, 141, 168, 214, 199, 170, 170, 171, 152, 139, 154, 154, 169, 155, 182, 154, 169, 184, 155, 141, 168, 214, 199, 170, 170, 171, 152, 139, 154, 154, 169, 155, 182, 154, 169, 184, 155, 141, 168, 214, 199, 170, 170, 171 },
+    {  107, 139, 154, 140, 140, 141, 108, 154, 125, 155, 126, 127, 139, 155, 155, 141, 156, 143, 107, 139, 154, 140, 140, 141, 108, 154, 125, 155, 126, 127, 139, 155, 155, 141, 156, 143, 107, 139, 154, 140, 140, 141, 108, 154, 125, 155, 126, 127, 139, 155, 155, 141, 156, 143,  },
+    {  121, 167, 153, 139, 154, 140, 137, 168, 139, 154, 169, 155, 167, 169, 169, 184, 199, 156, 121, 167, 153, 139, 154, 140, 137, 168, 139, 154, 169, 155, 167, 169, 169, 184, 199, 156, 121, 167, 153, 139, 154, 140, 137, 168, 139, 154, 169, 155, 167, 169, 169, 184, 199, 156,  },
+    {  152, 139, 154, 154, 169, 155, 182, 154, 169, 184, 155, 141, 168, 214, 199, 170, 170, 171, 152, 139, 154, 154, 169, 155, 182, 154, 169, 184, 155, 141, 168, 214, 199, 170, 170, 171, 152, 139, 154, 154, 169, 155, 182, 154, 169, 184, 155, 141, 168, 214, 199, 170, 170, 171,  },
   }),
   ContextSetCfg::addCtxSet
   ({
-  // chroma
-    { 137, 154, 154, 155, 155, 156, 124, 185, 156, 171, 142, 158 },
-    { 136, 153, 139, 154, 125, 140, 122, 154, 184, 185, 171, 157 },
-    { 167, 154, 169, 140, 155, 141, 153, 171, 185, 156, 171, 172 },
+    {  137, 154, 154, 155, 155, 156, 124, 185, 156, 171, 142, 158,  },
+    {  136, 153, 139, 154, 125, 140, 122, 154, 184, 185, 171, 157,  },
+    {  167, 154, 169, 140, 155, 141, 153, 171, 185, 156, 171, 172,  },
   }),
 };
-
-#define LAST_INIT_LUMA \
-  { \
-    { 125, 110, 124, 110,  95,  94, 125, 111, 111,  79, 125, 126, 111, 111,  79,    126,  111,  111,   79, CNU, CNU, CNU, CNU, CNU, CNU }, \
-    { 125, 110,  94, 110,  95,  79, 125, 111, 110,  78, 110, 111, 111,  95,  94,    111,  111,   95,   94, CNU, CNU, CNU, CNU, CNU, CNU }, \
-    { 110, 110, 124, 125, 140, 153, 125, 127, 140, 109, 111, 143, 127, 111,  79,    143,  127,  111,   79, CNU, CNU, CNU, CNU, CNU, CNU }  \
-  }
-
-#define LAST_INIT_CHROMA \
-  { \
-    { 108, 123,  93, 154 }, \
-    { 108, 123, 108, 154 }, \
-    { 108, 123,  63, 154 }  \
-  }
 
 const CtxSet ContextSetCfg::LastX[] =
 {
-  ContextSetCfg::addCtxSet( LAST_INIT_LUMA ),
-  ContextSetCfg::addCtxSet( LAST_INIT_CHROMA )
+  ContextSetCfg::addCtxSet
+  ({
+    {  125, 110, 124, 110,  95,  94, 125, 111, 111,  79, 125, 126, 111, 111,  79, 126, 111, 111,  79, CNU, CNU, CNU, CNU, CNU, CNU,  },
+    {  125, 110,  94, 110,  95,  79, 125, 111, 110,  78, 110, 111, 111,  95,  94, 111, 111,  95,  94, CNU, CNU, CNU, CNU, CNU, CNU,  },
+    {  110, 110, 124, 125, 140, 153, 125, 127, 140, 109, 111, 143, 127, 111,  79, 143, 127, 111,  79, CNU, CNU, CNU, CNU, CNU, CNU,  },
+  }),
+  ContextSetCfg::addCtxSet
+  ({
+    {  108, 123,  93, 154,  },
+    {  108, 123, 108, 154,  },
+    {  108, 123,  63, 154,  },
+  }),
 };
+
 const CtxSet ContextSetCfg::LastY[] =
 {
-  ContextSetCfg::addCtxSet( LAST_INIT_LUMA ),
-  ContextSetCfg::addCtxSet( LAST_INIT_CHROMA )
+  ContextSetCfg::addCtxSet
+  ({
+    {  125, 110, 124, 110,  95,  94, 125, 111, 111,  79, 125, 126, 111, 111,  79, 126, 111, 111,  79, CNU, CNU, CNU, CNU, CNU, CNU,  },
+    {  125, 110,  94, 110,  95,  79, 125, 111, 110,  78, 110, 111, 111,  95,  94, 111, 111,  95,  94, CNU, CNU, CNU, CNU, CNU, CNU,  },
+    {  110, 110, 124, 125, 140, 153, 125, 127, 140, 109, 111, 143, 127, 111,  79, 143, 127, 111,  79, CNU, CNU, CNU, CNU, CNU, CNU,  },
+  }),
+  ContextSetCfg::addCtxSet
+  ({
+    {  108, 123,  93, 154,  },
+    {  108, 123, 108, 154,  },
+    {  108, 123,  63, 154,  },
+  }),
 };
-#undef LAST_INIT_LUMA
-#undef LAST_INIT_CHROMA
+
 const CtxSet ContextSetCfg::GreaterOneFlag[] =
 {
   ContextSetCfg::addCtxSet
   ({
-    // set 0 (luma)
-    { 154, 196, 167, 167 },
-    { 154, 196, 196, 167 },
-    { 140,  92, 137, 138 },
+    {  154, 196, 167, 167,  },
+    {  154, 196, 196, 167,  },
+    {  140,  92, 137, 138,  },
   }),
   ContextSetCfg::addCtxSet
   ({
-    // set 1 (luma)
-    { 154, 152, 167, 182 },
-    { 154, 152, 167, 182 },
-    { 140, 152, 138, 139 },
+    {  154, 152, 167, 182,  },
+    {  154, 152, 167, 182,  },
+    {  140, 152, 138, 139,  },
   }),
   ContextSetCfg::addCtxSet
   ({
-    // set 2 (luma)
-    { 182, 134, 149, 136 },
-    { 182, 134, 149, 136 },
-    { 153,  74, 149,  92 }
+    {  182, 134, 149, 136,  },
+    {  182, 134, 149, 136,  },
+    {  153,  74, 149,  92,  },
   }),
   ContextSetCfg::addCtxSet
   ({
-    // set 3 (luma)
-    { 153, 121, 136, 122 },
-    { 153, 121, 136, 137 },
-    { 139, 107, 122, 152 }
+    {  153, 121, 136, 122,  },
+    {  153, 121, 136, 137,  },
+    {  139, 107, 122, 152,  },
   }),
   ContextSetCfg::addCtxSet
   ({
-    // set 4 (chroma)
-    { 169, 208, 166, 167 },
-    { 169, 194, 166, 167 },
-    { 140, 179, 166, 182 }
+    {  169, 208, 166, 167,  },
+    {  169, 194, 166, 167,  },
+    {  140, 179, 166, 182,  },
   }),
   ContextSetCfg::addCtxSet
   ({
-    // set 5 (chroma)
-    { 154, 152, 167, 182 },
-    { 154, 167, 137, 182 },
-    { 140, 227, 122, 197 }
+    {  154, 152, 167, 182,  },
+    {  154, 167, 137, 182,  },
+    {  140, 227, 122, 197,  },
   }),
   ContextSetCfg::addCtxSet
   ({
-    // set 0 (luma)
-    { 121, 135, 123, 124, 139, 125,  92, 124, 154, 125, 155, 138, 169, 155, 170, 156 },
-    { 165,  75, 152, 153, 139, 154, 121, 138, 139, 154, 140, 167, 183, 169, 170, 156 },
-    { 196, 105, 152, 153, 139, 154, 136, 138, 139, 169, 140, 196, 183, 169, 170, 171 },
+    {  121, 135, 123, 124, 139, 125,  92, 124, 154, 125, 155, 138, 169, 155, 170, 156,  },
+    {  165,  75, 152, 153, 139, 154, 121, 138, 139, 154, 140, 167, 183, 169, 170, 156,  },
+    {  196, 105, 152, 153, 139, 154, 136, 138, 139, 169, 140, 196, 183, 169, 170, 171,  },
   }),
   ContextSetCfg::addCtxSet
   ({
-    // set 1 (luma)
-    { 166, 152, 140, 170, 171, 157 },
-    { 193, 181, 169, 170, 171, 172 },
-    { 195, 181, 169, 170, 156, 157 },
+    {  166, 152, 140, 170, 171, 157,  },
+    {  193, 181, 169, 170, 171, 172,  },
+    {  195, 181, 169, 170, 156, 157,  },
   }),
 };
+
 const CtxSet ContextSetCfg::GreaterTwoFlag = ContextSetCfg::addCtxSet
 ({
-  // luma                 chroma
-  //  Set0 Set1 Set2 Set3 Set4 Set5
-    { 107, 167,  91, 107, 107, 167 },
-    { 107, 167,  91, 122, 107, 167 },
-    { 138, 153, 136, 167, 152, 152 }
+  {  107, 167,  91, 107, 107, 167,},
+  {  107, 167,  91, 122, 107, 167,},
+  {  138, 153, 136, 167, 152, 152,},
 });
+
 const CtxSet ContextSetCfg::MVPIdx = ContextSetCfg::addCtxSet
 ({
-  { 168 },
-  { 168 },
-  { CNU }
+  {  168,},
+  {  168,},
+  {  CNU,},
 });
+
 const CtxSet ContextSetCfg::SaoMergeFlag = ContextSetCfg::addCtxSet
 ({
-  { 153 },
-  { 153 },
-  { 153 }
+  {  153,},
+  {  153,},
+  {  153,},
 });
+
 const CtxSet ContextSetCfg::SaoTypeIdx = ContextSetCfg::addCtxSet
 ({
-  { 160 },
-  { 185 },
-  { 200 }
+  {  160,},
+  {  185,},
+  {  200,},
 });
+
 const CtxSet ContextSetCfg::AlfCUCtrlFlags = ContextSetCfg::addCtxSet
 ({
-  { CNU, CNU, CNU },
-  { CNU, CNU, CNU },
-  { CNU, CNU, CNU },
+  {  CNU, CNU, CNU,},
+  {  CNU, CNU, CNU,},
+  {  CNU, CNU, CNU,},
 });
 
 const CtxSet ContextSetCfg::AlfUvlcSCModel = ContextSetCfg::addCtxSet
 ({
-  {154, 140},
-  {140, 110},
-  {139, 139},
+  {  154, 140,},
+  {  140, 110,},
+  {  139, 139,},
 });
+
 const CtxSet ContextSetCfg::TransformSkipFlag = ContextSetCfg::addCtxSet
 ({
-  { 139,  139 },
-  { 139,  139 },
-  { 139,  139 }
+  {  139, 139,},
+  {  139, 139,},
+  {  139, 139,},
 });
+
 const CtxSet ContextSetCfg::TransquantBypassFlag = ContextSetCfg::addCtxSet
 ({
-  { 154 },
-  { 154 },
-  { 154 }
+  {  154,},
+  {  154,},
+  {  154,},
 });
+
 const CtxSet ContextSetCfg::NSSTIdx = ContextSetCfg::addCtxSet
 ({
-  { 107, 107, 107, 107, 107 },
-  { 107, 107, 107, 107, 107 },
-  { 139, 139, 139, 139, 139 }
+  {  107, 107, 107, 107, 107,},
+  {  107, 107, 107, 107, 107,},
+  {  139, 139, 139, 139, 139,},
 });
+
 const CtxSet ContextSetCfg::RdpcmFlag = ContextSetCfg::addCtxSet
 ({
-  { 139, 139 },
-  { 139, 139 },
-  { CNU, CNU }
+  {  139, 139,},
+  {  139, 139,},
+  {  CNU, CNU,},
 });
+
 const CtxSet ContextSetCfg::RdpcmDir = ContextSetCfg::addCtxSet
 ({
-  { 139, 139 },
-  { 139, 139 },
-  { CNU, CNU }
+  {  139, 139,},
+  {  139, 139,},
+  {  CNU, CNU,},
 });
+
 const CtxSet ContextSetCfg::EMTTuIndex = ContextSetCfg::addCtxSet
 ({
-  { CNU, CNU, CNU, CNU },
-  { CNU, CNU, CNU, CNU },
-  { CNU, CNU, CNU, CNU },
+  {  CNU, CNU, CNU, CNU,},
+  {  CNU, CNU, CNU, CNU,},
+  {  CNU, CNU, CNU, CNU,},
 });
+
 const CtxSet ContextSetCfg::EMTCuFlag = ContextSetCfg::addCtxSet
 ({
-  { CNU, CNU, CNU, CNU, CNU, CNU },
-  { CNU, CNU, CNU, CNU, CNU, CNU },
-  { CNU, CNU, CNU, CNU, CNU, CNU },
+  {  CNU, CNU, CNU, CNU, CNU, CNU,},
+  {  CNU, CNU, CNU, CNU, CNU, CNU,},
+  {  CNU, CNU, CNU, CNU, CNU, CNU,},
 });
+
 const CtxSet ContextSetCfg::CrossCompPred = ContextSetCfg::addCtxSet
 ({
-  { 154, 154, 154, 154, 154, 154, 154, 154, 154, 154 },
-  { 154, 154, 154, 154, 154, 154, 154, 154, 154, 154 },
-  { 154, 154, 154, 154, 154, 154, 154, 154, 154, 154 }
+  {  154, 154, 154, 154, 154, 154, 154, 154, 154, 154,},
+  {  154, 154, 154, 154, 154, 154, 154, 154, 154, 154,},
+  {  154, 154, 154, 154, 154, 154, 154, 154, 154, 154,},
 });
+
 const CtxSet ContextSetCfg::ChromaQpAdjFlag = ContextSetCfg::addCtxSet
 ({
-  { 154 },
-  { 154 },
-  { 154 }
+  {  154,},
+  {  154,},
+  {  154,},
 });
+
 const CtxSet ContextSetCfg::ChromaQpAdjIdc = ContextSetCfg::addCtxSet
 ({
-  { 154 },
-  { 154 },
-  { 154 }
+  {  154,},
+  {  154,},
+  {  154,},
 });
+
 const CtxSet ContextSetCfg::ImvFlag = ContextSetCfg::addCtxSet
 ({
-  { 197, 185, 201, 185},
-  { 197, 185, 201, 185},
-  { CNU, CNU, CNU, CNU}
+  {  197, 185, 201, 185,},
+  {  197, 185, 201, 185,},
+  {  CNU, CNU, CNU, CNU,},
 });
+
 const CtxSet ContextSetCfg::LICFlag = ContextSetCfg::addCtxSet
 ({
-  { 154 },
-  { 154 },
-  { CNU }
+  {  154,},
+  {  154,},
+  {  CNU,},
 });
+
 const CtxSet ContextSetCfg::ObmcFlag = ContextSetCfg::addCtxSet
 ({
-  { 201 },
-  { 201 },
-  { CNU },
+  {  201,},
+  {  201,},
+  {  CNU,},
 });
+
 const CtxSet ContextSetCfg::FrucFlag = ContextSetCfg::addCtxSet
 ({
-  { 197,  185,  201 },
-  { 197,  185,  201 },
-  { CNU,  CNU,  CNU },
+  {  197, 185, 201,},
+  {  197, 185, 201,},
+  {  CNU, CNU, CNU,},
 });
+
 const CtxSet ContextSetCfg::FrucMode = ContextSetCfg::addCtxSet
 ({
-  { 197,  185,  201 },
-  { 197,  185,  201 },
-  { CNU,  CNU,  CNU },
+  {  197, 185, 201,},
+  {  197, 185, 201,},
+  {  CNU, CNU, CNU,},
 });
+
 const unsigned ContextSetCfg::NumberOfContexts = (unsigned)ContextSetCfg::sm_InitTables[0].size();
 
 

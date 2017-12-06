@@ -137,18 +137,19 @@
 #define W0038_DB_OPT                                      1 ///< adaptive DB parameter selection, LoopFilterOffsetInPPS and LoopFilterDisable are set to 0 and DeblockingFilterMetric=2;
 #define W0038_CQP_ADJ                                     1 ///< chroma QP adjustment based on TL, CQPTLAdjustEnabled is set to 1;
 
-#define SHARP_LUMA_DELTA_QP                               0 ///< inculde non-normative LCU deltaQP and normative chromaQP change
+#define SHARP_LUMA_DELTA_QP                               1 ///< inculde non-normative LCU deltaQP and normative chromaQP change
 #define ER_CHROMA_QP_WCG_PPS                              1 ///< Chroma QP model for WCG used in Anchor 3.2
+#define HHI_HLM_USE_QPA                                   1
 
-#define HHI_HLM_USE_QPA                                  ( 1 && !SHARP_LUMA_DELTA_QP )
+#define COM16_C806_ALF_TEMPPRED_NUM                       6 //tbd
 
-#define COM16_C806_ALF_TEMPPRED_NUM                      6  //tbd
-
-#define GALF                                             1  //tbd
+#define GALF                                              1 //tbd
 #if GALF                                                    //tbd
-#define FORCE0                                           1  ///< forces filter coefficients to be 0
-#define JVET_C0038_NO_PREV_FILTERS                      16  ///<number of fixed filters per class
+#define FORCE0                                            1 ///< forces filter coefficients to be 0
+#define JVET_C0038_NO_PREV_FILTERS                       16 ///<number of fixed filters per class
 #endif
+
+#define RDOQ_CHROMA                                       1           ///< use of RDOQ in chroma
 
 // ====================================================================================================================
 // Derived macros
@@ -245,6 +246,20 @@ typedef       UInt            Distortion;        ///< distortion measurement
 // ====================================================================================================================
 // Enumeration
 // ====================================================================================================================
+enum QuantFlags
+{
+  Q_INIT           = 0x0,
+  Q_USE_RDOQ       = 0x1,
+  Q_RDOQTS         = 0x2,
+  Q_SELECTIVE_RDOQ = 0x4,
+};
+
+enum class RDOQfn 
+{ 
+  JEM, 
+  HHI 
+};
+
 
 //EMT transform tags
 enum TransType
@@ -880,11 +895,9 @@ struct ALFParam
 {
   ALFParam();
   ~ALFParam();
-  void create();
-  void create( int numCTUsinFrame, int maxCodingDepth );
+
   void destroy();
   void reset();
-  void copyFrom( ALFParam& srcParam );
 
   Int alf_flag;                           ///< indicates use of ALF
   Int cu_control_flag;                    ///< coding unit based control flag
@@ -915,10 +928,10 @@ struct ALFParam
   //CU Adaptation
   UInt num_alf_cu_flag;
   UInt alf_max_depth;
-  UInt *alf_cu_flag;
+  Bool *alf_cu_flag;
 
   //Coeff send related
-  UInt num_cus_in_frame;
+  UInt num_ctus_in_frame;
   UInt maxCodingDepth;
 
   Int codedVarBins[NUM_OF_ALF_CLASSES];
@@ -935,7 +948,6 @@ struct ALFParam
   //Use stored parameter
   Bool temporalPredFlag;        //indicate whether reuse previous ALF coefficients
   Int  prevIdx;                 //index of the reused ALF coefficients
-
 };
 
 
@@ -1142,10 +1154,6 @@ private:
 // static vector
 // ---------------------------------------------------------------------------
 
-#if defined( _N )
-#undef _N
-#endif
-
 template<typename T, size_t N>
 class static_vector
 {
@@ -1167,8 +1175,8 @@ public:
   static const size_type max_num_elements = N;
 
   static_vector() : _size( 0 )                                 { }
-  static_vector( size_t _N ) : _size( _N )                     { }
-  static_vector( size_t _N, const T& _val ) : _size( 0 )       { resize( _N, _val ); }
+  static_vector( size_t N_ ) : _size( N_ )                     { }
+  static_vector( size_t N_, const T& _val ) : _size( 0 )       { resize( N_, _val ); }
   template<typename It>
   static_vector( It _it1, It _it2 ) : _size( 0 )               { while( _it1 < _it2 ) ((T*) _arr)[ _size++ ] = *_it1++; }
   static_vector( std::initializer_list<T> _il ) : _size( 0 )
@@ -1192,11 +1200,11 @@ public:
     CHECKD( _size > N, "capacity exceeded" );
   }
 
-  void resize( size_t _N )                      { CHECKD( _N > N, "capacity exceeded" ); while(_size < _N) ((T*) _arr)[ _size++ ] = T() ; _size = _N; }
-  void resize( size_t _N, const T& _val )       { CHECKD( _N > N, "capacity exceeded" ); while(_size < _N) ((T*) _arr)[ _size++ ] = _val; _size = _N; }
-  void reserve( size_t _N )                     { CHECKD( _N > N, "capacity exceeded" ); }
-  void push_back( const T& _val )               { CHECKD( _size > N, "capacity exceeded" ); ((T*) _arr)[ _size++ ] = _val; }
-  void push_back( T&& val )                     { CHECKD( _size > N, "capacity exceeded" ); ((T*) _arr)[ _size++ ] = std::forward<T>( val ); }
+  void resize( size_t N_ )                      { CHECKD( N_ > N, "capacity exceeded" ); while(_size < N_) ((T*) _arr)[ _size++ ] = T() ; _size = N_; }
+  void resize( size_t N_, const T& _val )       { CHECKD( N_ > N, "capacity exceeded" ); while(_size < N_) ((T*) _arr)[ _size++ ] = _val; _size = N_; }
+  void reserve( size_t N_ )                     { CHECKD( N_ > N, "capacity exceeded" ); }
+  void push_back( const T& _val )               { CHECKD( _size >= N, "capacity exceeded" ); ((T*) _arr)[ _size++ ] = _val; }
+  void push_back( T&& val )                     { CHECKD( _size >= N, "capacity exceeded" ); ((T*) _arr)[ _size++ ] = std::forward<T>( val ); }
   void pop_back()                               { CHECKD( _size == 0, "calling pop_back on an empty vector" ); _size--; }
   void pop_front()                              { CHECKD( _size == 0, "calling pop_front on an empty vector" ); _size--; for( int i = 0; i < _size; i++ ) _arr[i] = _arr[i + 1]; }
   void clear()                                  { _size = 0; }

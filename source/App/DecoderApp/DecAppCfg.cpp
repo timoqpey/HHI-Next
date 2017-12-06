@@ -95,7 +95,7 @@ Bool DecAppCfg::parseCfg( Int argc, TChar* argv[] )
   ("RespectDefDispWindow,w",    m_respectDefDispWindow,                0,          "Only output content inside the default display window\n")
   ("SEIColourRemappingInfoFilename",  m_colourRemapSEIFileName,        string(""), "Colour Remapping YUV output file name. If empty, no remapping is applied (ignore SEI message)\n")
   ("OutputDecodedSEIMessagesFilename",  m_outputDecodedSEIMessagesFilename,    string(""), "When non empty, output decoded SEI messages to the indicated file. If file is '-', then output to stdout\n")
-  ("ClipOutputVideoToRec709Range",      m_bClipOutputVideoToRec709Range,  false, "If true then clip output video to the Rec. 709 Range on saving")
+  ("ClipOutputVideoToRec709Range",      m_bClipOutputVideoToRec709Range,  false,   "If true then clip output video to the Rec. 709 Range on saving")
 #if ENABLE_TRACING
   ("TraceChannelsList",         bTracingChannelsList,                        false, "List all available tracing channels" )
   ("TraceRule",                 sTracingRule,                         string( "" ), "Tracing rule (ex: \"D_CABAC:poc==8\" or \"D_REC_CB_LUMA:poc==8\")" )

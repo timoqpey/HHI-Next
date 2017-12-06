@@ -151,7 +151,7 @@ void LoopFilter::loopFilterPic( CodingStructure& cs )
         xDeblockCU( currCU, EDGE_VER );
       }
 
-      if( CS::isDoubleITree( cs ) )
+      if( CS::isDualITree( cs ) )
       {
         cs.chType = CHANNEL_TYPE_CHROMA;
 
@@ -184,7 +184,7 @@ void LoopFilter::loopFilterPic( CodingStructure& cs )
         xDeblockCU( currCU, EDGE_HOR );
       }
 
-      if( CS::isDoubleITree( cs ) )
+      if( CS::isDualITree( cs ) )
       {
         cs.chType = CHANNEL_TYPE_CHROMA;
 

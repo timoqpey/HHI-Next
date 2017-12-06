@@ -295,8 +295,7 @@ Void IntraSearch::estIntraPredLumaQT(CodingUnit &cu, Partitioner &partitioner)
 
   // variables for saving fast intra modes scan results across multiple NSST passes
   Bool NSSTLoadFlag     = cu.nsstIdx != 0 && sps.getSpsNext().getUseNSST();
-  bool use_pdpc         = cu.cs->sps->getSpsNext().isPlanarPDPC() ? false : cu.pdpc;
-  Bool NSSTSaveFlag     = cu.nsstIdx == 0 && sps.getSpsNext().getUseNSST() && !use_pdpc;
+  Bool NSSTSaveFlag     = cu.nsstIdx == 0 && sps.getSpsNext().getUseNSST() && !cu.pdpc;
   NSSTSaveFlag         &= sps.getSpsNext().getUseIntraEMT() ? cu.emtFlag == 0 : true;
   UInt extraModes       = sps.getSpsNext().getUseNSST() ? 2 : 0; // add two extra modes, which would be used after uiMode <= DC_IDX is removed for cu.nsstIdx == 3
 
@@ -427,6 +426,7 @@ Void IntraSearch::estIntraPredLumaQT(CodingUnit &cu, Partitioner &partitioner)
             {
               continue;
             }
+
             bSatdChecked[uiMode] = true;
 
             pu.intraDir[0] = modeIdx;
@@ -551,7 +551,6 @@ Void IntraSearch::estIntraPredLumaQT(CodingUnit &cu, Partitioner &partitioner)
 
                   Double cost = ( Double ) uiSad + ( Double ) fracModeBits * sqrtLambdaForFirstPass;
 
-  //                DTRACE( g_trace_ctx, D_INTRA_COST, "IntraCost P %f (%d) \n", cost, uiMode );
                   updateCandList( uiMode, cost,  uiRdModeList,  CandCostList, numModesForFullRD );
                   updateCandList( uiMode, uiSad, uiHadModeList, CandHadList,  3 );
 
@@ -646,15 +645,15 @@ Void IntraSearch::estIntraPredLumaQT(CodingUnit &cu, Partitioner &partitioner)
     // PBINTRA fast
     if( m_pcEncCfg->getUsePbIntraFast() && !cs.slice->isIntra() && cu.partSize == SIZE_2Nx2N && numModesForFullRD < numModesAvailable && emtUsageFlag != 2 )
     {
-      if (CandHadList[2] > cs.interHad * PBINTRA_RATIO)
+      if( CandHadList[2] > cs.interHad * PBINTRA_RATIO )
       {
         numModesForFullRD = 2;
       }
-      if (CandHadList[1] > cs.interHad * PBINTRA_RATIO)
+      if( CandHadList[1] > cs.interHad * PBINTRA_RATIO )
       {
         numModesForFullRD = 1;
       }
-      if (CandHadList[0] > cs.interHad * PBINTRA_RATIO)
+      if( CandHadList[0] > cs.interHad * PBINTRA_RATIO )
       {
         cs.dist     = MAX_UINT;
         cs.interHad = 0;
@@ -848,7 +847,7 @@ Void IntraSearch::estIntraPredChromaQT(CodingUnit &cu, Partitioner &partitioner)
       saveCS.area.repositionTo( cs.area );
       saveCS.clearTUs();
 
-      if( CS::isDoubleITree( cs ) )
+      if( CS::isDualITree( cs ) )
       {
         cs.addTU( CS::getArea( cs, partitioner.currArea() ) );
       }
@@ -858,16 +857,16 @@ Void IntraSearch::estIntraPredChromaQT(CodingUnit &cu, Partitioner &partitioner)
       // create a store for the TUs
       for( const auto &ptu : cs.tus )
       {
-        if( pu.contains( *ptu, CHANNEL_TYPE_CHROMA ) )
+        // for split TUs in HEVC, add the TUs without Chroma parts for correct setting of Cbfs
+        if( pu.contains( *ptu, CHANNEL_TYPE_CHROMA ) || ( !cs.pcv->noRQT && !ptu->Cb().valid() && !ptu->Cr().valid() ) )
         {
-          saveCS.addTU(*ptu);
+          saveCS.addTU( *ptu );
           orgTUs.push_back( ptu );
         }
       }
 
       UInt auiSATDModeList[LM_FILTER_NUM];
-
-      if ( pu.cs->sps->getSpsNext().getUseLMChroma() && PU::isMFLMEnabled( pu ) )
+      if( pu.cs->pcv->noRQT && pu.cs->sps->getSpsNext().getUseLMChroma() && PU::isMFLMEnabled(pu))
       {
         UInt auiSATDSortedcost[LM_FILTER_NUM];
         DistParam distParam;
@@ -932,7 +931,7 @@ Void IntraSearch::estIntraPredChromaQT(CodingUnit &cu, Partitioner &partitioner)
       Distortion baseDist = cs.dist;
 
       for (UInt uiMode = uiMinMode; uiMode < uiMaxMode; uiMode++)
-      {
+    {
         const int chromaIntraMode = chromaCandModes[uiMode];
 
         if( PU::isLMCMode( chromaIntraMode ) && ! PU::isLMCModeEnabled( pu, chromaIntraMode ) )
@@ -940,7 +939,7 @@ Void IntraSearch::estIntraPredChromaQT(CodingUnit &cu, Partitioner &partitioner)
           continue;
         }
 
-        if( CS::isDoubleITree( cs ) && cu.nsstIdx == 3 )
+        if( CS::isDualITree( cs ) && cu.nsstIdx == 3 )
         {
           int intraMode = chromaIntraMode;
           if( PU::isLMCMode( chromaIntraMode ) )
@@ -958,8 +957,7 @@ Void IntraSearch::estIntraPredChromaQT(CodingUnit &cu, Partitioner &partitioner)
             continue;
           }
         }
-
-        if( pu.cs->sps->getSpsNext().isELMModeMFLM() )
+        if( pu.cs->pcv->noRQT && pu.cs->sps->getSpsNext().isELMModeMFLM())
         {
           if( chromaIntraMode >= LM_CHROMA_F1_IDX &&  chromaIntraMode < LM_CHROMA_F1_IDX + LM_FILTER_NUM)
           {
@@ -1295,7 +1293,6 @@ Void IntraSearch::xEncSubdivCbfQT(CodingStructure &cs, Partitioner &partitioner,
   {
     if( cs.pcv->noRQT )
     {
-      if( bLuma && TU::getCbfAtDepth( currTU, COMPONENT_Y, 0 ) ) m_CABACEstimator->emt_cu_flag( currCU );
     }
     else
     {
@@ -1352,21 +1349,28 @@ Void IntraSearch::xEncCoeffQT(CodingStructure &cs, Partitioner &partitioner, con
   }
 }
 
-UInt64 IntraSearch::xGetIntraFracBitsQT(CodingStructure &cs, Partitioner &partitioner, const Bool &bLuma, const Bool &bChroma)
+UInt64 IntraSearch::xGetIntraFracBitsQT( CodingStructure &cs, Partitioner &partitioner, const Bool &bLuma, const Bool &bChroma )
 {
   m_CABACEstimator->resetBits();
 
-  xEncIntraHeader(cs, partitioner, bLuma, bChroma);
-  xEncSubdivCbfQT(cs, partitioner, bLuma, bChroma);
+  xEncIntraHeader( cs, partitioner, bLuma, bChroma );
+  xEncSubdivCbfQT( cs, partitioner, bLuma, bChroma );
 
-  if (bLuma)
+  if( bLuma )
   {
-    xEncCoeffQT(cs, partitioner, COMPONENT_Y);
+    xEncCoeffQT( cs, partitioner, COMPONENT_Y );
   }
-  if (bChroma)
+  if( bChroma )
   {
-    xEncCoeffQT(cs, partitioner, COMPONENT_Cb);
-    xEncCoeffQT(cs, partitioner, COMPONENT_Cr);
+    xEncCoeffQT( cs, partitioner, COMPONENT_Cb );
+    xEncCoeffQT( cs, partitioner, COMPONENT_Cr );
+  }
+
+  if( bLuma )
+  {
+    const CodingUnit& cu = *cs.getCU( partitioner.currArea().lumaPos() );
+
+    m_CABACEstimator->cu_emt_noqrt_idx( cu );
   }
 
   UInt64 fracBits = m_CABACEstimator->getEstFracBits();
@@ -1421,10 +1425,8 @@ Void IntraSearch::xIntraCodingTUBlock(TransformUnit &tu, const ComponentID &comp
   const UChar          transformIndex       = tu.cu->emtFlag && compID == COMPONENT_Y ? tu.emtIdx : ( tu.cu->cs->sps->getSpsNext().getUseIntraEMT() ? DCT2_EMT : DCT2_HEVC );
 
   //===== init availability pattern =====
-
   PelBuf sharedPredTS( m_pSharedPredTransformSkip[compID], area );
-
-  if( pu.cs->sps->getSpsNext().isELMModeMFLM() && ( ( uiChFinalMode >= LM_CHROMA_F1_IDX ) && ( uiChFinalMode < LM_CHROMA_F1_IDX + LM_FILTER_NUM ) ) )
+  if( pu.cs->pcv->noRQT && pu.cs->sps->getSpsNext().isELMModeMFLM() && ((uiChFinalMode >= LM_CHROMA_F1_IDX) && (uiChFinalMode < LM_CHROMA_F1_IDX + LM_FILTER_NUM)))
   {
     PelBuf savePred( m_pLMMFPredSaved[( uiChFinalMode - LM_CHROMA_F1_IDX ) * 2 + compID - COMPONENT_Cb], area.width, area );
     piPred.copyFrom( savePred );
@@ -1438,7 +1440,7 @@ Void IntraSearch::xIntraCodingTUBlock(TransformUnit &tu, const ComponentID &comp
     //===== get prediction signal =====
     if( compID != COMPONENT_Y && PU::isLMCMode( uiChFinalMode ) )
     {
-      if( !PU::isMFLMEnabled( pu ) )
+      if( !PU::isMFLMEnabled(pu) || !pu.cs->pcv->noRQT)
       {
         xGetLumaRecPixels( pu, area );
       }
@@ -1502,11 +1504,11 @@ Void IntraSearch::xIntraCodingTUBlock(TransformUnit &tu, const ComponentID &comp
   {
     if( compID == COMPONENT_Cb )
     {
-      m_pcTrQuant->setLambda( m_pcTrQuant->getlambda() * 15 / 16 );
+      m_pcTrQuant->setLambda( m_pcTrQuant->getLambda() * 15.0 / 16.0 );
     }
     else if( compID == COMPONENT_Cr )
     {
-      m_pcTrQuant->setLambda( m_pcTrQuant->getlambda() * 16 / 15 );
+      m_pcTrQuant->setLambda( m_pcTrQuant->getLambda() * 16.0 / 15.0 );
     }
   }
 
@@ -1561,7 +1563,6 @@ Void IntraSearch::xIntraCodingTUBlock(TransformUnit &tu, const ComponentID &comp
 
   if( sps.getSpsNext().getUseBIF() && (uiAbsSum > 0) && isLuma(compID) && (tu.cu->qp > 17)/* && (16 > std::min(tu.lumaSize().width, tu.lumaSize().height) )*/ )
   {
-    // th this can be done more effectively
     BilateralFilter::instance()->bilateralFilterIntra( piReco, tu.cu->qp );
     DTRACE_CCRC( g_trace_ctx, D_TMP, &cs, piReco, COMPONENT_Y );
   }
@@ -1974,7 +1975,7 @@ ChromaCbfs IntraSearch::xRecurIntraChromaCodingQT(CodingStructure &cs, Partition
 
   TransformUnit &currTU               = *cs.getTU( currArea.chromaPos(), CHANNEL_TYPE_CHROMA );
   const PredictionUnit &pu            = *cs.getPU( currArea.chromaPos(), CHANNEL_TYPE_CHROMA );
-  const TransformUnit &currTULuma     = CS::isDoubleITree( cs ) ? *cs.picture->cs->getTU( currArea.lumaPos(), CHANNEL_TYPE_LUMA ) : currTU;
+  const TransformUnit &currTULuma     = CS::isDualITree( cs ) ? *cs.picture->cs->getTU( currArea.lumaPos(), CHANNEL_TYPE_LUMA ) : currTU;
 
   UInt     currDepth                  = partitioner.currTrDepth;
   const PPS &pps                      = *cs.pps;

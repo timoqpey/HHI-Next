@@ -340,6 +340,10 @@ Void Picture::create(const ChromaFormat &_chromaFormat, const Size &size, const 
   {
     m_bufs[PIC_ORIGINAL].    create( chromaFormat, a );
   }
+#if !KEEP_PRED_AND_RESI_SIGNALS
+
+  m_ctuArea = UnitArea( _chromaFormat, Area( Position{ 0, 0 }, Size( _maxCUSize, _maxCUSize ) ) );
+#endif
 }
 
 Void Picture::destroy()
@@ -378,7 +382,11 @@ Void Picture::destroy()
 
 Void Picture::createTempBuffers( const unsigned _maxCUSize )
 {
+#if KEEP_PRED_AND_RESI_SIGNALS
   const Area a( Position{ 0, 0 }, lumaSize() );
+#else
+  const Area a = m_ctuArea.Y();
+#endif
 
   m_bufs[PIC_PREDICTION].create( chromaFormat, a, _maxCUSize );
   m_bufs[PIC_RESIDUAL].  create( chromaFormat, a, _maxCUSize );
@@ -398,7 +406,7 @@ Void Picture::destroyTempBuffers()
 
        PelBuf     Picture::getOrigBuf(const CompArea &blk)        { return getBuf(blk,  PIC_ORIGINAL); }
 const CPelBuf     Picture::getOrigBuf(const CompArea &blk)  const { return getBuf(blk,  PIC_ORIGINAL); }
-       PelUnitBuf Picture::getOrigBuf(const UnitArea &unit)       { return getBuf(unit, PIC_ORIGINAL); }  
+       PelUnitBuf Picture::getOrigBuf(const UnitArea &unit)       { return getBuf(unit, PIC_ORIGINAL); }
 const CPelUnitBuf Picture::getOrigBuf(const UnitArea &unit) const { return getBuf(unit, PIC_ORIGINAL); }
        PelUnitBuf Picture::getOrigBuf()                           { return m_bufs[PIC_ORIGINAL]; }
 const CPelUnitBuf Picture::getOrigBuf()                     const { return m_bufs[PIC_ORIGINAL]; }
@@ -555,6 +563,17 @@ PelBuf Picture::getBuf(const CompArea &blk, const PictureType &type)
     return PelBuf();
   }
 
+#if !KEEP_PRED_AND_RESI_SIGNALS
+  if( type == PIC_RESIDUAL || type == PIC_PREDICTION )
+  {
+    CompArea localBlk = blk;
+    localBlk.x &= ( cs->pcv->maxCUWidthMask  >> getComponentScaleX( blk.compID, blk.chromaFormat ) );
+    localBlk.y &= ( cs->pcv->maxCUHeightMask >> getComponentScaleY( blk.compID, blk.chromaFormat ) );
+
+    return m_bufs[type].getBuf( localBlk );
+  }
+#endif
+
   return m_bufs[type].getBuf(blk);
 }
 
@@ -565,7 +584,18 @@ const CPelBuf Picture::getBuf(const CompArea &blk, const PictureType &type) cons
     return PelBuf();
   }
 
-  return m_bufs[type].getBuf(blk);
+#if !KEEP_PRED_AND_RESI_SIGNALS
+  if( type == PIC_RESIDUAL || type == PIC_PREDICTION )
+  {
+    CompArea localBlk = blk;
+    localBlk.x &= ( cs->pcv->maxCUWidthMask  >> getComponentScaleX( blk.compID, blk.chromaFormat ) );
+    localBlk.y &= ( cs->pcv->maxCUHeightMask >> getComponentScaleY( blk.compID, blk.chromaFormat ) );
+
+    return m_bufs[type].getBuf( localBlk );
+  }
+#endif
+
+  return m_bufs[type].getBuf( blk );
 }
 
 PelUnitBuf Picture::getBuf(const UnitArea &unit, const PictureType &type)
@@ -593,7 +623,7 @@ const CPelUnitBuf Picture::getBuf(const UnitArea &unit, const PictureType &type)
 }
 
 template <int N>
-Int average(const std::vector<Pel> &r,unsigned i0, unsigned j0, unsigned uiHeight, unsigned uiWidth) 
+Int average(const std::vector<Pel> &r,unsigned i0, unsigned j0, unsigned uiHeight, unsigned uiWidth)
 {
   Int s=0;
   for(int i=-N/2;i<=N/2;++i)
@@ -608,7 +638,7 @@ Int average(const std::vector<Pel> &r,unsigned i0, unsigned j0, unsigned uiHeigh
   return (s+(N*N)/2)/(N*N);
 }
 
-void smoothResidual( std::vector<Pel> &res, const std::vector<char> &bmM, const ClpRng& clpRng, unsigned uiHeight, unsigned uiWidth) 
+void smoothResidual( std::vector<Pel> &res, const std::vector<char> &bmM, const ClpRng& clpRng, unsigned uiHeight, unsigned uiWidth)
 {
   // find boundaries of the res
   static std::vector<Pel> r;
@@ -617,27 +647,27 @@ void smoothResidual( std::vector<Pel> &res, const std::vector<char> &bmM, const 
   const int cptmax = 4;
   int  cpt = 0;
   bool cont=true;
-  while( cpt < cptmax && cont) 
+  while( cpt < cptmax && cont)
   {
     cont=false;
     for( unsigned i = 0; i < uiHeight; i++)
     {
-      for( unsigned j = 0; j < uiWidth; j++) 
+      for( unsigned j = 0; j < uiWidth; j++)
       {
         const unsigned k = i*uiWidth+j;
-        if( bmM[k] == -1 ) 
+        if( bmM[k] == -1 )
         { // we can lower the res
           int s=average<3>(res,i,j,uiHeight,uiWidth);
-          if( s < res[k] ) 
+          if( s < res[k] )
           {
             r[k]=s;
             cont=true;
           }
-        } 
-        else if( bmM[k] == 1 ) 
+        }
+        else if( bmM[k] == 1 )
         { // we can inc the res
           int s=average<3>(res,i,j,uiHeight,uiWidth);
-          if( s > res[k] ) 
+          if( s > res[k] )
           {
             r[k]=s;
             cont=true;
@@ -646,14 +676,14 @@ void smoothResidual( std::vector<Pel> &res, const std::vector<char> &bmM, const 
       }
     }
     ++cpt;
-    if( cont )  
+    if( cont )
     {
       std::copy(r.begin(),r.end(),res.begin());
     }
   }
 }
 
-void smoothResidual( PelBuf& resBuf, const CPelBuf& orgBuf, const ClpRng& clpRng ) 
+void smoothResidual( PelBuf& resBuf, const CPelBuf& orgBuf, const ClpRng& clpRng )
 {
   const unsigned uiWidth      = orgBuf.width;
   const unsigned uiHeight     = orgBuf.height;
@@ -681,7 +711,7 @@ void smoothResidual( PelBuf& resBuf, const CPelBuf& orgBuf, const ClpRng& clpRng
     }
   }
 
-  if (activate) 
+  if (activate)
   {
     static std::vector<Pel> r; // avoid realloc
     r.resize( areaSize );
@@ -701,9 +731,9 @@ void smoothResidual( PelBuf& resBuf, const CPelBuf& orgBuf, const ClpRng& clpRng
   }
 }
 
-void smoothResidual( PelUnitBuf& resBuf, const CPelUnitBuf& orgBuf, const ClpRngs& clpRngs) 
+void smoothResidual( PelUnitBuf& resBuf, const CPelUnitBuf& orgBuf, const ClpRngs& clpRngs)
 {
-  for(size_t comp=0; comp< resBuf.bufs.size(); ++comp) 
+  for(size_t comp=0; comp< resBuf.bufs.size(); ++comp)
   {
     const ComponentID compID = ComponentID(comp);
     smoothResidual( resBuf.get(compID), orgBuf.get(compID), clpRngs.comp[compID]);

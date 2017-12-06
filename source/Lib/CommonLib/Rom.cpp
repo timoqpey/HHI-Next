@@ -192,7 +192,6 @@ Int g_aiLMCodeWord[LM_SYMBOL_NUM][16];
 // initialize ROM variables
 Void initROM()
 {
-
   BilateralFilter::instance()->createdivToMulLUTs();
   for(Int qp=18; qp<MAX_QP+1; qp++ )
   {
@@ -1025,5 +1024,6 @@ const UChar g_NonMPM[257] = { 0, 0, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3, 4,
 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 8 };
+
 
 //! \}

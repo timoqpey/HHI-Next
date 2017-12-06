@@ -178,7 +178,7 @@ Void EncApp::xInitLibCfg()
   m_cEncLib.setQPAdaptationRange                                 ( m_iQPAdaptationRange );
 #if HHI_HLM_USE_QPA
   m_cEncLib.setUsePerceptQPA                                     ( m_bUsePerceptQPA && !m_bUseAdaptiveQP );
-  m_cEncLib.setUseANSNR                                          ( m_bUseANSNR );
+  m_cEncLib.setUseWPSNR                                          ( m_bUseWPSNR );
 #endif
   m_cEncLib.setExtendedPrecisionProcessingFlag                   ( m_extendedPrecisionProcessingFlag );
   m_cEncLib.setHighPrecisionOffsetsEnabledFlag                   ( m_highPrecisionOffsetsEnabledFlag );
@@ -203,12 +203,13 @@ Void EncApp::xInitLibCfg()
 #if T0196_SELECTIVE_RDOQ
   m_cEncLib.setUseSelectiveRDOQ                                  ( m_useSelectiveRDOQ );
 #endif
+  m_cEncLib.setRDOQfn                                            ( RDOQfn( m_RDOQfn ) );
   m_cEncLib.setRDpenalty                                         ( m_rdPenalty );
   m_cEncLib.setQTBT                                              ( m_QTBT );
   m_cEncLib.setCTUSize                                           ( m_uiCTUSize );
   m_cEncLib.setMinQTSizes                                        ( m_uiMinQT );
   m_cEncLib.setMaxBTDepth                                        ( m_uiMaxBTDepth, m_uiMaxBTDepthI, m_uiMaxBTDepthIChroma );
-  m_cEncLib.setQtbtDualITree                                     ( m_qtbtDualTree );
+  m_cEncLib.setDualITree                                         ( m_dualTree );
   m_cEncLib.setNSST                                              ( m_NSST );
   m_cEncLib.setIntra4Tap                                         ( m_Intra4Tap );
   m_cEncLib.setIntra65Ang                                        ( m_Intra65Ang );

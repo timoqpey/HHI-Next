@@ -90,7 +90,6 @@ InterSearch::InterSearch()
   , m_pFullCS                     (nullptr)
   , m_pcEncCfg                    (nullptr)
   , m_pcTrQuant                   (nullptr)
-  , m_pcRdCost                    (nullptr)
   , m_iSearchRange                (0)
   , m_bipredSearchRange           (0)
   , m_motionEstimationSearchMethod(MESEARCH_FULL)
@@ -184,7 +183,6 @@ Void InterSearch::init( EncCfg*        pcEncCfg,
   m_iSearchRange                 = iSearchRange;
   m_bipredSearchRange            = bipredSearchRange;
   m_motionEstimationSearchMethod = motionEstimationSearchMethod;
-  m_pcRdCost                     = pcRdCost;
   m_CABACEstimator               = CABACEstimator;
   m_CtxCache                     = ctxCache;
 
@@ -213,7 +211,7 @@ Void InterSearch::init( EncCfg*        pcEncCfg,
   }
 
   const ChromaFormat cform = pcEncCfg->getChromaFormatIdc();
-  InterPrediction::init( cform );
+  InterPrediction::init( pcRdCost, cform );
 
   for( UInt i = 0; i < NUM_REF_PIC_LIST_01; i++ )
   {
@@ -815,8 +813,6 @@ Void InterSearch::predInterSearch(CodingUnit& cu)
   UInt         numPUs = CU::getNumPUs(cu);
   UInt         puIdx = 0;
 
-  PelUnitBuf   obmcOrgBuf = m_obmcOrgMod.subBuf( UnitAreaRelative( cu, cu ) );
-
   for( auto &pu : CU::traversePUs( cu ) )
   {
     // motion estimation only evaluates luma component
@@ -840,14 +836,10 @@ Void InterSearch::predInterSearch(CodingUnit& cu)
 
     PU::spanMotionInfo( pu );
 
-    obmcOrgBuf.copyFrom( cu.cs->getOrgBuf( cu ) );
-
+    PelUnitBuf obmcOrgBuf = m_obmcOrgMod.subBuf( UnitAreaRelative( pu, pu ) );
+    obmcOrgBuf.copyFrom( pu.cs->getOrgBuf( pu ) );
     //consider OBMC in motion estimation
-    for( auto &subPu : CU::traversePUs( cu ) )
-    {
-      PelUnitBuf cTmpOrg = obmcOrgBuf.subBuf( UnitAreaRelative( cu, subPu ) );
-      subBlockOBMC( subPu, &cTmpOrg, true );
-    }
+    subBlockOBMC( pu, &obmcOrgBuf, true );
 
     Distortion   uiHevcCost   = std::numeric_limits<Distortion>::max();
     Distortion   uiAffineCost = std::numeric_limits<Distortion>::max();
@@ -1370,6 +1362,8 @@ Void InterSearch::predInterSearch(CodingUnit& cu)
 }
 
 
+
+
 // AMVP
 Void InterSearch::xEstimateMvPredAMVP( PredictionUnit& pu, PelUnitBuf& origBuf, RefPicList eRefPicList, Int iRefIdx, Mv& rcMvPred, AMVPInfo& rAMVPInfo, Bool bFilled, Distortion* puiDistBiP )
 {
@@ -1555,7 +1549,7 @@ Void InterSearch::xCheckBestMVP ( RefPicList eRefPicList, Mv cMv, Mv& rcMvPred, 
 }
 
 
-Distortion InterSearch::xGetTemplateCost( PredictionUnit& pu,
+Distortion InterSearch::xGetTemplateCost( const PredictionUnit& pu,
                                           PelUnitBuf& origBuf,
                                           PelUnitBuf& predBuf,
                                           Mv          cMvCand,
@@ -1571,17 +1565,12 @@ Distortion InterSearch::xGetTemplateCost( PredictionUnit& pu,
 
   clipMv( cMvCand, pu.cu->lumaPos(), *pu.cs->sps );
 
-  // prediction pattern
-  if ( !pu.cu->LICFlag && pu.cu->slice->testWeightPred() && pu.cu->slice->getSliceType()==P_SLICE )
-  {
-    xPredInterBlk( COMPONENT_Y, pu, picRef, cMvCand, predBuf, true, pu.cu->slice->clpRng( COMPONENT_Y ) );
-  }
-  else
-  {
-    xPredInterBlk( COMPONENT_Y, pu, picRef, cMvCand, predBuf, false, pu.cu->slice->clpRng( COMPONENT_Y ) );
-  }
 
-  if ( !pu.cu->LICFlag && pu.cu->slice->testWeightPred() && pu.cu->slice->getSliceType()==P_SLICE )
+  // prediction pattern
+  const Bool bi = !pu.cu->LICFlag && pu.cu->slice->testWeightPred() && pu.cu->slice->getSliceType()==P_SLICE;
+  xPredInterBlk( COMPONENT_Y, pu, picRef, cMvCand, predBuf, bi, pu.cu->slice->clpRng( COMPONENT_Y ), false, false, FRUC_MERGE_OFF, true );
+
+  if ( bi )
   {
     xWeightedPredictionUni( pu, predBuf, eRefPicList, predBuf, iRefIdx, m_maxCompIDToPred );
   }
@@ -1635,7 +1624,7 @@ Void InterSearch::xMotionEstimation(PredictionUnit& pu, PelUnitBuf& origBuf, Ref
     PelUnitBuf otherBuf = m_tmpPredStorage[1 - (Int)eRefPicList].getBuf( UnitAreaRelative(*pu.cu, pu ));
     origBufTmp.copyFrom(origBuf);
     origBufTmp.removeHighFreq(otherBuf, m_pcEncCfg->getClipForBiPredMeEnabled(), pu.cu->slice->clpRngs() );
-   
+
     pBuf = &origBufTmp;
 
     fWeight = 0.5;
@@ -1732,7 +1721,7 @@ Void InterSearch::xMotionEstimation(PredictionUnit& pu, PelUnitBuf& origBuf, Ref
   // sub-pel refinement for sub-pel resolution
   if( pu.cu->imv == 0 )
   {
-    xPatternSearchFracDIF( pu.cu->transQuantBypass, cStruct, rcMv, cMvHalf, cMvQter, ruiCost );
+    xPatternSearchFracDIF( pu, eRefPicList, iRefIdxPred, cStruct, rcMv, cMvHalf, cMvQter, ruiCost );
     m_pcRdCost->setCostScale( 0 );
     rcMv <<= 2;
     rcMv  += ( cMvHalf <<= 1 );
@@ -2355,14 +2344,18 @@ Void InterSearch::xPatternSearchIntRefine(PredictionUnit& pu, IntTZSearchStruct&
 
 
 Void InterSearch::xPatternSearchFracDIF(
-  Bool         bIsLosslessCoded,
+  const PredictionUnit& pu,
+  RefPicList            eRefPicList,
+  Int                   iRefIdx,
   IntTZSearchStruct&    cStruct,
-  const Mv& rcMvInt,
-  Mv&       rcMvHalf,
-  Mv&       rcMvQter,
-  Distortion&  ruiCost
+  const Mv&             rcMvInt,
+  Mv&                   rcMvHalf,
+  Mv&                   rcMvQter,
+  Distortion&           ruiCost
 )
 {
+  const Bool bIsLosslessCoded = pu.cu->transQuantBypass;
+
   //  Reference pattern initialization (integer scale)
   Int         iOffset    = rcMvInt.getHor() + rcMvInt.getVer() * cStruct.iRefStride;
   CPelBuf cPatternRoi(cStruct.piRefY + iOffset, cStruct.iRefStride, *cStruct.pcPatternKey);
@@ -3898,6 +3891,11 @@ Void InterSearch::xEstimateInterResidualQT(CodingStructure &cs, Partitioner &par
             }
             m_CABACEstimator->residual_coding( tu, compID );
 
+            if( isLuma( compID ) )
+            {
+              m_CABACEstimator->cu_emt_noqrt_idx( *tu.cu );
+            }
+
             currCompFracBits = m_CABACEstimator->getEstFracBits();
 
             PelBuf resiBuf     = csFull->getResiBuf(compArea);
@@ -4052,6 +4050,8 @@ Void InterSearch::xEstimateInterResidualQT(CodingStructure &cs, Partitioner &par
 #endif
       }
     }
+
+    m_CABACEstimator->cu_emt_noqrt_idx( *tu.cu );
 
     csFull->fracBits += m_CABACEstimator->getEstFracBits();
     csFull->dist     += uiSingleDist;
@@ -4346,7 +4346,7 @@ UInt64 InterSearch::xGetSymbolFracBitsInter(CodingStructure &cs, Partitioner &pa
 
   m_CABACEstimator->resetBits();
 
-  if (cu.partSize == SIZE_2Nx2N && cu.firstPU->mergeFlag && !cu.rootCbf)
+  if( cu.partSize == SIZE_2Nx2N && cu.firstPU->mergeFlag && !cu.rootCbf )
   {
     cu.skip = true;
 

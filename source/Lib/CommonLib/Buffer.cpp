@@ -110,6 +110,7 @@ PelBufferOps g_pelBufOP = PelBufferOps();
 #endif
 #endif
 
+
 template<>
 Void AreaBuf<Pel>::addAvg( const AreaBuf<const Pel> &other1, const AreaBuf<const Pel> &other2, const ClpRng& clpRng)
 {
@@ -193,23 +194,6 @@ Void AreaBuf<Pel>::toLast( const ClpRng& clpRng )
       }
       src += srcStride;
     }
-  }
-}
-
-template<>
-Void AreaBuf<Pel>::copyToPartXYComponent(AreaBuf<Pel> &other, const Int &x, const Int &y, const Int iWidth, const Int iHeight)
-{
-  const UInt srcStride = stride;
-  const UInt dstStride = other.stride;
-
-  const Pel* src = buf;
-        Pel* dst = other.buf + y * dstStride + x;
-  
-  for (Int y = iHeight; y != 0; y-- )
-  {
-    ::memcpy( dst, src, sizeof(Pel)*iWidth);
-    dst += dstStride;
-    src += srcStride;
   }
 }
 

@@ -76,14 +76,44 @@ Position CompArea::chromaPos() const
   }
 }
 
+Size CompArea::lumaSize() const
+{
+  if( isChroma( compID ) )
+  {
+    UInt scaleX = getComponentScaleX( compID, chromaFormat );
+    UInt scaleY = getComponentScaleY( compID, chromaFormat );
+
+    return Size( width << scaleX, height << scaleY );
+  }
+  else
+  {
+    return *this;
+  }
+}
+
+Size CompArea::chromaSize() const
+{
+  if( isLuma( compID ) )
+  {
+    UInt scaleX = getComponentScaleX( compID, chromaFormat );
+    UInt scaleY = getComponentScaleY( compID, chromaFormat );
+
+    return Size( width >> scaleX, height >> scaleY );
+  }
+  else
+  {
+    return *this;
+  }
+}
+
 Position CompArea::lumaPos() const
 {
-  if (isChroma(compID))
+  if( isChroma( compID ) )
   {
-    UInt scaleX = getComponentScaleX(compID, chromaFormat);
-    UInt scaleY = getComponentScaleY(compID, chromaFormat);
+    UInt scaleX = getComponentScaleX( compID, chromaFormat );
+    UInt scaleY = getComponentScaleY( compID, chromaFormat );
 
-    return Position(x << scaleX, y << scaleY);
+    return Position( x << scaleX, y << scaleY );
   }
   else
   {
@@ -128,31 +158,35 @@ UnitArea::UnitArea(const ChromaFormat _chromaFormat,       CompArea &&blkY,     
 Bool UnitArea::contains(const UnitArea& other) const
 {
   Bool ret = true;
+  Bool any = false;
 
   for( const auto &blk : other.blocks )
   {
     if( blk.valid() && blocks[blk.compID].valid() )
     {
       ret &= blocks[blk.compID].contains( blk );
+      any = true;
     }
   }
 
-  return ret;
+  return any && ret;
 }
 
 Bool UnitArea::contains( const UnitArea& other, const ChannelType chType ) const
 {
   Bool ret = true;
+  Bool any = false;
 
   for( const auto &blk : other.blocks )
   {
     if( toChannelType( blk.compID ) == chType && blk.valid() && blocks[blk.compID].valid() )
     {
       ret &= blocks[blk.compID].contains( blk );
+      any = true;
     }
   }
 
-  return ret;
+  return any && ret;
 }
 
 Void UnitArea::repositionTo(const UnitArea& unitArea)

@@ -209,7 +209,7 @@ Distortion RdCost::xGetSSE_NxN_SIMD( const DistParam &rcDtParam )
 template< X86_VEXT vext >
 Distortion RdCost::xGetSAD_SIMD( const DistParam &rcDtParam )
 {
-  if( rcDtParam.bitDepth > 10 || rcDtParam.applyWeight )
+  if( rcDtParam.org.width < 4 || rcDtParam.bitDepth > 10 || rcDtParam.applyWeight )
     return RdCost::xGetSAD( rcDtParam );
 
   const short* pSrc1   = (const short*)rcDtParam.org.buf;

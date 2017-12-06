@@ -205,8 +205,8 @@ struct ComprCUCtx
   CodingStructure                  *bestCS;
   CodingUnit                       *bestCU;
   TransformUnit                    *bestTU;
-  static_vector<Int64,  20>         extraFeatures;
-  static_vector<double, 20>         extraFeaturesd;
+  static_vector<Int64,  30>         extraFeatures;
+  static_vector<double, 30>         extraFeaturesd;
   double                            bestInterCost;
   double                            bestEmtSize2Nx2N1stPass;
   bool                              skipSecondEMTPass;
@@ -232,16 +232,14 @@ protected:
 #if SHARP_LUMA_DELTA_QP
   int                   m_lumaLevelToDeltaQPLUT[LUMA_LEVEL_TO_DQP_LUT_MAXSIZE];
   int                   m_lumaQPOffset;
-  const class EncSlice* m_pcSliceEncoder;
+  class EncSlice*       m_pcSliceEncoder;
 #endif
   bool                  m_fastDeltaQP;
   double                m_dBestMvdPelCost[2]; //IMV 0: 1/4, 1: Int
   static_vector<ComprCUCtx, ( MAX_CU_DEPTH << 2 )> m_ComprCUCtxList;
-  unsigned              m_skipThreshold;
 public:
 
   virtual ~EncModeCtrl() {}
-  virtual void initSlice        ( const Slice &slice );
   virtual void initCTUEncoding  ( const Slice &slice )                                                                 = 0;
   virtual void initCULevel      ( Partitioner &partitioner, const CodingStructure& cs )                                = 0;
   virtual void finishCULevel    ( Partitioner &partitioner )                                                           = 0;
@@ -263,7 +261,7 @@ public:
 
 #if SHARP_LUMA_DELTA_QP
   void                  setSliceEncoder   ( class EncSlice* pSliceEncoder ) { m_pcSliceEncoder = pSliceEncoder; }
-  const class EncSlice* getSliceEncoder   () { return m_pcSliceEncoder; }
+  class EncSlice*       getSliceEncoder   () { return m_pcSliceEncoder; }
   void                  initLumaDeltaQpLUT();
   int                   calculateLumaDQP  ( const CPelBuf& rcOrg );
 #endif
@@ -440,6 +438,7 @@ class EncModeCtrlMTnoRQT : public EncModeCtrl, public SaveLoadEncInfoCtrl, publi
   {
     DID_HORZ_SPLIT = 0,
     DID_VERT_SPLIT,
+    DID_QUAD_SPLIT,
     BEST_HORZ_SPLIT_COST,
     BEST_VERT_SPLIT_COST,
     BEST_NON_SPLIT_COST,
@@ -450,8 +449,13 @@ class EncModeCtrlMTnoRQT : public EncModeCtrl, public SaveLoadEncInfoCtrl, publi
     BEST_IMV_COST,
     LAST_NSST_IDX,
     SKIP_OTHER_NSST,
+    QT_BEFORE_BT,
+    IS_BEST_NOSPLIT_SKIP,
+    MAX_QT_SUB_DEPTH,
     NUM_EXTRA_FEATURES
   };
+
+  unsigned m_skipThreshold;
 
 public:
 

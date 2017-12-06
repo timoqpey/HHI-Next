@@ -234,7 +234,7 @@ Void HEVCPartitioner::splitCurrArea( const PartSplit split, const CodingStructur
   {
     currTrDepth = 0;
   }
-  
+
   currQtDepth++;
 }
 
@@ -286,30 +286,9 @@ PartSplit HEVCPartitioner::getImplicitSplit( const CodingStructure &cs )
 
   PartSplit split = CU_DONT_SPLIT;
 
-  if( cs.sps->getSpsNext().getUseQTBT() )
+  if( !cs.picture->Y().contains( currArea().Y().bottomRight() ) )
   {
-    if( currArea().lwidth() > cs.sps->getMaxTrSize() || currArea().lheight() > cs.sps->getMaxTrSize() )
-    {
-      split = CU_QUAD_SPLIT;
-    }
-
-    if( split == CU_DONT_SPLIT )
-    {
-      const bool isBlInPic = cs.picture->Y().contains( currArea().Y().bottomLeft() );
-      const bool isTrInPic = cs.picture->Y().contains( currArea().Y().topRight() );
-
-      if( !isBlInPic || !isTrInPic )
-      {
-        split = CU_QUAD_SPLIT;
-      }
-    }
-  }
-  else
-  {
-    if( !cs.picture->Y().contains( currArea().Y().bottomRight() ) )
-    {
-      split = CU_QUAD_SPLIT;
-    }
+    split = CU_QUAD_SPLIT;
   }
 
   m_partStack.back().checkdIfImplicit = true;
@@ -476,12 +455,12 @@ bool QTBTPartitioner::canSplit( const PartSplit split, const CodingStructure &cs
     break;
   case CU_QUAD_SPLIT:
   {
-    if( implicitSplit == split )                                                return true;
-    // allowing QT split even if a BT split is implied
-
     // don't allow QT-splitting below a BT split
     PartSplit lastSplit = m_partStack.back().split;
     if( lastSplit != CTU_LEVEL && lastSplit != CU_QUAD_SPLIT )                  return false;
+    
+    // allowing QT split even if a BT split is implied
+    if( implicitSplit != CU_DONT_SPLIT )                                        return true;
 
     unsigned minQtSize = cs.pcv->getMinQtSize( *cs.slice, cs.chType );
     if( currArea().lwidth() <= minQtSize || currArea().lheight() <= minQtSize ) return false;
@@ -545,27 +524,17 @@ PartSplit QTBTPartitioner::getImplicitSplit( const CodingStructure &cs )
 
   PartSplit split = CU_DONT_SPLIT;
 
-  if( cs.sps->getSpsNext().getUseQTBT() )
+  if( currArea().lwidth() > cs.sps->getMaxTrSize() || currArea().lheight() > cs.sps->getMaxTrSize() )
   {
-    if( currArea().lwidth() > cs.sps->getMaxTrSize() || currArea().lheight() > cs.sps->getMaxTrSize() )
-    {
-      split = CU_QUAD_SPLIT;
-    }
-
-    if( split == CU_DONT_SPLIT )
-    {
-      const bool isBlInPic = cs.picture->Y().contains( currArea().Y().bottomLeft() );
-      const bool isTrInPic = cs.picture->Y().contains( currArea().Y().topRight() );
-
-      if( !isBlInPic || !isTrInPic )
-      {
-        split = CU_QUAD_SPLIT;
-      }
-    }
+    split = CU_QUAD_SPLIT;
   }
-  else
+
+  if( split == CU_DONT_SPLIT )
   {
-    if( !cs.picture->Y().contains( currArea().Y().bottomRight() ) )
+    const bool isBlInPic = cs.picture->Y().contains( currArea().Y().bottomLeft() );
+    const bool isTrInPic = cs.picture->Y().contains( currArea().Y().topRight() );
+
+    if( !isBlInPic || !isTrInPic )
     {
       split = CU_QUAD_SPLIT;
     }

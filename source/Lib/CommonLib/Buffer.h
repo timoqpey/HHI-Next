@@ -114,6 +114,8 @@ struct AreaBuf : public Size
 
   void transposedFrom       ( const AreaBuf<const T> &other );
 
+  void toLast               ( const ClpRng& clpRng );
+
         T& at( const int &x, const int &y )          { return buf[y * stride + x]; }
   const T& at( const int &x, const int &y ) const    { return buf[y * stride + x]; }
 
@@ -131,9 +133,6 @@ struct AreaBuf : public Size
   AreaBuf<const T> subBuf( const Position &pos, const Size &size )                              const { return AreaBuf<const T>( bufAt( pos  ), stride, size   ); }
   AreaBuf<      T> subBuf( const int &x, const int &y, const unsigned &_w, const unsigned &_h )       { return AreaBuf<      T>( bufAt( x, y ), stride, _w, _h ); }
   AreaBuf<const T> subBuf( const int &x, const int &y, const unsigned &_w, const unsigned &_h ) const { return AreaBuf<const T>( bufAt( x, y ), stride, _w, _h ); }
-
-  void toLast( const ClpRng& clpRng );
-  void copyToPartXYComponent( AreaBuf<T> &other, const Int &x, const Int &y, const Int iWidth, const Int iHeight );
 };
 
 typedef AreaBuf<      Pel>  PelBuf;
@@ -317,6 +316,7 @@ void AreaBuf<T>::copyFrom( const AreaBuf<const T> &other )
   }
 }
 
+
 template<typename T>
 void AreaBuf<T>::subtract( const AreaBuf<const T> &other )
 {
@@ -386,32 +386,6 @@ template<>
 void AreaBuf<Pel>::toLast( const ClpRng& clpRng );
 
 template<typename T>
-void AreaBuf<T>::copyToPartXYComponent( AreaBuf<T> &other, const Int &x, const Int &y, const Int iWidth, const Int iHeight )
-{
-  THROW( "Type not supported" );
-}
-
-template<>
-void AreaBuf<Pel>::copyToPartXYComponent( AreaBuf<Pel> &other, const Int &x, const Int &y, const Int iWidth, const Int iHeight );
-
-template<typename T>
-void AreaBuf<T>::extendSingleBorderPel()
-{
-  T* p = buf;
-
-  for( int y = 0; y < height; y++ )
-  {
-    p[width] = p[width - 1];
-
-    p += stride;
-  }
-  for( int x = 0; x < width; x += 4 )
-  {
-    p[x] = p[stride + x];
-  }
-}
-
-template<typename T>
 void AreaBuf<T>::removeHighFreq( const AreaBuf<T>& other, const bool bClip, const ClpRng& clpRng )
 {
   const T*  src       = other.buf;
@@ -425,7 +399,7 @@ void AreaBuf<T>::removeHighFreq( const AreaBuf<T>& other, const bool bClip, cons
   dst += dstStride; \
 
 #define REM_HF_OP_CLIP( ADDR ) dst[ADDR] = ClipPel<T>( 2 * dst[ADDR] - src[ADDR], clpRng )
-#define REM_HF_OP( ADDR )      dst[ADDR] =         2 * dst[ADDR] - src[ADDR]
+#define REM_HF_OP( ADDR )      dst[ADDR] =             2 * dst[ADDR] - src[ADDR]
 
   if( bClip )
   {
@@ -638,6 +612,7 @@ void UnitBuf<T>::copyFrom( const UnitBuf<const T> &other )
 }
 
 
+
 template<typename T>
 void UnitBuf<T>::subtract( const UnitBuf<const T> &other )
 {
@@ -680,7 +655,7 @@ void UnitBuf<T>::addAvg(const UnitBuf<const T> &other1, const UnitBuf<const T> &
   const size_t iend   = lumaOnly   ? 1 : bufs.size();
 
   CHECK( lumaOnly && chromaOnly, "should not happen" );
-  
+
   for( size_t i = istart; i < iend; i++)
   {
     bufs[i].addAvg( other1.bufs[i], other2.bufs[i], clpRngs.comp[i]);

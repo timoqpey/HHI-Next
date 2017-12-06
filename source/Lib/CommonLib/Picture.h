@@ -157,8 +157,8 @@ struct Picture : public UnitArea
   int  getPOC()                               const { return poc; }
   Void setBorderExtension( bool bFlag)              { m_bIsBorderExtended = bFlag;}
 
-  Void setPrevQP(Int qp, const ChannelType chType)                          { m_prevQP[chType] = qp; }
-  Int& getPrevQP(const ChannelType chType)                                  { return m_prevQP[chType]; }
+  Void setPrevQP(Int qp, const ChannelType chType)  { m_prevQP[chType] = qp; }
+  Int& getPrevQP(const ChannelType chType)          { return m_prevQP[chType]; }
 
 public:
   bool m_bIsBorderExtended;
@@ -179,7 +179,7 @@ public:
 
   CodingStructure*   cs;
   std::deque<Slice*> slices;
-  SEIMessages        SEIs; 
+  SEIMessages        SEIs;
 
   Void         allocateNewSlice();
   Slice        *swapSliceObject(Slice * p, UInt i);
@@ -188,6 +188,10 @@ public:
   TileMap*     tileMap;
   std::vector<AQpLayer*> aqlayer;
 
+#if !KEEP_PRED_AND_RESI_SIGNALS
+private:
+  UnitArea m_ctuArea;
+#endif
 };
 
 class SEIDecodedPictureHash;

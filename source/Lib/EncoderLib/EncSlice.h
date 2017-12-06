@@ -97,10 +97,11 @@ private:
 #endif
 #if HHI_HLM_USE_QPA
   double*                 m_uEnerHpCtu;                         ///< CTU-wise L2 or squared L1 norm of high-passed luma input
+  Pel*                    m_iOffsetCtu;                         ///< CTU-wise DC offset (later QP index offset) of luma input
 #endif
 
 #if SHARP_LUMA_DELTA_QP
-  Double   calculateLambda( Slice* slice, const Int GOPid, const Int depth, const Double refQP, const Double dQP, Int &iQP );
+  Double   calculateLambda( const Slice* slice, const Int GOPid, const Int depth, const Double refQP, const Double dQP, Int &iQP );
 #endif
   Void     setUpLambda(Slice* slice, const Double dLambda, Int iQP);
   Void     calculateBoundingCtuTsAddrForSlice(UInt &startCtuTSAddrSlice, UInt &boundingCtuTSAddrSlice, Bool &haveReachedTileBoundary, Picture* pcPic, const Int sliceMode, const Int sliceArgument);

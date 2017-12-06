@@ -679,6 +679,7 @@ Bool EncAppCfg::parseCfg( Int argc, TChar* argv[] )
   std::string ignore;
 #endif
 
+
   po::Options opts;
   opts.addOptions()
   ("help",                                            do_help,                                          false, "this help text")
@@ -768,7 +769,8 @@ Bool EncAppCfg::parseCfg( Int argc, TChar* argv[] )
   ("MaxBTDepthI",                                     m_uiMaxBTDepthI,                                     3u, "MaxBTDepthI")
   ("MaxBTDepthISliceL",                               m_uiMaxBTDepthI,                                     3u, "MaxBTDepthISliceL")
   ("MaxBTDepthISliceC",                               m_uiMaxBTDepthIChroma,                               3u, "MaxBTDepthISliceC")
-  ("QtbtDualITree",                                   m_qtbtDualTree,                                   false, "Use separate QTBT trees for intra slice luma and chroma channel types")
+  ("DualITree",                                       m_dualTree,                                       false, "Use separate QTBT trees for intra slice luma and chroma channel types")
+  ("QtbtDualITree",                                   m_dualTree,                                       false, "Use separate QTBT trees for intra slice luma and chroma channel types")
   ("NSST",                                            m_NSST,                                           false, "Enable NSST (0:off, 1:on)  [default: off]")
   ("Intra4Tap",                                       m_Intra4Tap,                                      false, "Enable 4-tap intra filter (0:off, 1:on)  [default: off]")
   ("Intra65Ang",                                      m_Intra65Ang,                                     false, "Enable 65 intra prediction modes (0:off, 1:on)  [default: off]")
@@ -776,7 +778,7 @@ Bool EncAppCfg::parseCfg( Int argc, TChar* argv[] )
   ("IntraBoundaryFilter",                             m_IntraBoundaryFilter,                            false, "Enable Intra boundary filter (0:off, 1:on)  [default: off]")
   ("SubPuMvp",                                        m_SubPuMvp,                                       false, "Enable Sub-PU temporal motion vector prediction (0:off, 1:on)  [default: off]")
   ("SubPuMvpLog2Size",                                m_SubPuMvpLog2Size,                                  2u, "Sub-PU TMVP size index: 2^n")
-  ("CABACEngine",                                     m_CABACEngineMode,                                   0u, "CABAC engine mode (0:standard, 1:mulit-par, 2:adap.t window, 3:multi-par + adap. window)  [default: 0]")
+  ("CABACEngine",                                     m_CABACEngineMode,                                   0u, "CABAC engine mode (0:standard, 1:multi-parameter, 2:adaptive window, 3:multi-par. + adap. window)  [default: 0]")
   ("AltResiComp",                                     m_altResiCompId,                                     0u, "Alternative residual compression mode (0:off, 1:JEM)  [default: off]")
   ("HighPrecMv",                                      m_highPrecisionMv,                                false, "High precision motion vectors for temporal merging (0:off, 1:on)  [default: off]")
   ("Affine",                                          m_Affine,                                         false, "Enable affine prediction (0:off, 1:on)  [default: off]")
@@ -914,7 +916,7 @@ Bool EncAppCfg::parseCfg( Int argc, TChar* argv[] )
   ("MaxQPAdaptationRange,-aqr",                       m_iQPAdaptationRange,                                 6, "QP adaptation range")
 #if HHI_HLM_USE_QPA
   ("PerceptQPA,-qpa",                                 m_bUsePerceptQPA,                                 false, "perceptually motivated input-adaptive QP modification (default: 0 = off, ignored if -aq is set)")
-  ("ANSNR,-ansnr",                                    m_bUseANSNR,                                      false, "output activity normalized SNR (ANSNR) instead of PSNR")
+  ("WPSNR,-wpsnr",                                    m_bUseWPSNR,                                      false, "output perceptually weighted peak SNR (WPSNR) instead of PSNR")
 #endif
   ("dQPFile,m",                                       m_dQPFileName,                               string(""), "dQP file name")
   ("RDOQ",                                            m_useRDOQ,                                         true)
@@ -922,6 +924,7 @@ Bool EncAppCfg::parseCfg( Int argc, TChar* argv[] )
 #if T0196_SELECTIVE_RDOQ
   ("SelectiveRDOQ",                                   m_useSelectiveRDOQ,                               false, "Enable selective RDOQ")
 #endif
+  ("RDOQfn",                                          m_RDOQfn,                                            0u, "Specialization of RDOQ function. 0: original, 1: fast" )
   ("RDpenalty",                                       m_rdPenalty,                                          0, "RD-penalty for 32x32 TU for intra in non-intra slices. 0:disabled  1:RD-penalty  2:maximum RD-penalty")
 
   // Deblocking filter parameters
@@ -1227,6 +1230,7 @@ Bool EncAppCfg::parseCfg( Int argc, TChar* argv[] )
   /*
    * Set any derived parameters
    */
+
 
   m_framesToBeEncoded = ( m_framesToBeEncoded + m_temporalSubsampleRatio - 1 ) / m_temporalSubsampleRatio;
   m_adIntraLambdaModifier = cfg_adIntraLambdaModifier.values;
@@ -1665,7 +1669,7 @@ Bool EncAppCfg::parseCfg( Int argc, TChar* argv[] )
   {
     std::string sChannelsList;
     g_trace_ctx->getChannelsList( sChannelsList );
-    msg( INFO, "\nAvailable tracing channels:\n\n%s\n", sChannelsList.c_str() );
+    msg( INFO, "\n Using tracing channels:\n\n%s\n", sChannelsList.c_str() );
   }
 #endif
 
@@ -1808,8 +1812,13 @@ Bool EncAppCfg::xCheckParameter()
     xConfirmPara( (m_IntraPDPC > 2) || (m_IntraPDPC < 0), "IntraPDPC out of range 0 to 2" );
     xConfirmPara( (m_IntraPDPC & 2) && m_useStrongIntraSmoothing, "PDPC==2 requires disabling strong intra smoothing" );
     xConfirmPara( (m_LMChroma > 1) && ! m_Intra65Ang, "ELM (LMChroma > 1) requires Intra65Ang" );
-    xConfirmPara( ( m_LMChroma > 2 ) && !m_QTBT, "ELM Mode 2 (LMChroma > 2) requires QTBT" );
   }
+
+
+#if ( SHARP_LUMA_DELTA_QP && HHI_HLM_USE_QPA )
+  xConfirmPara( m_bUsePerceptQPA && m_lumaLevelToDeltaQPMapping.mode != 0, "QPA and SharpDeltaQP cannot be used together" );
+#endif
+
 
   xConfirmPara( m_altResiCompId > 1, "Alternative residual compression Id out of range  (0:off, 1:JEM)" );
 
@@ -2008,7 +2017,6 @@ Bool EncAppCfg::xCheckParameter()
     msg( WARNING, "**          advanced sup-pu temporal merging is enabled.                  **\n" );
     msg( WARNING, "****************************************************************************\n" );
   }
-  
 
   xConfirmPara( m_iQP < -6 * (m_internalBitDepth[CHANNEL_TYPE_LUMA] - 8) || m_iQP > MAX_QP, "QP exceeds supported range (-QpBDOffsety to 51)" );
 #if W0038_DB_OPT
@@ -2782,8 +2790,8 @@ Void EncAppCfg::xPrintParameter()
   msg( DETAILS, "cabac_bypass_alignment_enabled_flag    : %s\n", (m_cabacBypassAlignmentEnabledFlag         ? "Enabled" : "Disabled") );
   if (m_bUseSAO)
   {
-    msg( DETAILS, "log2_sao_offset_scale_luma             : %d\n", m_log2SaoOffsetScale[CHANNEL_TYPE_LUMA]);
-    msg( DETAILS, "log2_sao_offset_scale_chroma           : %d\n", m_log2SaoOffsetScale[CHANNEL_TYPE_CHROMA]);
+    msg( DETAILS, "log2_sao_offset_scale_luma             : %d\n", m_log2SaoOffsetScale[CHANNEL_TYPE_LUMA] );
+    msg( DETAILS, "log2_sao_offset_scale_chroma           : %d\n", m_log2SaoOffsetScale[CHANNEL_TYPE_CHROMA] );
   }
 
   switch (m_costMode)
@@ -2890,7 +2898,7 @@ Void EncAppCfg::xPrintParameter()
     }
     msg( VERBOSE, "CABACEngine:%d ", m_CABACEngineMode );
     msg( VERBOSE, "QTBT:%d ", m_QTBT );
-    if( m_QTBT ) msg( VERBOSE, "QtbtDualITree:%d ", m_qtbtDualTree );
+    if( m_QTBT ) msg( VERBOSE, "DualITree:%d ", m_dualTree );
     msg( VERBOSE, "LargeCTU:%d ", m_LargeCTU );
     msg( VERBOSE, "IMV:%d ", m_ImvMode );
     if( !m_QTBT ) msg( VERBOSE, "IMVMaxCand:%d ", m_ImvMaxCand );
@@ -2938,6 +2946,7 @@ Void EncAppCfg::xPrintParameter()
   if( m_QTBT ) msg( VERBOSE, "AMaxBT:%d ", m_useAMaxBT );
   if( m_QTBT ) msg( VERBOSE, "E0023FastEnc:%d ", m_e0023FastEnc );
   if( m_QTBT ) msg( VERBOSE, "ContentBasedFastQtbt:%d ", m_contentBasedFastQtbt );
+  msg( VERBOSE, "RDOQfn:%d ", m_RDOQfn );
 
   msg( VERBOSE, "\n\n");
 

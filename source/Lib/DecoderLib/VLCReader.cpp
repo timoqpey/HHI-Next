@@ -193,7 +193,7 @@ Void VLCReader::xReadSvlc( Int& riVal)
     riVal = 0;
   }
 #if RExt__DECODER_DEBUG_BIT_STATISTICS
-  CodingStatistics::IncrementStatisticEP(pSymbolName, Int(totalLen), riVal);
+  CodingStatistics::IncrementStatisticEP(pSymbolName, Int(totalLen), uiBits);
 #endif
 }
 
@@ -793,7 +793,7 @@ void HLSyntaxReader::parseSPSNext( SPSNext& spsNext )
   READ_FLAG( symbol,    "bio_enable_flag" );                        spsNext.setUseBIO                 ( symbol != 0 );
   READ_FLAG( symbol,    "disable_motion_compression_flag" );        spsNext.setDisableMotCompress     ( symbol != 0 );
   READ_FLAG( symbol,    "lic_enabled_flag" );                       spsNext.setLICMode                ( symbol );
-  READ_FLAG( symbol,    "intra_pdpc_enable_flag");                  spsNext.setUseIntraPDPC           ( symbol != 0 );
+  READ_FLAG( symbol,    "intra_pdpc_enable_flag" );                 spsNext.setUseIntraPDPC           ( symbol != 0 );
   READ_FLAG( symbol,    "alf_enabled_flag" );                       spsNext.setALFEnabled             ( symbol );
   READ_FLAG( symbol,    "lm_chroma_enabled_flag" );                 spsNext.setUseLMChroma            ( symbol != 0 );
   READ_FLAG( symbol,    "emt_intra_enabled_flag" );                 spsNext.setUseIntraEMT            ( symbol != 0 );
@@ -819,7 +819,7 @@ void HLSyntaxReader::parseSPSNext( SPSNext& spsNext )
     unsigned  minQT [3] = { 0, 0, 0 };
     unsigned  maxBTD[3] = { 0, 0, 0 };
 
-    READ_FLAG( symbol,  "qtbt_dual_intra_tree" );                   spsNext.setUseQtbtDoubleITree( symbol );
+    READ_FLAG( symbol,  "qtbt_dual_intra_tree" );                   spsNext.setUseDualITree( symbol );
     READ_UVLC( symbol,  "log2_CTU_size_minus2" );                   spsNext.setCTUSize( 1 << ( symbol + MIN_CU_LOG2 ) );
                                                                     spsNext.getSPS().setMaxCodingDepth( symbol );               // overwrite original value
                                                                     spsNext.getSPS().setMaxCUWidth    ( spsNext.getCTUSize() ); // overwrite original value
@@ -828,7 +828,7 @@ void HLSyntaxReader::parseSPSNext( SPSNext& spsNext )
     READ_UVLC( symbol,  "log2_minQT_PBSlice_minus2" );              minQT [1] = 1 << ( symbol + MIN_CU_LOG2 );
     READ_UVLC( symbol,  "max_bt_depth_minus2" );                    maxBTD[0] = symbol;
     READ_UVLC( symbol,  "max_bt_depth_i_slice_minus2" );            maxBTD[1] = symbol;
-    if( spsNext.getUseQtbtDoubleITree() )
+    if( spsNext.getUseDualITree() )
     {
       READ_UVLC( symbol, "log2_minQT_ISliceChroma_minus2" );        minQT [2] = 1 << ( symbol + MIN_CU_LOG2 );
       READ_UVLC( symbol, "max_bt_depth_i_slice_chroma" );           maxBTD[2] = symbol;
@@ -878,17 +878,17 @@ void HLSyntaxReader::parseSPSNext( SPSNext& spsNext )
 
   if( spsNext.getUseAClip() )
   {
-    READ_CODE( 2, symbol, "aclip_quant");                           spsNext.setAClipQuant( symbol*2 );
+    READ_CODE( 2, symbol, "aclip_quant" );                          spsNext.setAClipQuant( symbol * 2 );
   }
 
-  if (spsNext.getUseLMChroma())
+  if( spsNext.getUseLMChroma() )
   {
-    READ_UVLC(symbol, "elm_mode_minus1");                          spsNext.setELMMode(symbol );
+    READ_UVLC( symbol, "elm_mode_minus1" );                         spsNext.setELMMode( symbol );
   }
 
-  if (spsNext.getUseIntraPDPC())
+  if( spsNext.getUseIntraPDPC() )
   {
-    READ_FLAG(symbol, "planar_pdpc_flag ");                         spsNext.setIntraPDPCMode(symbol + 1);
+    READ_FLAG( symbol, "planar_pdpc_flag" );                        spsNext.setIntraPDPCMode( symbol + 1 );
   }
 
   if( spsNext.getALFEnabled() )
@@ -901,9 +901,7 @@ void HLSyntaxReader::parseSPSNext( SPSNext& spsNext )
 #endif
   }
 
-
   // ADD_NEW_TOOL : (sps extension parser) read tool enabling flags and associated parameters here
-
 }
 
 

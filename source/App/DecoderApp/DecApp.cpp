@@ -171,8 +171,9 @@ UInt DecApp::decode()
       }
     }
 
-    if ( (bNewPicture || !bitstreamFile || nalu.m_nalUnitType == NAL_UNIT_EOS) &&
-        !m_cDecLib.getFirstSliceInSequence () )
+
+
+    if( ( bNewPicture || !bitstreamFile || nalu.m_nalUnitType == NAL_UNIT_EOS ) && !m_cDecLib.getFirstSliceInSequence() )
     {
       if (!loopFiltered || bitstreamFile)
       {

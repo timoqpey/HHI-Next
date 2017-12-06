@@ -53,7 +53,7 @@ struct CoeffCodingContext
 public:
   CoeffCodingContext( const TransformUnit& tu, ComponentID component, bool signHide);
 public:
-  void initSubblock ( int SubsetId, bool sigGroupFlag = false );
+  void initSubblock     ( int SubsetId, bool sigGroupFlag = false );
 public:
   void  resetSigGroup   ()                      { m_sigCoeffGroupFlag.reset( m_subSetPos ); }
   void  setSigGroup     ()                      { m_sigCoeffGroupFlag.set( m_subSetPos ); }
@@ -65,6 +65,9 @@ public:
 public:
   ComponentID     compID          ()                        const { return m_compID; }
   int             subSetId        ()                        const { return m_subSetId; }
+  int             subSetPos       ()                        const { return m_subSetPos; }
+  int             cgPosY          ()                        const { return m_subSetPosY; }
+  int             cgPosX          ()                        const { return m_subSetPosX; }
   unsigned        width           ()                        const { return m_width; }
   unsigned        height          ()                        const { return m_height; }
   unsigned        log2CGSize      ()                        const { return m_log2CGSize; }
@@ -100,6 +103,8 @@ public:
   unsigned        greater1CtxId   ( int       gt1Ctx    )   const { return m_gt1FlagCtxSet( gt1Ctx ); }
   unsigned        greater2CtxId   ()                        const { return m_gt2FlagCtxId; }
   unsigned        altResiCompId   ()                        const { return m_altResiCompId; }
+  void            getAltResiCtxSet( const TCoeff* coeff, int scanPos, UInt& sigCtxIdx, UInt& gt1CtxIdx, UInt& gt2CtxIdx, UInt& goRicePar, int strd = 0 );
+
   unsigned        sigGroupCtxIdOfs() const
   {
     return Ctx::SigCoeffGroup[ m_chType + 2 ]( 0 );
@@ -359,6 +364,8 @@ private:
   int                       m_scanPosLast;
   int                       m_subSetId;
   int                       m_subSetPos;
+  int                       m_subSetPosX;
+  int                       m_subSetPosY;
   int                       m_minSubPos;
   int                       m_maxSubPos;
   unsigned                  m_sigGroupCtxId;
