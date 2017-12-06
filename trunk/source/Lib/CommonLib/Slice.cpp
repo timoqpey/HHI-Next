@@ -513,6 +513,7 @@ Void Slice::setRefPicList( PicList& rcListPic, Bool checkNumPocTotalCurr, Bool b
   }
 }
 
+
 Int Slice::getNumRpsCurrTempList() const
 {
   Int numRpsCurrTempList = 0;
@@ -814,6 +815,7 @@ Void Slice::copySliceInfo(Slice *pSrc, bool cpyAlmostAll)
   m_enableTMVPFlag                = pSrc->m_enableTMVPFlag;
   m_maxNumMergeCand               = pSrc->m_maxNumMergeCand;
   if( cpyAlmostAll ) m_encCABACTableIdx  = pSrc->m_encCABACTableIdx;
+  m_uiMaxBTSize                   = pSrc->m_uiMaxBTSize;
 }
 
 
@@ -1784,6 +1786,7 @@ Void  SPS::createRPSList( Int numRPS )
   m_RPSList.destroy();
   m_RPSList.create(numRPS);
 }
+
 
 
 const Int SPS::m_winUnitX[]={1,2,2,1};

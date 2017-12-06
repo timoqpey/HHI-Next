@@ -59,7 +59,7 @@ private:
   static const Int m_aiSymmetricArray9x9[81];     ///< scan index for 9x9 filter
 
   static const Int m_aiSymmetricArray9x7[63];     ///< scan index for 9x7 filter
-  
+
   static const Int  m_aiTapPos5x5_In9x9Sym[8];
   static const Int  m_aiTapPos7x7_In9x9Sym[14];
   static const Int  m_aiTapPos9x9_In9x9Sym[21];
@@ -116,9 +116,9 @@ private:
   Int  xFilterPixel(const Pel *ImgDec, Int* varIndBeforeMapping, Int **filterCoeffSym, Int *pattern, Int i, Int j, Int fl, Int Stride, AlfFilterType filtNo);
   Void xfindBestFilterPredictor(
 #if JVET_C0038_NO_PREV_FILTERS
-	  ALFParam& pcAlfParam
+    ALFParam& pcAlfParam
 #endif
-	  );
+    );
 #if JVET_C0038_NO_PREV_FILTERS
   Double xTestFixedFilterFast      ( Double ***A, Double **b, Double *pixAcc, Double *filterCoeffSym, Double *filterCoeffDefault, Int varInd);
   Double xTestFixedFilter          ( const Pel *imgY_rec, const Pel *imgY_org, const Pel *imgY_append, Int usePrevFilt[], Int noVarBins, Int orgStride, Int recStride, Int filtType);
@@ -147,7 +147,7 @@ private:
                                Int           interval[m_NO_VAR_BINS],
                                Int           filters_per_fr,
                                AlfFilterType filtType,
-                               Double    errorTabForce0Coeff[m_NO_VAR_BINS][2]); 
+                               Double    errorTabForce0Coeff[m_NO_VAR_BINS][2]);
 
   Double xCalcFilterCoeffs         ( Double     ***EGlobalSeq,
                                      Double      **yGlobalSeq,
@@ -160,9 +160,9 @@ private:
                                      Double    errorTabForce0Coeff[m_NO_VAR_BINS][2] );
   Void xcalcPredFilterCoeff        ( AlfFilterType filtType
 #if COM16_C806_ALF_TEMPPRED_NUM
-	  , ALFParam* alfParam
+    , ALFParam* alfParam
 #endif
-	  ); //TODO rename
+    ); //TODO rename
 
   Void   xCheckFilterMergingAlf(ALFParam& alfParam
 #if JVET_C0038_NO_PREV_FILTERS
@@ -201,12 +201,12 @@ private:
   //Filtering
   Void xFilterFrame_en             (PelUnitBuf& recDstBuf, const PelUnitBuf& recExtBuf, ALFParam& alfParam,  const ClpRng& clpRng);
   Void xFilterFrame_enGalf         (PelUnitBuf& recDstBuf, const PelUnitBuf& recExtBuf, AlfFilterType filtType
-#if COM16_C806_ALF_TEMPPRED_NUM 
+#if COM16_C806_ALF_TEMPPRED_NUM
     , ALFParam *alfParam, Bool updateFilterCoef
 #endif
     , const ClpRng& clpRng);
-  Void xFilterFrame_enAlf          (PelUnitBuf& recDstBuf, const PelUnitBuf& recExtBuf, AlfFilterType filtType 
-#if COM16_C806_ALF_TEMPPRED_NUM 
+  Void xFilterFrame_enAlf          (PelUnitBuf& recDstBuf, const PelUnitBuf& recExtBuf, AlfFilterType filtType
+#if COM16_C806_ALF_TEMPPRED_NUM
     , ALFParam *alfParam, Bool updateFilterCoef
 #endif
     , const ClpRng& clpRng);
@@ -251,7 +251,7 @@ private:
   Bool bFindBestFixedFilter;
 #endif
   UIntBuf    m_maskBuf;
-  
+
   ALFParam*  m_pcBestAlfParam;
   ALFParam*  m_pcTempAlfParam;
 
@@ -265,10 +265,10 @@ private:
   Double***  m_E_merged;
   Double**   m_y_merged;
   Double*    m_pixAcc_merged;
-  
+
   Pel**      m_varImg;
   Int        m_varIndTab[m_NO_VAR_BINS];
-  
+
   Double*    m_filterCoeff;
   Double*    m_pdDoubleAlfCoeff;
   Int*       m_filterCoeffQuantMod;

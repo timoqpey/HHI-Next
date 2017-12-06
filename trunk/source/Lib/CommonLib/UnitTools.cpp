@@ -200,14 +200,14 @@ void CS::initFrucMvp( CodingStructure &cs )
   }
 }
 
-bool CS::isDoubleITree( const CodingStructure &cs )
+bool CS::isDualITree( const CodingStructure &cs )
 {
   return cs.slice->isIntra() && !cs.pcv->ISingleTree;
 }
 
 UnitArea CS::getArea( const CodingStructure &cs, const UnitArea &area )
 {
-  return isDoubleITree( cs ) ? area.singleChan( cs.chType ) : area;
+  return isDualITree( cs ) ? area.singleChan( cs.chType ) : area;
 }
 
 
@@ -309,7 +309,7 @@ UInt CU::getIntraSizeIdx(const CodingUnit &cu)
 bool CU::isLastSubCUOfCtu( const CodingUnit &cu )
 {
   const SPS &sps      = *cu.cs->sps;
-  const Area cuAreaY = CS::isDoubleITree( *cu.cs ) ? Area( recalcPosition( cu.chromaFormat, cu.cs->chType, CHANNEL_TYPE_LUMA, cu.blocks[cu.cs->chType].pos() ), recalcSize( cu.chromaFormat, cu.cs->chType, CHANNEL_TYPE_LUMA, cu.blocks[cu.cs->chType].size() ) ) : ( const Area& ) cu.Y();
+  const Area cuAreaY = CS::isDualITree( *cu.cs ) ? Area( recalcPosition( cu.chromaFormat, cu.cs->chType, CHANNEL_TYPE_LUMA, cu.blocks[cu.cs->chType].pos() ), recalcSize( cu.chromaFormat, cu.cs->chType, CHANNEL_TYPE_LUMA, cu.blocks[cu.cs->chType].size() ) ) : ( const Area& ) cu.Y();
 
   return ( ( ( ( cuAreaY.x + cuAreaY.width  ) & cu.cs->pcv->maxCUWidthMask  ) == 0 || cuAreaY.x + cuAreaY.width  == sps.getPicWidthInLumaSamples()  ) &&
            ( ( ( cuAreaY.y + cuAreaY.height ) & cu.cs->pcv->maxCUHeightMask ) == 0 || cuAreaY.y + cuAreaY.height == sps.getPicHeightInLumaSamples() ) );
@@ -718,7 +718,7 @@ int PU::getDMModes(const PredictionUnit &pu, unsigned *modeList)
 {
   int numDMs = 0;
 
-  if ( CS::isDoubleITree( *pu.cs ) )
+  if ( CS::isDualITree( *pu.cs ) )
   {
     const Position lumaPos  = pu.blocks[pu.cs->chType].lumaPos();
     const Size chromaSize   = pu.blocks[pu.cs->chType].size();
@@ -728,7 +728,7 @@ int PU::getDMModes(const PredictionUnit &pu, unsigned *modeList)
     const Int centerOffsetX = ( lumaSize.width  == 4 ) ? ( 0 ) : ( ( lumaSize.width  >> 1 ) - 1 );
     const Int centerOffsetY = ( lumaSize.height == 4 ) ? ( 0 ) : ( ( lumaSize.height >> 1 ) - 1 );
     unsigned candModes[ NUM_DM_MODES ];
-    static_assert( 5 <= NUM_DM_MODES, "Too many chroma direkt modes" );
+    static_assert( 5 <= NUM_DM_MODES, "Too many chroma direct modes" );
     // center
     const PredictionUnit *lumaC  = pu.cs->picture->cs->getPU( lumaPos.offset( centerOffsetX     , centerOffsetY       ), CHANNEL_TYPE_LUMA );
     candModes[ 0 ] = lumaC->intraDir [ CHANNEL_TYPE_LUMA ];
@@ -804,7 +804,7 @@ void PU::getIntraChromaCandModes( const PredictionUnit &pu, unsigned modeList[NU
     modeList[  9 ] = LM_CHROMA_F4_IDX;
     modeList[ 10 ] = DM_CHROMA_IDX;
 
-    const PredictionUnit *lumaPU = CS::isDoubleITree( *pu.cs ) ? pu.cs->picture->cs->getPU( pu.blocks[pu.cs->chType].lumaPos(), CHANNEL_TYPE_LUMA ) : &pu;
+    const PredictionUnit *lumaPU = CS::isDualITree( *pu.cs ) ? pu.cs->picture->cs->getPU( pu.blocks[pu.cs->chType].lumaPos(), CHANNEL_TYPE_LUMA ) : &pu;
     const UInt lumaMode          = lumaPU->intraDir[ CHANNEL_TYPE_LUMA ];
     for (Int i = 0; i < 4; i++)
     {
@@ -944,7 +944,7 @@ UInt PU::getFinalIntraMode( const PredictionUnit &pu, const ChannelType &chType 
 
   if( uiIntraMode == DM_CHROMA_IDX && !isLuma( chType ) )
   {
-    const PredictionUnit &lumaPU = CS::isDoubleITree( *pu.cs ) ? *pu.cs->picture->cs->getPU( pu.blocks[chType].lumaPos(), CHANNEL_TYPE_LUMA ) : *pu.cs->getPU( pu.blocks[chType].lumaPos(), CHANNEL_TYPE_LUMA );
+    const PredictionUnit &lumaPU = CS::isDualITree( *pu.cs ) ? *pu.cs->picture->cs->getPU( pu.blocks[chType].lumaPos(), CHANNEL_TYPE_LUMA ) : *pu.cs->getPU( pu.blocks[chType].lumaPos(), CHANNEL_TYPE_LUMA );
     uiIntraMode = lumaPU.intraDir[0];
   }
   if( pu.chromaFormat == CHROMA_422 && !isLuma( chType ) )
@@ -1445,6 +1445,7 @@ void PU::getInterMergeCandidates( const PredictionUnit &pu, MergeCtx& mrgCtx, co
   }
   mrgCtx.numValidMergeCand = uiArrayAddr;
 }
+
 
 
 static int xGetDistScaleFactor(const int &iCurrPOC, const int &iCurrRefPOC, const int &iColPOC, const int &iColRefPOC)
@@ -2070,6 +2071,7 @@ bool PU::addMVPCandUnscaled( const PredictionUnit &pu, const RefPicList &eRefPic
     }
   }
 
+
   return false;
 }
 
@@ -2177,6 +2179,8 @@ bool PU::addMVPCandWithScaling( const PredictionUnit &pu, const RefPicList &eRef
       }
     }
   }
+
+
   return false;
 }
 
@@ -2288,7 +2292,7 @@ bool PU::getInterMergeSubPuMvpCand( const PredictionUnit &pu, MergeCtx& mrgCtx, 
   RefPicList eFetchRefPicList = RefPicList( slice.isInterB() ? 1 - slice.getColFromL0Flag() : 0 );
   if( count )
   {
-    unsigned uiN = 0;
+    const unsigned uiN = 0;
     for( unsigned uiCurrRefListId = 0; uiCurrRefListId < ( slice.getSliceType() == B_SLICE ? 2 : 1 ); uiCurrRefListId++ )
     {
       RefPicList  eCurrRefPicList = RefPicList( RefPicList( slice.isInterB() ? ( slice.getColFromL0Flag() ? uiCurrRefListId : 1 - uiCurrRefListId ) : uiCurrRefListId ) );
@@ -3295,6 +3299,8 @@ Void PU::applyImv( PredictionUnit& pu, MergeCtx &mrgCtx, InterPrediction *interP
   }
   else
   {
+    // this function is never called for merge
+    THROW("unexpected");
     PU::getInterMergeCandidates ( pu, mrgCtx );
     PU::restrictBiPredMergeCands( pu, mrgCtx );
 
@@ -3336,6 +3342,21 @@ bool PU::isBIOLDB( const PredictionUnit& pu )
   return BIOLDB;
 }
 
+bool PU::isBiPredFromDifferentDir( const PredictionUnit& pu )
+{
+  if ( pu.refIdx[0] >= 0 && pu.refIdx[1] >= 0 )
+  {
+    const int iPOC0 = pu.cu->slice->getRefPOC( REF_PIC_LIST_0, pu.refIdx[0] );
+    const int iPOC1 = pu.cu->slice->getRefPOC( REF_PIC_LIST_1, pu.refIdx[1] );
+    const int iPOC  = pu.cu->slice->getPOC();
+    if ( (iPOC - iPOC0)*(iPOC - iPOC1) < 0 )
+    {
+      return true;
+    }
+  }
+
+  return false;
+}
 
 void PU::restrictBiPredMergeCands( const PredictionUnit &pu, MergeCtx& mergeCtx )
 {
@@ -3399,6 +3420,7 @@ void CU::resetMVDandMV2Int( CodingUnit& cu, InterPrediction *interPred )
         }
         pu.mv[1] = mv;
       }
+
     }
     else
     {
@@ -3473,6 +3495,7 @@ int CU::getMaxNeighboriMVCandNum( const CodingStructure& cs, const Position& pos
   return maxImvNumCand;
 }
 
+
 bool CU::isObmcFlagCoded ( const CodingUnit &cu )
 {
   int iMaxObmcSize = 16;
@@ -3500,6 +3523,7 @@ bool CU::isObmcFlagCoded ( const CodingUnit &cu )
     }
   }
 }
+
 
 bool PU::getNeighborMotion( PredictionUnit &pu, MotionInfo& mi, Position off, Int iDir, Bool bSubPu )
 {
@@ -3730,13 +3754,16 @@ bool TU::hasCrossCompPredInfo( const TransformUnit &tu, const ComponentID &compI
          ( CU::isInter(*tu.cu) || PU::isChromaIntraModeCrossCheckMode( *tu.cs->getPU( tu.blocks[compID].pos(), toChannelType( compID ) ) ) ) );
 }
 
-UInt TU::getNumNonZeroCoeffsNonTS( const TransformUnit& tu )
+UInt TU::getNumNonZeroCoeffsNonTS( const TransformUnit& tu, const bool bLuma, const bool bChroma )
 {
   UInt count = 0;
   for( UInt i = 0; i < ::getNumberValidTBlocks( *tu.cs->pcv ); i++ )
   {
     if( tu.blocks[i].valid() && !tu.transformSkip[i] && TU::getCbf( tu, ComponentID( i ) ) )
     {
+      if( isLuma  ( tu.blocks[i].compID ) && !bLuma   ) continue;
+      if( isChroma( tu.blocks[i].compID ) && !bChroma ) continue;
+
       UInt area = tu.blocks[i].area();
       const TCoeff* coeff = tu.getCoeffs( ComponentID( i ) ).buf;
       for( UInt j = 0; j < area; j++ )
@@ -3748,10 +3775,9 @@ UInt TU::getNumNonZeroCoeffsNonTS( const TransformUnit& tu )
   return count;
 }
 
-
-Bool TU::needsSqrt2Scale(const Size& size)
+Bool TU::needsSqrt2Scale( const Size& size )
 {
-  return (((g_aucLog2[size.width] + g_aucLog2[size.height]) & 1) == 1);
+  return ( ( ( g_aucLog2[size.width] + g_aucLog2[size.height] ) & 1 ) == 1 );
 }
 
 // other tools

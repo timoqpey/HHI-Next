@@ -71,7 +71,7 @@ bool tryDecodePicture( Picture* pcPic, const std::string& bitstreamFileName, boo
       bitstreamFile = new std::ifstream( bitstreamFileName.c_str(), std::ifstream::in | std::ifstream::binary );
       bytestream    = new InputByteStream( *bitstreamFile );
 
-      CHECK( !bitstreamFile, "failed to open bitstream file " << bitstreamFileName.c_str() << " for reading" ) ;
+      CHECK( !*bitstreamFile, "failed to open bitstream file " << bitstreamFileName.c_str() << " for reading" ) ;
       // create decoder class
       pcDecLib = new DecLib;
       pcDecLib->create();
@@ -154,8 +154,16 @@ bool tryDecodePicture( Picture* pcPic, const std::string& bitstreamFileName, boo
                   pcPic->slices[i]->copySliceInfo( pic->slices[i], false );
                 }
 
-                pcPic->cs->copyStructure( *pic->cs, true, true );
                 pcPic->cs->slice = pcPic->slices.back();
+
+                pcPic->cs->copyStructure( *pic->cs, true, true );
+
+                if( CS::isDualITree( *pcPic->cs ) )
+                {
+                  pcPic->cs->chType = CHANNEL_TYPE_CHROMA;
+                  pcPic->cs->copyStructure( *pic->cs, true, true );
+                  pcPic->cs->chType = CHANNEL_TYPE_LUMA;
+                }
 
                 goOn = false; // exit the loop return
                 bRet = true;
@@ -324,7 +332,7 @@ DecLib::DecLib()
   , m_warningMessageSkipPicture(false)
   , m_prefixSEINALUs()
 {
-#if HHI_SIMD_OPT_MCIF
+#if HHI_SIMD_OPT_BUFFER
   g_pelBufOP.initPelBufOpsX86();
 #endif
 }
@@ -481,7 +489,9 @@ Void DecLib::executeLoopFilters()
     if (cs.getALFParam().alf_flag && !cs.getALFParam().temporalPredFlag)
     {
       m_cALF.storeALFParam( &cs.getALFParam(), cs.slice->isIntra(), tidx, tidxMAX );
-    } 
+    }
+
+    m_cALF.freeALFParam( &cs.getALFParam() );
   }
   //  pcSlice->stopProcessingTimer();
 
@@ -515,8 +525,6 @@ Void DecLib::finishPicture(Int& poc, PicList*& rpcListPic, MsgLevel msgl )
          pcSlice->getTLayer(),
          c,
          pcSlice->getSliceQp() );
-
-
   msg( msgl, "[DT %6.3f] ", pcSlice->getProcessingTime() );
 
   for (Int iRefList = 0; iRefList < 2; iRefList++)
@@ -697,7 +705,7 @@ Void DecLib::xActivateParameterSets()
     m_cSAO.create( sps->getPicWidthInLumaSamples(), sps->getPicHeightInLumaSamples(), sps->getChromaFormatIdc(), sps->getMaxCUWidth(), sps->getMaxCUHeight(), sps->getMaxCodingDepth(), pps->getPpsRangeExtension().getLog2SaoOffsetScale(CHANNEL_TYPE_LUMA), pps->getPpsRangeExtension().getLog2SaoOffsetScale(CHANNEL_TYPE_CHROMA) );
     m_cLoopFilter.create( sps->getMaxCodingDepth() );
     m_cIntraPred.init( sps->getChromaFormatIdc(), sps->getBitDepth( CHANNEL_TYPE_LUMA ) );
-    m_cInterPred.init(sps->getChromaFormatIdc());
+    m_cInterPred.init( &m_cRdCost, sps->getChromaFormatIdc() );
     if( sps->getSpsNext().getALFEnabled() )
     {
       m_cALF.create( sps->getPicWidthInLumaSamples(), sps->getPicHeightInLumaSamples(), sps->getChromaFormatIdc(), sps->getMaxCUWidth(), sps->getMaxCUHeight(), sps->getMaxCodingDepth(), sps->getBitDepth( CHANNEL_TYPE_LUMA ), sps->getBitDepth( CHANNEL_TYPE_CHROMA ), pps->pcv->sizeInCtus );
@@ -729,7 +737,11 @@ Void DecLib::xActivateParameterSets()
 
     // Recursive structure
     m_cCuDecoder.init( &m_cTrQuant, &m_cIntraPred, &m_cInterPred );
-    m_cTrQuant  .init( sps->getMaxTrSize(), false, false, false, false, false, sps->getSpsNext().getUseIntra65Ang(), pps->pcv->rectCUs );
+    m_cTrQuant  .init( sps->getMaxTrSize(), false, false, false, 0, RDOQfn::JEM, false, false, sps->getSpsNext().getUseIntra65Ang(), pps->pcv->rectCUs );
+
+    // RdCost
+    m_cRdCost.setCostMode ( COST_STANDARD_LOSSY ); // not used in decoder side RdCost stuff -> set to default
+    m_cRdCost.setUseQtbt  ( sps->getSpsNext().getUseQTBT() );
 
     m_cSliceDecoder.create();
   }
@@ -1059,6 +1071,8 @@ Bool DecLib::xDecodeSlice(InputNALUnit &nalu, Int &iSkipFrame, Int iPOCLastDispl
     }
   }
 
+  Quant *quant = m_cTrQuant.getQuant();
+
   if(pcSlice->getSPS()->getScalingListFlag())
   {
     ScalingList scalingList;
@@ -1074,12 +1088,12 @@ Bool DecLib::xDecodeSlice(InputNALUnit &nalu, Int &iSkipFrame, Int iPOCLastDispl
     {
       scalingList.setDefaultScalingList();
     }
-    m_cTrQuant.setScalingListDec(scalingList);
-    m_cTrQuant.setUseScalingList(true);
+    quant->setScalingListDec(scalingList);
+    quant->setUseScalingList(true);
   }
   else
   {
-    m_cTrQuant.setUseScalingList(false);
+    quant->setUseScalingList(false);
   }
 
   if( pcSlice->getSPS()->getSpsNext().getUseFRUCMrgMode() && !pcSlice->isIntra() )
@@ -1089,7 +1103,7 @@ Bool DecLib::xDecodeSlice(InputNALUnit &nalu, Int &iSkipFrame, Int iPOCLastDispl
 
   if( pcSlice->getSPS()->getSpsNext().getALFEnabled()  )
   {
-    m_cALF.allocALFParam( &m_pcPic->cs->getALFParam() ); // th fix me release required
+    m_cALF.allocALFParam( &m_pcPic->cs->getALFParam() );
   }
 
   //  Decode a picture

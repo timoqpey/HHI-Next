@@ -103,7 +103,7 @@ Void DecCu::decompressCtu( CodingStructure& cs, const UnitArea& ctuArea )
     DTRACE_BLOCK_REC( cs.picture->getRecoBuf( currCU ), currCU, currCU.predMode );
   }
 
-  if( cs.pcv->chrFormat != CHROMA_400 && CS::isDoubleITree( cs ) && cs.chType != CHANNEL_TYPE_CHROMA )
+  if( cs.pcv->chrFormat != CHROMA_400 && CS::isDualITree( cs ) && cs.chType != CHANNEL_TYPE_CHROMA )
   {
     cs.chType = CHANNEL_TYPE_CHROMA;
     decompressCtu( cs, ctuArea );
@@ -129,7 +129,9 @@ Void DecCu::xIntraRecBlk( TransformUnit& tu, const ComponentID compID )
   const ChannelType chType = toChannelType( compID );
 
         PelBuf piPred      = cs.getPredBuf( area );
+
   const PredictionUnit &pu = *tu.cs->getPU( area.pos(), chType );
+
   const UInt uiChFinalMode = PU::getFinalIntraMode( pu, chType );
 
   //===== init availability pattern =====
@@ -179,13 +181,24 @@ Void DecCu::xIntraRecBlk( TransformUnit& tu, const ComponentID compID )
 
   cs.setDecomp( area );
 
+#if KEEP_PRED_AND_RESI_SIGNALS
   pReco.reconstruct( piPred, piResi, tu.cu->cs->slice->clpRng( compID ) );
+#else
+  piPred.reconstruct( piPred, piResi, tu.cu->cs->slice->clpRng( compID ) );
+#endif
 
   if( sps.getSpsNext().getUseBIF() && isLuma(compID) && TU::getCbf(tu, compID) && (tu.cu->qp > 17)/* && (16 > std::min(tu.lumaSize().width, tu.lumaSize().height) )*/ )
   {
+#if KEEP_PRED_AND_RESI_SIGNALS
     BilateralFilter::instance()->bilateralFilterIntra( pReco, tu.cu->qp );
+#else
+    BilateralFilter::instance()->bilateralFilterIntra( piPred, tu.cu->qp );
+#endif
   }
 
+#if !KEEP_PRED_AND_RESI_SIGNALS
+  pReco.copyFrom( piPred );
+#endif
 }
 
 Void DecCu::xReconIntraQT( CodingUnit &cu )
@@ -324,7 +337,12 @@ Void DecCu::xReconInter(CodingUnit &cu)
 
   if (cu.rootCbf)
   {
-    cs.getRecoBuf(cu).reconstruct(cs.getPredBuf(cu), cs.getResiBuf(cu), cs.slice->clpRngs());
+#if KEEP_PRED_AND_RESI_SIGNALS
+    cs.getRecoBuf( cu ).reconstruct( cs.getPredBuf( cu ), cs.getResiBuf( cu ), cs.slice->clpRngs() );
+#else
+    cs.getResiBuf( cu ).reconstruct( cs.getPredBuf( cu ), cs.getResiBuf( cu ), cs.slice->clpRngs() );
+    cs.getRecoBuf( cu ).copyFrom( cs.getResiBuf( cu ) );
+#endif
   }
   else
   {

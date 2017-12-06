@@ -910,7 +910,7 @@ Bool VideoIOYuv::write( const CPelUnitBuf& picTop, const CPelUnitBuf& picBottom,
   CHECK( picTopO.chromaFormat != picBottomO.chromaFormat, "Incompatible formats of bottom and top fields" );
 
   const ChromaFormat dstChrFormat = picTopO.chromaFormat;
-  for(UInt comp=0; retval && comp<::getNumberValidComponents( dstChrFormat ); comp++)
+  for (UInt comp = 0; retval && comp < ::getNumberValidComponents(dstChrFormat); comp++)
   {
     const ComponentID compID     = ComponentID(comp);
     const ChannelType ch         = toChannelType(compID);

@@ -150,20 +150,21 @@ void BilateralFilter::smoothBlockBilateralFilter(unsigned uiWidth, unsigned uiHe
   Int blockLengthIndex;
   
   Int dIB, dIR;
-    
-  switch (length)
+
+  if( length >= 16 )
   {
-    case 4:
-      blockLengthIndex = 0;
-      break;
-    case 8:
-      blockLengthIndex = 1;
-      break;
-    default:
-      blockLengthIndex = 2;
-      break;
+    blockLengthIndex = 2;
   }
-  
+  else if ( length >= 8 )
+  {
+    blockLengthIndex = 1;
+  }
+  else
+  {
+    blockLengthIndex = 0;
+  }
+
+
   UShort *lookupTablePtr;
   
   centerWeight = m_bilateralCenterWeightTable[blockLengthIndex + 3 * isInterBlock];
@@ -501,17 +502,24 @@ void BilateralFilter::bilateralFilterIntra( PelBuf& recoBuf, int qp)
   const unsigned uiHeight = recoBuf.height; 
   const unsigned uiStride = recoBuf.stride;
   Pel             *piReco = recoBuf.buf;
-  
-  for( unsigned j = 0; j < uiHeight; j++)   
+ 
+  if( recoBuf.stride == recoBuf.width )
   {
-    memcpy(tempblock + j * uiWidth, piReco + j * uiStride, uiWidth * sizeof(Pel));
+    smoothBlockBilateralFilter(uiWidth, uiHeight, piReco, 0, qp);
   }
-
-  smoothBlockBilateralFilter(uiWidth, uiHeight, tempblock, 0, qp);
-  
-  for( unsigned j = 0; j < uiHeight; j++)
+  else
   {
-    memcpy(piReco + j * uiStride, tempblock + j * uiWidth, uiWidth * sizeof(Pel));
+    for( unsigned j = 0; j < uiHeight; j++)   
+    {
+      memcpy(tempblock + j * uiWidth, piReco + j * uiStride, uiWidth * sizeof(Pel));
+    }
+
+    smoothBlockBilateralFilter(uiWidth, uiHeight, tempblock, 0, qp);
+  
+    for( unsigned j = 0; j < uiHeight; j++)
+    {
+      memcpy(piReco + j * uiStride, tempblock + j * uiWidth, uiWidth * sizeof(Pel));
+    }
   }
 }
 
@@ -533,7 +541,6 @@ void BilateralFilter::bilateralFilterInter( PelBuf& resiBuf, const CPelBuf& pred
     piPred += uiPredStride;
     piResi += uiStrideRes;
   }
-
 
   smoothBlockBilateralFilter(uiWidth, uiHeight, tempblock, 1, qp);
 

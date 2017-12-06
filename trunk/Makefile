@@ -44,15 +44,15 @@ BUILD_JOBS += -j$(j)
 endif
 
 ifneq ($(g),)
-BUILD_OPTIONS += -g $(g)
+CONFIG_OPTIONS += -g $(g)
 endif
 
 ifneq ($(toolset),)
-BUILD_OPTIONS += toolset=$(toolset)
+CONFIG_OPTIONS += toolset=$(toolset)
 endif
 
 ifneq ($(address-model),)
-BUILD_OPTIONS += address-model=$(address-model)
+CONFIG_OPTIONS += address-model=$(address-model)
 endif
 
 ifneq ($(address-sanitizer),)
@@ -64,18 +64,18 @@ CMAKE_OPTIONS += -DCMAKE_VERBOSE_MAKEFILE=ON
 endif
 
 ifneq ($(next-hm-bit-equal),)
-BUILD_OPTIONS += -DSET_NEXT_HM_BIT_EQUAL=ON -DNEXT_HM_BIT_EQUAL=$(next-hm-bit-equal)
+CONFIG_OPTIONS += -DSET_NEXT_HM_BIT_EQUAL=ON -DNEXT_HM_BIT_EQUAL=$(next-hm-bit-equal)
 endif
 
 ifneq ($(enable-tracing),)
-BUILD_OPTIONS += -DSET_ENABLE_TRACING=ON -DENABLE_TRACING=$(enable-tracing)
+CONFIG_OPTIONS += -DSET_ENABLE_TRACING=ON -DENABLE_TRACING=$(enable-tracing)
 endif
 
 ifneq ($(skip-svn-info),)
-BUILD_OPTIONS += -DSKIP_SVN_REVISION=$(skip-svn-info)
+CONFIG_OPTIONS += -DSKIP_SVN_REVISION=$(skip-svn-info)
 endif
 
-BUILD_OPTIONS += -b
+BUILD_OPTIONS := $(CONFIG_OPTIONS) -b
 
 debug:
 	$(BUILD_SCRIPT) $(BUILD_JOBS) $(BUILD_OPTIONS) $(CMAKE_OPTIONS) variant=debug
@@ -102,6 +102,9 @@ clean-d:
 
 clean-p:
 	$(BUILD_SCRIPT) $(BUILD_OPTIONS) $(CMAKE_OPTIONS) variant=relwithdebinfo --target clean
+
+configure:
+	$(BUILD_SCRIPT) $(CONFIG_OPTIONS) $(CMAKE_OPTIONS) variant=debug,release,relwithdebinfo
 
 #
 # project specific targets

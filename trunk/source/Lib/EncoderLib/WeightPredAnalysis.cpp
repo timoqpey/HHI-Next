@@ -492,7 +492,7 @@ Bool WeightPredAnalysis::xSelectWPHistExtClip(Slice *const slice, const Int log2
     {
       Bool  useChromaWeight = false;
 
-      for(Int comp=0; comp< ::getNumberValidComponents( pPic.chromaFormat ); comp++)
+      for (Int comp = 0; comp < ::getNumberValidComponents(pPic.chromaFormat); comp++)
       {
         const ComponentID  compID     = ComponentID(comp);
         const Pel         *pRef       = slice->getRefPic(eRefPicList, refIdxTemp)->getRecoBuf().get(compID).buf;
@@ -583,7 +583,7 @@ Bool WeightPredAnalysis::xSelectWPHistExtClip(Slice *const slice, const Int log2
         }
       }
 
-      for(Int comp=1; comp<::getNumberValidComponents(pPic.chromaFormat); comp++)
+      for (Int comp = 1; comp < ::getNumberValidComponents(pPic.chromaFormat); comp++)
       {
         m_wp[refList][refIdxTemp][comp].bPresentFlag = useChromaWeight;
       }
@@ -611,7 +611,7 @@ Bool WeightPredAnalysis::xSelectWP(Slice *const slice, const Int log2Denom)
     {
       Int64 SADWP = 0, SADnoWP = 0;
 
-      for(Int comp=0; comp<::getNumberValidComponents(pPic.chromaFormat); comp++)
+      for (Int comp = 0; comp < ::getNumberValidComponents(pPic.chromaFormat); comp++)
       {
         const ComponentID  compID     = ComponentID(comp);
         const CPelBuf      compBuf    = pPic.get( compID );

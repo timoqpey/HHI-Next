@@ -56,6 +56,7 @@ class Mv;
 //! \ingroup CommonLib
 //! \{
 
+
 // ====================================================================================================================
 // Class definition
 // ====================================================================================================================
@@ -69,15 +70,18 @@ private:
   int               m_LICMultApprox[64];
 
 protected:
+  InterpolationFilter  m_if;
+
   Pel*                 m_acYuvPred            [NUM_REF_PIC_LIST_01][MAX_NUM_COMPONENT];
   Pel*                 m_filteredBlock        [LUMA_INTERPOLATION_FILTER_SUB_SAMPLE_POSITIONS][LUMA_INTERPOLATION_FILTER_SUB_SAMPLE_POSITIONS][MAX_NUM_COMPONENT];
   Pel*                 m_filteredBlockTmp     [LUMA_INTERPOLATION_FILTER_SUB_SAMPLE_POSITIONS][MAX_NUM_COMPONENT];
 
-  InterpolationFilter  m_if;
 
   ChromaFormat         m_currChromaFormat;
 
   ComponentID          m_maxCompIDToPred;      ///< tells the predictor to only process the components up to (inklusive) this one - useful to skip chroma components during RD-search
+
+  RdCost*              m_pcRdCost;
 
   Pel*                 m_pGradX0;
   Pel*                 m_pGradY0;
@@ -113,14 +117,14 @@ protected:
                                   const int shiftNum, const int offset, const Int64 limit, const Int64 denom_min_1, const Int64 denom_min_2, const ClpRng& clpRng );
   void applyBiOptFlow           ( const PredictionUnit &pu, const CPelUnitBuf &pcYuvSrc0, const CPelUnitBuf &pcYuvSrc1, const Int &iRefIdx0, const Int &iRefIdx1, PelUnitBuf &pcYuvDst, const BitDepths &clipBitDepths);
 
-  Void xPredInterUni            ( PredictionUnit& pu, const RefPicList &eRefPicList, PelUnitBuf &pcYuvPred, const Bool &bi = false, const Bool &bBIOApplied = false );
+  Void xPredInterUni            ( const PredictionUnit& pu, const RefPicList& eRefPicList, PelUnitBuf& pcYuvPred, const Bool& bi, const Bool& bBIOApplied = false, const Bool& bDMVRApplied = false );
   Void xPredInterBi             ( PredictionUnit& pu, PelUnitBuf &pcYuvPred, Bool obmc = false );
-  Void xPredInterBlk            ( const ComponentID &compID, const PredictionUnit& pu, const Picture* refPic, const Mv & mv, PelUnitBuf &dstPic, const Bool &bi, const ClpRng& clpRng, const Bool &bBIOApplied = false, Int nFRUCMode = FRUC_MERGE_OFF, Bool doLic = true );
-  Void xPredAffineBlk           ( const ComponentID &compID, const PredictionUnit& pu, const Picture* refPic, const Mv *_mv, PelUnitBuf &dstPic, const Bool &bi, const ClpRng& clpRng, const Bool &bBIOApplied = false );
+  Void xPredInterBlk            ( const ComponentID& compID, const PredictionUnit& pu, const Picture* refPic, const Mv& _mv, PelUnitBuf& dstPic, const Bool& bi, const ClpRng& clpRng, const Bool& bBIOApplied = false, const Bool& bDMVRApplied = false, const Int& nFRUCMode = FRUC_MERGE_OFF, const Bool& doLic = true );
+  Void xPredAffineBlk           ( const ComponentID& compID, const PredictionUnit& pu, const Picture* refPic, const Mv* _mv, PelUnitBuf& dstPic, const Bool& bi, const ClpRng& clpRng, const Bool& bBIOApplied = false );
   void xGetLICParams            ( const CodingUnit& cu, const ComponentID compID, const Picture& refPic, const Mv& mv, int& shift, int& scale, int& offset );
   void xLocalIlluComp           ( const PredictionUnit& pu, const ComponentID compID, const Picture& refPic, const Mv& mv, const bool biPred, PelBuf& dstBuf );
 
-  Void xWeightedAverage         ( const PredictionUnit &pu, const CPelUnitBuf &pcYuvSrc0, const CPelUnitBuf &pcYuvSrc1, PelUnitBuf &pcYuvDst, const BitDepths &clipBitDepths, const ClpRngs& clpRngs, const Bool &bBIOApplied );
+  Void xWeightedAverage         ( const PredictionUnit& pu, const CPelUnitBuf& pcYuvSrc0, const CPelUnitBuf& pcYuvSrc1, PelUnitBuf& pcYuvDst, const BitDepths& clipBitDepths, const ClpRngs& clpRngs, const Bool& bBIOApplied );
 
   static Bool xCheckIdenticalMotion( const PredictionUnit& pu );
 
@@ -134,18 +138,16 @@ protected:
   MotionInfo      m_SubPuMiBuf   [( MAX_CU_SIZE * MAX_CU_SIZE ) >> ( MIN_CU_LOG2 << 1 )];
   MotionInfo      m_SubPuExtMiBuf[( MAX_CU_SIZE * MAX_CU_SIZE ) >> ( MIN_CU_LOG2 << 1 )];
 
-  RdCost m_cFRUCRDCost;
-
   std::list<MvField> m_listMVFieldCand[2];
   RefPicList m_bilatBestRefPicList;
   Pel*   m_acYuvPredFrucTemplate[2][MAX_NUM_COMPONENT];   //0: top, 1: left
   Bool   m_bFrucTemplateAvailabe[2];
 
-  Bool xFrucFindBlkMv           (PredictionUnit& pu, MergeCtx& mergeCtx );
-  Bool xFrucRefineSubBlkMv      (PredictionUnit& pu, MergeCtx  mergeCtx, Bool bTM);
+  Bool xFrucFindBlkMv           (PredictionUnit& pu, const MergeCtx& mergeCtx );
+  Bool xFrucRefineSubBlkMv      (PredictionUnit& pu, const MergeCtx& mergeCtx, Bool bTM);
 
-  Void xFrucCollectBlkStartMv   (PredictionUnit& pu, MergeCtx& mergeCtx, RefPicList eTargetRefList = REF_PIC_LIST_0, Int nTargetRefIdx = -1, AMVPInfo* pInfo = NULL);
-  Void xFrucCollectSubBlkStartMv(PredictionUnit& pu, MergeCtx  mergeCtx, RefPicList eRefPicList , const MvField& rMvStart , Int nSubBlkWidth , Int nSubBlkHeight, Position basePuPos);
+  Void xFrucCollectBlkStartMv   (PredictionUnit& pu, const MergeCtx& mergeCtx, RefPicList eTargetRefList = REF_PIC_LIST_0, Int nTargetRefIdx = -1, AMVPInfo* pInfo = NULL);
+  Void xFrucCollectSubBlkStartMv(PredictionUnit& pu, const MergeCtx& mergeCtx, RefPicList eRefPicList , const MvField& rMvStart , Int nSubBlkWidth , Int nSubBlkHeight, Position basePuPos);
   UInt xFrucFindBestMvFromList  (MvField* pBestMvField, RefPicList& rBestRefPicList, PredictionUnit& pu, const MvField& rMvStart, Int nBlkWidth, Int nBlkHeight, Bool bTM, Bool bMvCost);
   UInt xFrucRefineMv            (MvField* pBestMvField, RefPicList eCurRefPicList, UInt uiMinCost, Int nSearchMethod, PredictionUnit& pu, const MvField& rMvStart, Int nBlkWidth, Int nBlkHeight, Bool bTM, Bool bMvCostZero = false);
   template<Int SearchPattern>
@@ -167,8 +169,8 @@ protected:
 
   Void xBIPMVRefine             (PredictionUnit& pu, RefPicList eRefPicList, Int iWidth, Int iHeight, const CPelUnitBuf &pcYuvOrg, UInt uiMaxSearchRounds, UInt nSearchStepShift, UInt& uiMinCost, Bool fullPel = true);
   UInt xDirectMCCost            (Int iBitDepth, Pel* pRef, UInt uiRefStride, const Pel* pOrg, UInt uiOrgStride, Int iWidth, Int iHeight);
-  Void xPredInterLines          (const PredictionUnit& pu, const Picture* refPic, Mv &mv, PelUnitBuf &dstPic, const Bool &bi, const ClpRng& clpRng, Int offset );
-  Void xFillPredBlckAndBorder   (const PredictionUnit& pu, RefPicList eRefPicList, Int iWidth, Int iHeight, PelBuf &cTmpY);
+  Void xPredInterLines          (const PredictionUnit& pu, const Picture* refPic, Mv &mv, PelUnitBuf &dstPic, const Bool &bi, const ClpRng& clpRng );
+  Void xFillPredBlckAndBorder   (const PredictionUnit& pu, RefPicList eRefPicList, Int iWidth, Int iHeight, PelBuf &cTmpY );
   Void xProcessDMVR             (      PredictionUnit& pu, PelUnitBuf &pcYuvDst, const ClpRngs &clpRngs, const bool bBIOApplied);
 
 public:
@@ -176,7 +178,7 @@ public:
   InterPrediction();
   virtual ~InterPrediction();
 
-  Void    init                (ChromaFormat chromaFormatIDC);
+  Void    init                (RdCost* pcRdCost, ChromaFormat chromaFormatIDC);
 
   // inter
   Void    motionCompensation  (PredictionUnit &pu, PelUnitBuf& predBuf, const RefPicList &eRefPicList = REF_PIC_LIST_X);

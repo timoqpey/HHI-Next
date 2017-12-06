@@ -100,6 +100,7 @@ enum CodingStatisticsType
   STATS__CABAC_BITS__IMV_FLAG,
   STATS__CABAC_BITS__EMT_CU_FLAG,
   STATS__CABAC_BITS__EMT_TU_INDEX,
+  STATS__CABAC_BITS__OTHER,
   STATS__CABAC_BITS__INVALID,
   STATS__NUM_STATS
 };
@@ -160,6 +161,7 @@ static inline const TChar* getName(CodingStatisticsType name)
     "CABAC_BITS__IMV_FLAG",
     "CABAC_BITS__EMT_CU_FLAG",
     "CABAC_BITS__EMT_TU_INDX",
+    "CABAC_BITS__OTHER",
     "CABAC_BITS__INVALID"
   };
   CHECK( STATS__NUM_STATS != sizeof( statNames ) / sizeof( TChar* ) || name >= STATS__NUM_STATS, "stats out of range" );

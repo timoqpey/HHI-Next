@@ -195,7 +195,7 @@ Pel IntraPrediction::xGetPredValDc( const CPelBuf &pSrc, const Size &dstSize )
   return pDcVal;
 }
 
-Void IntraPrediction::predIntraAng( const ComponentID &compIDX, PelBuf &piOrg, PelBuf &piPred, const PredictionUnit &pu, const Bool &bUseFilteredPredSamples, const Bool &bUseLosslessDPCM )
+Void IntraPrediction::predIntraAng( const ComponentID compIDX, PelBuf &piOrg, PelBuf &piPred, const PredictionUnit &pu, const Bool &bUseFilteredPredSamples, const Bool &bUseLosslessDPCM )
 {
   const ComponentID    compID       = MAP_CHROMA( compIDX );
   const ChannelType    channelType  = toChannelType( compID );
@@ -218,12 +218,7 @@ Void IntraPrediction::predIntraAng( const ComponentID &compIDX, PelBuf &piOrg, P
   else
   {
     const Bool enableEdgeFilters = !(CU::isRDPCMEnabled( *pu.cu ) && pu.cu->transQuantBypass);
-    bool UseFilterPredSamples = false;
-    if( ! pu.cs->sps->getSpsNext().isPlanarPDPC() )
-    {
-      UseFilterPredSamples = bUseFilteredPredSamples;
-    }
-    Pel *ptrSrc = getPredictorPtr(compID, UseFilterPredSamples);
+    Pel *ptrSrc = getPredictorPtr( compID, bUseFilteredPredSamples );
 
     if ((pu.cs->sps->getSpsNext().isIntraPDPC() && pu.cu->pdpc && (pu.cs->pcv->rectCUs || (pu.cu->lumaPos().x && pu.cu->lumaPos().y))) || (pu.cs->sps->getSpsNext().isPlanarPDPC() && (uiDirMode == PLANAR_IDX)))
     {
@@ -315,11 +310,6 @@ Void IntraPrediction::predIntraAng( const ComponentID &compIDX, PelBuf &piOrg, P
     }
     else
     {
-      if( isLuma(channelType)&&(pu.cs->sps->getSpsNext().isPlanarPDPC()) && (pu.cu->nsstIdx))
-      {
-        // reload correct prediction ponter
-        ptrSrc = getPredictorPtr(compID, bUseFilteredPredSamples);
-      }
       switch( uiDirMode )
       {
       case( PLANAR_IDX ): xPredIntraPlanar( CPelBuf( ptrSrc, srcStride, srcStride ), piPred, *pu.cs->sps );         break;
@@ -331,7 +321,7 @@ Void IntraPrediction::predIntraAng( const ComponentID &compIDX, PelBuf &piOrg, P
   }
 }
 
-Void IntraPrediction::predIntraChromaLM(const ComponentID &compID, PelBuf &piPred, const PredictionUnit &pu, CompArea chromaArea, Int intraDir)
+Void IntraPrediction::predIntraChromaLM(const ComponentID compID, PelBuf &piPred, const PredictionUnit &pu, const CompArea& chromaArea, Int intraDir)
 {
   bool DO_ELM = false;
   if (pu.cs->sps->getSpsNext().isELMModeMMLM())
@@ -429,14 +419,14 @@ Void IntraPrediction::predIntraChromaLM(const ComponentID &compID, PelBuf &piPre
   }
 }
 
-Void IntraPrediction::addCrossColorResi(const ComponentID &compID, PelBuf &piPred, const TransformUnit &tu, const CPelBuf &pResiCb)
+Void IntraPrediction::addCrossColorResi(const ComponentID compID, PelBuf &piPred, const TransformUnit &tu, const CPelBuf &pResiCb)
 {
-  CompArea chromaArea = tu.block(compID);
+  const CompArea& chromaArea = tu.block(compID);
 
   Int a, b, iShift;
 
-  const PredictionUnit& pu = *(tu.cs->getPU(tu.blocks[compID].pos(), toChannelType(compID)));
-  xGetLMParameters(pu, compID, tu.blocks[compID], Int(1), a, b, iShift);
+  const PredictionUnit& pu = *(tu.cs->getPU(chromaArea.pos(), toChannelType(compID)));
+  xGetLMParameters(pu, compID, chromaArea, Int(1), a, b, iShift);
 
   Int offset = 1 << (iShift - 1);
 
@@ -570,6 +560,7 @@ Void IntraPrediction::xPredIntraPlanar( const CPelBuf &pSrc, PelBuf &pDst, const
     }
   }
 }
+
 
 Void IntraPrediction::xPredIntraDc( const CPelBuf &pSrc, PelBuf &pDst, const ChannelType &channelType, const bool &enableBoundaryFilter )
 {
@@ -1228,7 +1219,7 @@ void IntraPrediction::xFilterReferenceSamples( const Pel* refBufUnfiltered, Pel*
   *piDestPtr=*piSrcPtr;
 }
 
-bool IntraPrediction::useFilteredIntraRefSamples( const ComponentID &compID, const PredictionUnit &pu, const bool &modeSpecific, const UnitArea &tuArea )
+bool IntraPrediction::useFilteredIntraRefSamples( const ComponentID &compID, const PredictionUnit &pu, bool modeSpecific, const UnitArea &tuArea )
 {
   const SPS         &sps    = *pu.cs->sps;
   const ChannelType  chType = toChannelType( compID );
@@ -1240,27 +1231,19 @@ bool IntraPrediction::useFilteredIntraRefSamples( const ComponentID &compID, con
   // PDPC related conditions
   if( sps.getSpsNext().isIntraPDPC() )                                                                   { return false; }
 
-  // pred. mode related conditions
-  bool useFilter = true;
-  if( modeSpecific )
-  {
-    const UInt uiDirMode = PU::getFinalIntraMode( pu, chType );
-    if( uiDirMode == DC_IDX )
-    {
-      useFilter = false;
-    }
-    else
-    {
-      int diff = std::min<int>( abs( (int)uiDirMode - HOR_IDX ), abs( (int)uiDirMode - VER_IDX ) );
+  // NSST related conditions
+  if( sps.getSpsNext().isPlanarPDPC() && pu.cu->nsstIdx == 0 )                                           { return false; }
 
-      {
-        UInt log2Size    = ( ( g_aucLog2[tuArea.blocks[compID].width] + g_aucLog2[tuArea.blocks[compID].height] ) >> 1 );
-        CHECK( log2Size >= MAX_INTRA_FILTER_DEPTHS, "Size not supported" );
-        useFilter        = ( diff > m_aucIntraFilter[chType][log2Size] );
-      }
-    }
-  }
-  return useFilter;
+  if( !modeSpecific )                                                                                    { return true; }
+
+  // pred. mode related conditions
+  const int dirMode = PU::getFinalIntraMode( pu, chType );
+  if( dirMode == DC_IDX || (sps.getSpsNext().isPlanarPDPC() && dirMode == PLANAR_IDX) )                  { return false; }
+
+  int diff = std::min<int>( abs( dirMode - HOR_IDX ), abs( dirMode - VER_IDX ) );
+  int log2Size = ((g_aucLog2[tuArea.blocks[compID].width] + g_aucLog2[tuArea.blocks[compID].height]) >> 1);
+  CHECK( log2Size >= MAX_INTRA_FILTER_DEPTHS, "Size not supported" );
+  return (diff > m_aucIntraFilter[chType][log2Size]);
 }
 
 
@@ -1984,8 +1967,7 @@ Int IntraPrediction::xLMSampleClassifiedTraining(Int count, Int LumaSamples[], I
   return 0;
 }
 
-Int IntraPrediction::xGetMMLMParameters(const PredictionUnit& pu, const ComponentID compID, CompArea chromaArea,  /*UInt uiWidth, UInt uiHeight,*/ Int &numClass, MMLM_parameter parameters[])
-
+Int IntraPrediction::xGetMMLMParameters(const PredictionUnit& pu, const ComponentID compID, const CompArea& chromaArea, Int &numClass, MMLM_parameter parameters[])
 {
   CHECK(compID == COMPONENT_Y, "");
 
@@ -2135,7 +2117,7 @@ Int IntraPrediction::xGetMMLMParameters(const PredictionUnit& pu, const Componen
   return 2;
 }
 
-Void IntraPrediction::xGetLMParameters(const PredictionUnit &pu, const ComponentID &compID, CompArea chromaArea, Int iPredType, Int& a, Int&  b, Int& iShift)
+Void IntraPrediction::xGetLMParameters(const PredictionUnit &pu, const ComponentID compID, const CompArea& chromaArea, Int iPredType, Int& a, Int&  b, Int& iShift)
 {
   CHECK( compID == COMPONENT_Y, "" );
 

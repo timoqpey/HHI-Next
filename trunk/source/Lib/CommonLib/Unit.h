@@ -130,6 +130,9 @@ struct CompArea : public Area
   Position chromaPos() const;
   Position lumaPos()   const;
 
+  Size     chromaSize() const;
+  Size     lumaSize()   const;
+
   Position compPos( const ComponentID compID ) const;
   Position chanPos( const ChannelType chType ) const;
 
@@ -194,6 +197,9 @@ struct UnitArea
 
   Bool contains(const UnitArea& other) const;
   Bool contains(const UnitArea& other, const ChannelType chType) const;
+
+        CompArea& operator[]( const int n )       { return blocks[n]; }
+  const CompArea& operator[]( const int n ) const { return blocks[n]; }
 
   const Bool operator==(const UnitArea &other) const
   {
@@ -366,7 +372,7 @@ struct PredictionUnit : public UnitArea, public IntraPredictionData, public Inte
   const MotionInfo& getMotionInfo( const Position& pos ) const;
   MotionBuf         getMotionBuf();
   CMotionBuf        getMotionBuf() const;
-  
+
   const MotionInfo& getMotionInfoFRUC() const;
   const MotionInfo& getMotionInfoFRUC( const Position& pos ) const;
   MotionBuf         getMotionBufFRUC();

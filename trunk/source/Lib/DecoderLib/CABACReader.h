@@ -125,6 +125,7 @@ public:
   void        transform_unit_qtbt       ( TransformUnit&                tu,     CUCtx&          cuCtx,  ChromaCbfs& chromaCbfs );
   void        cu_qp_delta               ( CodingUnit&                   cu,     int             predQP );
   void        cu_chroma_qp_offset       ( CodingUnit&                   cu );
+  void        cu_emt_noqrt_idx          ( CodingUnit&                   cu );
 
   // residual coding (clause 7.3.8.11)
   void        residual_nsst_mode        ( CodingUnit&                   cu );
@@ -151,7 +152,7 @@ private:
   void        alf_aux                   ( ALFParam&               alfParam, bool isGALF );
   void        alf_filter                ( ALFParam&               alfParam, bool isGALF, bool bChroma = false );
   void        alf_chroma                ( ALFParam& alfParam );
-  void        alf_cu_ctrl               ( ALFParam& alfParam, unsigned maxTotalCuDepth );
+  void        alf_cu_ctrl               ( ALFParam& alfParam );
   UInt        parseAlfUvlc();
   Int         parseAlfSvlc();
   Int         alfGolombDecode(Int k);

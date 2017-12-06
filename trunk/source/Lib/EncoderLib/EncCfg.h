@@ -177,7 +177,7 @@ protected:
   unsigned  m_uiMaxBTDepth;
   unsigned  m_uiMaxBTDepthI;
   unsigned  m_uiMaxBTDepthIChroma;
-  bool      m_qtbtDualITree;
+  bool      m_dualITree;
   unsigned  m_maxCUWidth;
   unsigned  m_maxCUHeight;
   unsigned  m_maxTotalCUDepth;
@@ -285,7 +285,7 @@ protected:
   Int       m_iQPAdaptationRange;
 #if HHI_HLM_USE_QPA
   Bool      m_bUsePerceptQPA;
-  Bool      m_bUseANSNR;
+  Bool      m_bUseWPSNR;
 #endif
 
   //====== Tool list ========
@@ -298,6 +298,7 @@ protected:
 #if T0196_SELECTIVE_RDOQ
   Bool      m_useSelectiveRDOQ;
 #endif
+  RDOQfn    m_RDOQfn;
   UInt      m_rdPenalty;
   FastInterSearchMode m_fastInterSearchMode;
   Bool      m_bUseEarlyCU;
@@ -575,8 +576,8 @@ public:
   unsigned  getMaxBTDepthIChroma            ()         const { return m_uiMaxBTDepthIChroma; }
   bool      getQTBT                         ()         const { return m_QTBT; }
   int       getCTUSize                      ()         const { return m_CTUSize; }
-  void      setQtbtDualITree                ( bool b )       { m_qtbtDualITree = b; }
-  bool      getQtbtDualITree                ()         const { return m_qtbtDualITree; }
+  void      setDualITree                    ( bool b )       { m_dualITree = b; }
+  bool      getDualITree                    ()         const { return m_dualITree; }
 
   void      setNSST                         ( bool b )       { m_NSST = b; }
   bool      getNSST                         ()         const { return m_NSST; }
@@ -623,7 +624,6 @@ public:
   unsigned  getLICMode                      ()         const { return m_LICMode; }
   void      setFastPicLevelLIC              ( bool b )       { m_FastPicLevelLIC = b; }
   bool      getFastPicLevelLIC              ()         const { return m_FastPicLevelLIC; }
-
 
   void      setIntraPDPC                    ( int n )        { m_IntraPDPC = n; }
   int       getIntraPDPC()                             const { return m_IntraPDPC; }
@@ -762,7 +762,7 @@ public:
   Void      setQPAdaptationRange            ( Int   i )      { m_iQPAdaptationRange = i; }
 #if HHI_HLM_USE_QPA
   Void      setUsePerceptQPA                ( const Bool b ) { m_bUsePerceptQPA = b; }
-  Void      setUseANSNR                     ( const Bool b ) { m_bUseANSNR = b; }
+  Void      setUseWPSNR                     ( const Bool b ) { m_bUseWPSNR = b; }
 #endif
 
   //====== Sequence ========
@@ -835,7 +835,7 @@ public:
   Int       getQPAdaptationRange            () const { return m_iQPAdaptationRange; }
 #if HHI_HLM_USE_QPA
   Bool      getUsePerceptQPA                () const { return m_bUsePerceptQPA; }
-  Bool      getUseANSNR                     () const { return m_bUseANSNR; }
+  Bool      getUseWPSNR                     () const { return m_bUseWPSNR; }
 #endif
 
   //==== Tool list ========
@@ -848,6 +848,7 @@ public:
 #if T0196_SELECTIVE_RDOQ
   Void      setUseSelectiveRDOQ             ( Bool b )      { m_useSelectiveRDOQ = b; }
 #endif
+  Void      setRDOQfn                       ( RDOQfn fn )   { m_RDOQfn     = fn; }
   Void      setRDpenalty                    ( UInt  u )     { m_rdPenalty  = u; }
   Void      setFastInterSearchMode          ( FastInterSearchMode m ) { m_fastInterSearchMode = m; }
   Void      setUseEarlyCU                   ( Bool  b )     { m_bUseEarlyCU = b; }
@@ -876,6 +877,7 @@ public:
 #if T0196_SELECTIVE_RDOQ
   Bool      getUseSelectiveRDOQ             ()      { return m_useSelectiveRDOQ; }
 #endif
+  RDOQfn    getRDOQfn                       ()      { return m_RDOQfn;    }
   Int       getRDpenalty                    ()      { return m_rdPenalty;  }
   FastInterSearchMode getFastInterSearchMode() const{ return m_fastInterSearchMode;  }
   Bool      getUseEarlyCU                   () const{ return m_bUseEarlyCU; }
@@ -1062,9 +1064,9 @@ public:
   Bool  getTimeCodeSEIEnabled()                                      { return m_timeCodeSEIEnabled; }
   Void  setNumberOfTimeSets(Int value)                               { m_timeCodeSEINumTs = value; }
   Int   getNumberOfTimesets()                                        { return m_timeCodeSEINumTs; }
-  Void  setTimeSet(SEITimeSet element, Int index)                { m_timeSetArray[index] = element; }
-  SEITimeSet &getTimeSet(Int index)                              { return m_timeSetArray[index]; }
-  const SEITimeSet &getTimeSet(Int index) const                  { return m_timeSetArray[index]; }
+  Void  setTimeSet(SEITimeSet element, Int index)                    { m_timeSetArray[index] = element; }
+  SEITimeSet &getTimeSet(Int index)                                  { return m_timeSetArray[index]; }
+  const SEITimeSet &getTimeSet(Int index) const                      { return m_timeSetArray[index]; }
   Void  setKneeSEIEnabled(Int b)                                     { m_kneeSEIEnabled = b; }
   Bool  getKneeSEIEnabled()                                          { return m_kneeSEIEnabled; }
   Void  setKneeSEIId(Int b)                                          { m_kneeSEIId = b; }
@@ -1089,7 +1091,7 @@ public:
   Int*  getKneeSEIOutputKneePoint()                                  { return m_kneeSEIOutputKneePoint; }
   Void  setColourRemapInfoSEIFileRoot( const std::string &s )        { m_colourRemapSEIFileRoot = s; }
   const std::string &getColourRemapInfoSEIFileRoot() const           { return m_colourRemapSEIFileRoot; }
-  Void  setMasteringDisplaySEI(const SEIMasteringDisplay &src)   { m_masteringDisplay = src; }
+  Void  setMasteringDisplaySEI(const SEIMasteringDisplay &src)       { m_masteringDisplay = src; }
 #if U0033_ALTERNATIVE_TRANSFER_CHARACTERISTICS_SEI
   Void  setSEIAlternativeTransferCharacteristicsSEIEnable( Bool b)   { m_alternativeTransferCharacteristicsSEIEnabled = b;    }
   Bool  getSEIAlternativeTransferCharacteristicsSEIEnable( ) const   { return m_alternativeTransferCharacteristicsSEIEnabled; }
@@ -1103,7 +1105,7 @@ public:
   Void  setSEIXSDMetricType(UChar v)                                 { m_xsdMetricType = v;    }
   UChar getSEIXSDMetricType() const                                  { return m_xsdMetricType; }
 
-  const SEIMasteringDisplay &getMasteringDisplaySEI() const      { return m_masteringDisplay; }
+  const SEIMasteringDisplay &getMasteringDisplaySEI() const          { return m_masteringDisplay; }
   Void         setUseWP               ( Bool b )                     { m_useWeightedPred   = b;    }
   Void         setWPBiPred            ( Bool b )                     { m_useWeightedBiPred = b;    }
   Bool         getUseWP               ()                             { return m_useWeightedPred;   }
@@ -1269,12 +1271,12 @@ public:
 
   Void         setSummaryVerboseness(UInt v)                         { m_summaryVerboseness = v; }
   UInt         getSummaryVerboseness( ) const                        { return m_summaryVerboseness; }
-  Void         setIMV(int n)                                            { m_ImvMode = n; }
-  Int          getIMV() const                                           { return m_ImvMode; }
-  Void         setIMV4PelFast(int n)                                    { m_Imv4PelFast = n; }
-  Int          getIMV4PelFast() const                                   { return m_Imv4PelFast; }
-  Void         setIMVMaxCand(Int n)                                     { m_ImvMaxCand = n; }
-  Int          getIMVMaxCand() const                                    { return m_ImvMaxCand; }
+  Void         setIMV(int n)                                         { m_ImvMode = n; }
+  Int          getIMV() const                                        { return m_ImvMode; }
+  Void         setIMV4PelFast(int n)                                 { m_Imv4PelFast = n; }
+  Int          getIMV4PelFast() const                                { return m_Imv4PelFast; }
+  Void         setIMVMaxCand(Int n)                                  { m_ImvMaxCand = n; }
+  Int          getIMVMaxCand() const                                 { return m_ImvMaxCand; }
 
   Void         setDecodeBitstream( int i, const std::string& s )     { m_decodeBitstreams[i] = s; }
   const std::string& getDecodeBitstream( int i )               const { return m_decodeBitstreams[i]; }

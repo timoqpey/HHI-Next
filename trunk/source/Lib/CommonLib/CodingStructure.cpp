@@ -787,15 +787,15 @@ void CodingStructure::useSubStructure( const CodingStructure& subStruct, const U
   }
   else
   {
-    for( const auto &pcu : subStruct.traverseCUs( subArea ) )
+    for( const auto &pcu : subStruct.cus )
     {
       // add an analogue CU into own CU store
-      const UnitArea &cuPatch = pcu;
+      const UnitArea &cuPatch = *pcu;
 
       CodingUnit &cu = addCU( cuPatch );
 
       // copy the CU info from subPatch
-      cu = pcu;
+      cu = *pcu;
     }
   }
 
@@ -806,27 +806,27 @@ void CodingStructure::useSubStructure( const CodingStructure& subStruct, const U
   }
   else
   {
-    for( const auto &ppu : subStruct.traversePUs( subArea ) )
+    for( const auto &ppu : subStruct.pus )
     {
       // add an analogue PU into own PU store
-      const UnitArea &puPatch = ppu;
+      const UnitArea &puPatch = *ppu;
 
       PredictionUnit &pu = addPU( puPatch );
 
       // copy the PU info from subPatch
-      pu = ppu;
+      pu = *ppu;
     }
   }
   // copy the TUs over
-  for( const auto &ptu : subStruct.traverseTUs( subArea ) )
+  for( const auto &ptu : subStruct.tus )
   {
     // add an analogue TU into own TU store
-    const UnitArea &tuPatch = ptu;
+    const UnitArea &tuPatch = *ptu;
 
     TransformUnit &tu = addTU( tuPatch );
 
     // copy the TU info from subPatch
-    tu = ptu;
+    tu = *ptu;
   }
 
   UnitArea clippedArea = clipArea( subArea, area );
@@ -868,9 +868,15 @@ void CodingStructure::copyStructure( const CodingStructure& other, const bool co
 
   CHECKD( area != other.area, "Incompatible sizes" );
 
+  const UnitArea dualITreeArea = CS::getArea( *this, this->area );
+
   // copy the CUs over
   for (const auto &pcu : other.cus)
   {
+    if( !dualITreeArea.contains( *pcu ) )
+    {
+      continue;
+    }
     // add an analogue CU into own CU store
     const UnitArea &cuPatch = *pcu;
 
@@ -883,6 +889,10 @@ void CodingStructure::copyStructure( const CodingStructure& other, const bool co
   // copy the PUs over
   for (const auto &ppu : other.pus)
   {
+    if( !dualITreeArea.contains( *ppu ) )
+    {
+      continue;
+    }
     // add an analogue PU into own PU store
     const UnitArea &puPatch = *ppu;
 
@@ -906,6 +916,10 @@ void CodingStructure::copyStructure( const CodingStructure& other, const bool co
     // copy the TUs over
     for( const auto &ptu : other.tus )
     {
+      if( !dualITreeArea.contains( *ptu ) )
+      {
+        continue;
+      }
       // add an analogue TU into own TU store
       const UnitArea &tuPatch = *ptu;
 
@@ -1190,6 +1204,15 @@ PelBuf CodingStructure::getBuf( const CompArea &blk, const PictureType &type )
 
   CompArea cFinal = blk;
   cFinal.relativeTo( area.blocks[compID] );
+
+#if !KEEP_PRED_AND_RESI_SIGNALS
+  if( !parent && ( type == PIC_RESIDUAL || type == PIC_PREDICTION ) )
+  {
+    cFinal.x &= ( pcv->maxCUWidthMask  >> getComponentScaleX( blk.compID, blk.chromaFormat ) );
+    cFinal.y &= ( pcv->maxCUHeightMask >> getComponentScaleY( blk.compID, blk.chromaFormat ) );
+  }
+#endif
+
   return buf->getBuf( cFinal );
 }
 
@@ -1215,6 +1238,15 @@ const CPelBuf CodingStructure::getBuf( const CompArea &blk, const PictureType &t
 
   CompArea cFinal = blk;
   cFinal.relativeTo( area.blocks[compID] );
+
+#if !KEEP_PRED_AND_RESI_SIGNALS
+  if( !parent && ( type == PIC_RESIDUAL || type == PIC_PREDICTION ) )
+  {
+    cFinal.x &= ( pcv->maxCUWidthMask  >> getComponentScaleX( blk.compID, blk.chromaFormat ) );
+    cFinal.y &= ( pcv->maxCUHeightMask >> getComponentScaleY( blk.compID, blk.chromaFormat ) );
+  }
+#endif
+
   return buf->getBuf( cFinal );
 }
 

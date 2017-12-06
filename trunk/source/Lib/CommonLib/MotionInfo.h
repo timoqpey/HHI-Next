@@ -144,6 +144,4 @@ struct MotionInfo
   }
 };
 
-
-
 #endif // __MOTIONINFO__

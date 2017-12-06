@@ -41,6 +41,8 @@
 #include <vector>
 #include <cstdlib>
 
+#include "CommonDef.h"
+
 #include "dtrace.h"
 #include "dtrace_next.h"
 

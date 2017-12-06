@@ -166,18 +166,18 @@ protected:
   Int       m_iQPAdaptationRange;                             ///< dQP range by QP adaptation
 #if HHI_HLM_USE_QPA
   Bool      m_bUsePerceptQPA;                                 ///< Flag to enable perceptually motivated input-adaptive QP modification
-  Bool      m_bUseANSNR;                                      ///< Flag to output activity normalized SNR (ANSNR) instead of PSNR
+  Bool      m_bUseWPSNR;                                      ///< Flag to output perceptually weighted peak SNR (WPSNR) instead of PSNR
 #endif
   Int       m_maxTempLayer;                                   ///< Max temporal layer
 
   // coding unit (CU) definition
   bool      m_QTBT;
   unsigned  m_uiCTUSize;
-  unsigned  m_uiMinQT[3]; //0: I slice luma; 1: P/B slice; 2: I slice chrom
+  unsigned  m_uiMinQT[3]; // 0: I slice luma; 1: P/B slice; 2: I slice chroma
   unsigned  m_uiMaxBTDepth;
   unsigned  m_uiMaxBTDepthI;
   unsigned  m_uiMaxBTDepthIChroma;
-  bool      m_qtbtDualTree;
+  bool      m_dualTree;
   bool      m_NSST;
   bool      m_Intra4Tap;
   bool      m_Intra65Ang;
@@ -282,6 +282,7 @@ protected:
 #if T0196_SELECTIVE_RDOQ
   Bool      m_useSelectiveRDOQ;                               ///< flag for using selective RDOQ
 #endif
+  UInt      m_RDOQfn;
   Int       m_rdPenalty;                                      ///< RD-penalty for 32x32 TU for intra in non-intra slices (0: no RD-penalty, 1: RD-penalty, 2: maximum RD-penalty)
   Bool      m_bDisableIntraPUsInInterSlices;                  ///< Flag for disabling intra predicted PUs in inter slices.
   MESearchMethod m_motionEstimationSearchMethod;

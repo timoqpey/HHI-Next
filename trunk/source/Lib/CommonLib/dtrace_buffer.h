@@ -47,7 +47,7 @@
 
 #if ENABLE_TRACING
 
-__inline unsigned calcCheckSum( const CPelBuf& buf, int bitdepth )
+inline unsigned calcCheckSum( const CPelBuf& buf, int bitdepth )
 {
   const Int iWidth  = buf.width; 
   const Int iHeight = buf.height;

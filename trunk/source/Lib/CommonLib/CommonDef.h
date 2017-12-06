@@ -313,7 +313,7 @@ static const Int    MAX_BT_SIZE_INTER  =                          128;      ///<
 static const Int    MIN_BT_SIZE_INTER  =                            4;      ///<
 
                                                                             //for I slice chroma CTB configuration para. (in luma samples)
-static const Int    MAX_BT_DEPTH_C      =                           0;      ///< <=7   
+static const Int    MAX_BT_DEPTH_C      =                           0;      ///< <=7
 static const Int    MAX_BT_SIZE_C       =                          64;      ///< [1<<MIN_QT_SIZE_C, 1<<CTU_LOG2], in luma samples
 static const Int    MIN_BT_SIZE_C       =                           4;      ///< can be set down to 4, in luma samples
 
@@ -363,6 +363,11 @@ static const Int NB_FRUC_CAND_ADDED_SUB =                          4 ; ///< for 
 static const UInt NB_FRUC_CAND_ATMVP =                             4 ; ///< for sub-blocks of merge CU, number of ATMVP candidates
 
 static const Int DMVR_INTME_RANGE =                                 1;
+
+static const Int NTAPS_LUMA               =                         8; ///< Number of taps for luma
+static const Int NTAPS_CHROMA             =                         4; ///< Number of taps for chroma
+static const Int NTAPS_LUMA_FRUC          =                         2;
+
 
 
 // ====================================================================================================================

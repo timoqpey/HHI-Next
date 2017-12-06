@@ -89,7 +89,6 @@ protected:
 
   // interface to classes
   TrQuant*        m_pcTrQuant;
-  RdCost*         m_pcRdCost;
 
   // ME parameters
   Int             m_iSearchRange;
@@ -187,6 +186,7 @@ public:
   /// set ME search range
   Void setAdaptiveSearchRange       ( Int iDir, Int iRefIdx, Int iSearchRange) { CHECK(iDir >= MAX_NUM_REF_LIST_ADAPT_SR || iRefIdx>=Int(MAX_IDX_ADAPT_SR), "Invalid index"); m_aaiAdaptSR[iDir][iRefIdx] = iSearchRange; }
 
+
 protected:
 
   // -------------------------------------------------------------------------------------------------------------------
@@ -213,7 +213,7 @@ protected:
                                     const UChar  imv
     );
 
-  Distortion xGetTemplateCost     ( PredictionUnit&       pu,
+  Distortion xGetTemplateCost     ( const PredictionUnit& pu,
                                     PelUnitBuf&           origBuf,
                                     PelUnitBuf&           predBuf,
                                     Mv                    cMvCand,
@@ -307,7 +307,9 @@ protected:
                                     Double              fWeight
                                   );
 
-  Void xPatternSearchFracDIF      ( Bool                  bIsLosslessCoded,
+  Void xPatternSearchFracDIF      ( const PredictionUnit& pu,
+                                    RefPicList            eRefPicList,
+                                    Int                   iRefIdx,
                                     IntTZSearchStruct&    cStruct,
                                     const Mv&             rcMvInt,
                                     Mv&                   rcMvHalf,
@@ -357,6 +359,7 @@ protected:
   // -------------------------------------------------------------------------------------------------------------------
 
   Void  setWpScalingDistParam     ( Int iRefIdx, RefPicList eRefPicListCur, Slice *slice );
+
 
 public:
 

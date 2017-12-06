@@ -113,8 +113,8 @@ protected:
 
   Int xCalcLMParametersGeneralized(Int x, Int y, Int xx, Int xy, Int count, Int bitDepth, Int &a, Int &b, Int &iShift);
   Int xLMSampleClassifiedTraining (Int count, Int LumaSamples[], Int ChrmSamples[], Int GroupNum, Int bitDepth, MMLM_parameter parameters[]);
-  Int xGetMMLMParameters          (const PredictionUnit& pu, const ComponentID compID, CompArea chromaArea,  /*UInt uiWidth, UInt uiHeight,*/ Int &numClass, MMLM_parameter parameters[]);
-  Void xGetLMParameters           (const PredictionUnit &pu, const ComponentID &compID, CompArea chromaArea, Int iPredType, Int& a, Int&  b, Int& iShift);
+  Int xGetMMLMParameters          (const PredictionUnit& pu, const ComponentID compID, const CompArea& chromaArea, Int &numClass, MMLM_parameter parameters[]);
+  Void xGetLMParameters           (const PredictionUnit &pu, const ComponentID compID, const CompArea& chromaArea, Int iPredType, Int& a, Int&  b, Int& iShift);
 
 public:
   IntraPrediction();
@@ -123,17 +123,20 @@ public:
   Void init                       (ChromaFormat chromaFormatIDC, const unsigned bitDepthY);
 
   // Angular Intra
-  Void predIntraAng               (const ComponentID &compID, PelBuf &piOrg, PelBuf &piPred, const PredictionUnit &pu, const Bool &bUseFilteredPredSamples, const Bool &bUseLosslessDPCM = false);
+  Void predIntraAng               (const ComponentID compID, PelBuf &piOrg, PelBuf &piPred, const PredictionUnit &pu, const Bool &bUseFilteredPredSamples, const Bool &bUseLosslessDPCM = false);
   Pel*  getPredictorPtr           (const ComponentID compID, const Bool bUseFilteredPredictions) { return m_piYuvExt[compID][bUseFilteredPredictions?PRED_BUF_FILTERED:PRED_BUF_UNFILTERED]; }
+
+
   // Cross-component Chroma
-  Void predIntraChromaLM          (const ComponentID &compID, PelBuf &piPred, const PredictionUnit &pu, CompArea chromaArea, Int intraDir);
+  Void predIntraChromaLM          (const ComponentID compID, PelBuf &piPred, const PredictionUnit &pu, const CompArea& chromaArea, Int intraDir);
   Void xGetLumaRecPixels          (const PredictionUnit &pu, CompArea chromaArea);
-  Void addCrossColorResi          (const ComponentID &compID, PelBuf &piPred, const TransformUnit &tu, const CPelBuf &pResiCb);
+  Void addCrossColorResi          (const ComponentID compID, PelBuf &piPred, const TransformUnit &tu, const CPelBuf &pResiCb);
 
   /// set parameters from CU data for accessing intra data
   Void initIntraPatternChType     (const CodingUnit &cu, const CompArea &area, const Bool bFilterRefSamples);
 
-  static bool useFilteredIntraRefSamples( const ComponentID &compID, const PredictionUnit &pu, const bool &modeSpecific, const UnitArea &tuArea );
+  static bool useFilteredIntraRefSamples( const ComponentID &compID, const PredictionUnit &pu, bool modeSpecific, const UnitArea &tuArea );
+  static bool getPlanarMDISCondition( const UnitArea &tuArea ) { return abs(PLANAR_IDX - HOR_IDX) > m_aucIntraFilter[CHANNEL_TYPE_LUMA][((g_aucLog2[tuArea.Y().width] + g_aucLog2[tuArea.Y().height]) >> 1)]; }
   static Bool useDPCMForFirstPassIntraEstimation(const PredictionUnit &pu, const UInt &uiDirMode);
 };
 

@@ -60,8 +60,8 @@ ALFParam::ALFParam()
   tapV              = 0;
   num_coeff         = 0;
   coeffmulti        = nullptr;
-  alfCoeffLuma		= nullptr;
-  alfCoeffChroma	= nullptr;
+  alfCoeffLuma      = nullptr;
+  alfCoeffChroma    = nullptr;
 
   chroma_idc        = 0;
   tap_chroma        = 0;
@@ -74,7 +74,7 @@ ALFParam::ALFParam()
   alf_cu_flag       = nullptr;
 
   //Coding related
-  num_cus_in_frame  = 0; //TODO why is this need here? at least rename (cu->ctu)
+  num_ctus_in_frame = 0;
   maxCodingDepth    = 0; //TODO "
 
   filters_per_group_diff = 0;
@@ -92,39 +92,6 @@ ALFParam::ALFParam()
 ALFParam::~ALFParam()
 {
  destroy();
-}
-
-
-void ALFParam::create( )
-{
-  alf_flag = 0;
-  cu_control_flag = 0;
-  coeff_chroma = new Int[ AdaptiveLoopFilter::m_ALF_MAX_NUM_COEF_C ];
-
-  ::memset(coeff_chroma, 0, sizeof(Int)*AdaptiveLoopFilter::m_ALF_MAX_NUM_COEF_C );
-
-  coeffmulti = new Int*[ AdaptiveLoopFilter::m_NO_VAR_BINS ];
-  for (int i=0; i< AdaptiveLoopFilter::m_NO_VAR_BINS; i++)
-  {
-    coeffmulti[i] = new Int[ AdaptiveLoopFilter::m_ALF_MAX_NUM_COEF ];
-    ::memset(coeffmulti[i], 0, sizeof(Int)*AdaptiveLoopFilter::m_ALF_MAX_NUM_COEF );
-  }
-  ::memset( kMinTab , 0 , sizeof( kMinTab ) );
-}
-
-void ALFParam::create( int numCTUsinFrame, int _maxCodingDepth )
-{
-  create();
-  alf_max_depth    = 0;
-  tap_chroma       = 5;
-#if JVET_C0038_NO_PREV_FILTERS
-  iAvailableFilters = JVET_C0038_NO_PREV_FILTERS;
-#endif
-  maxCodingDepth   = _maxCodingDepth;
-  num_cus_in_frame = numCTUsinFrame;
-  num_alf_cu_flag  = 0;
-  alf_cu_flag      = new UInt[((numCTUsinFrame << ((maxCodingDepth-1)*2))) ];
-
 }
 
 void ALFParam::destroy()
@@ -153,6 +120,7 @@ void ALFParam::destroy()
    }
 }
 
+
 void ALFParam::reset()
 {
   alf_flag         = 0;
@@ -178,45 +146,6 @@ void ALFParam::reset()
   temporalPredFlag  = 0;
   prevIdx           = 0;
 }
-
-
-void ALFParam::copyFrom( ALFParam& srcParam )
-{
-  alf_flag        = srcParam.alf_flag;
-  cu_control_flag = srcParam.cu_control_flag;
-  chroma_idc      = srcParam.chroma_idc;
-  filterType      = srcParam.filterType;
-
-  tapH = srcParam.tapH;
-  tapV = srcParam.tapV;
-  num_coeff = srcParam.num_coeff;
-  filterMode = srcParam.filterMode;
-  ::memcpy( filterPattern, srcParam.filterPattern, sizeof(Int)*AdaptiveLoopFilter::m_NO_VAR_BINS);
-  startSecondFilter = srcParam.startSecondFilter;
-  ::memcpy( mapClassToFilter , srcParam.mapClassToFilter , sizeof( srcParam.mapClassToFilter ) );
-
-  tap_chroma = srcParam.tap_chroma;
-  num_coeff_chroma = srcParam.num_coeff_chroma;
-
-  ::memcpy( coeff_chroma, srcParam.coeff_chroma, sizeof(Int)* AdaptiveLoopFilter::m_ALF_MAX_NUM_COEF_C);
-
-  //Coeff send related
-  filters_per_group_diff = srcParam.filters_per_group_diff; //this can be updated using codedVarBins
-  filters_per_group      = srcParam.filters_per_group; //this can be updated using codedVarBins
-
-  //::memcpy( codedVarBins, srcParam.codedVarBins, sizeof(Int)*AdaptiveLoopFilter::m_NO_VAR_BINS);
-  forceCoeff0 = srcParam.forceCoeff0;
-  predMethod  = srcParam.predMethod;
-
-  ::memcpy(alfCoeffChroma, srcParam.alfCoeffChroma, sizeof(Int)*AdaptiveLoopFilter::m_ALF_MAX_NUM_COEF_C);
-  for( int i=0; i< AdaptiveLoopFilter::m_NO_VAR_BINS; i++)
-  {
-   ::memcpy( coeffmulti[i], srcParam.coeffmulti[i], sizeof(Int)*AdaptiveLoopFilter::m_ALF_MAX_NUM_COEF );
-   //galf stuff
-   ::memcpy( alfCoeffLuma[i], srcParam.alfCoeffLuma[i], sizeof(Int)*AdaptiveLoopFilter::m_ALF_MAX_NUM_COEF);
-  }
-}
-
 
 // ====================================================================================================================
 // Tables
@@ -945,8 +874,8 @@ AdaptiveLoopFilter::AdaptiveLoopFilter()
   m_imgY_temp     = nullptr;
   m_imgY_ver      = nullptr;
   m_imgY_hor      = nullptr;
-  m_imgY_dig0	  = nullptr;
-  m_imgY_dig1	  = nullptr;
+  m_imgY_dig0     = nullptr;
+  m_imgY_dig1     = nullptr;
   m_filterCoeffFinal = NULL;
   m_filterCoeffSym          = nullptr;
   m_filterCoeffPrevSelected = nullptr;
@@ -1307,10 +1236,10 @@ Void AdaptiveLoopFilter::allocALFParam(ALFParam* pAlfParam)
     pAlfParam->coeffmulti[i] = new Int[m_ALF_MAX_NUM_COEF];
     ::memset(pAlfParam->coeffmulti[i], 0, sizeof(Int)*m_ALF_MAX_NUM_COEF);
   }
-  pAlfParam->num_cus_in_frame = m_uiNumCUsInFrame;
+  pAlfParam->num_ctus_in_frame = m_uiNumCUsInFrame;
   pAlfParam->maxCodingDepth = m_uiMaxTotalCUDepth;
   pAlfParam->num_alf_cu_flag  = 0;
-  pAlfParam->alf_cu_flag      = new UInt[(m_uiNumCUsInFrame << ((m_uiMaxTotalCUDepth-1)*2))];
+  pAlfParam->alf_cu_flag      = new Bool[(m_uiNumCUsInFrame << ((m_uiMaxTotalCUDepth-1)*2))];
   ::memset(pAlfParam->kMinTab, 0, sizeof(pAlfParam->kMinTab));
 
   // galf stuff
@@ -1436,7 +1365,7 @@ Void AdaptiveLoopFilter::copyALFParam(ALFParam* pDesAlfParam, ALFParam* pSrcAlfP
   {
 #endif
     pDesAlfParam->num_alf_cu_flag = pSrcAlfParam->num_alf_cu_flag;
-    ::memcpy(pDesAlfParam->alf_cu_flag, pSrcAlfParam->alf_cu_flag, sizeof(UInt)*pSrcAlfParam->num_alf_cu_flag);
+    ::memcpy(pDesAlfParam->alf_cu_flag, pSrcAlfParam->alf_cu_flag, sizeof(Bool)*pSrcAlfParam->num_alf_cu_flag);
 #if COM16_C806_ALF_TEMPPRED_NUM
   }
 #endif
@@ -1450,6 +1379,7 @@ Void AdaptiveLoopFilter::copyALFParam(ALFParam* pDesAlfParam, ALFParam* pSrcAlfP
 #if COM16_C806_ALF_TEMPPRED_NUM
 }
 #endif
+
 }
 
 Void AdaptiveLoopFilter::resetALFParam(ALFParam* pDesAlfParam)
@@ -1604,7 +1534,7 @@ Void AdaptiveLoopFilter::xALFChroma( ALFParam* pcAlfParam,  const PelUnitBuf& re
     if( m_isGALF )
       xFrameChromaGalf(pcAlfParam, recExtBuf, recUnitBuf, COMPONENT_Cb);
     else
-      xFrameChromaAlf(recExtBuf, recUnitBuf, pcAlfParam->coeff_chroma, pcAlfParam->tap_chroma, COMPONENT_Cb);
+      xFrameChromaAlf(pcAlfParam, recExtBuf, recUnitBuf, COMPONENT_Cb);
   }
   else
   {
@@ -1617,7 +1547,7 @@ Void AdaptiveLoopFilter::xALFChroma( ALFParam* pcAlfParam,  const PelUnitBuf& re
     if( m_isGALF )
       xFrameChromaGalf(pcAlfParam, recExtBuf, recUnitBuf, COMPONENT_Cr);
     else
-      xFrameChromaAlf(recExtBuf, recUnitBuf, pcAlfParam->coeff_chroma, pcAlfParam->tap_chroma, COMPONENT_Cr);
+      xFrameChromaAlf(pcAlfParam, recExtBuf, recUnitBuf, COMPONENT_Cr);
   }
   else
   {
@@ -3023,8 +2953,11 @@ Void AdaptiveLoopFilter::xFrameChromaGalf(ALFParam* pcAlfParam, const PelUnitBuf
   xFilterBlkGalf(recUnitBuf, recExtBuf, Area(0, 0, iWidth, iHeight), (AlfFilterType)0, compID);
 }
 
-Void AdaptiveLoopFilter::xFrameChromaAlf(  const PelUnitBuf& recExtBuf, PelUnitBuf& recUnitBuf, Int *qh, Int iTap, ComponentID compID )
+Void AdaptiveLoopFilter::xFrameChromaAlf( ALFParam* pcAlfParam, const PelUnitBuf& recExtBuf, PelUnitBuf& recUnitBuf, ComponentID compID )
 {
+  Int iTap = pcAlfParam->tap_chroma;
+  Int *qh  = pcAlfParam->coeff_chroma;
+
   Int i, x, y, value, N;//, offset;
   Pel PixSum[m_ALF_MAX_NUM_COEF];
 

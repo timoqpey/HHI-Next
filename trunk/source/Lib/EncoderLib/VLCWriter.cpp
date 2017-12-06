@@ -557,13 +557,13 @@ Void HLSWriter::codeSPSNext( const SPSNext& spsNext )
   // additional parameters
   if( spsNext.getUseQTBT() )
   {
-    WRITE_FLAG( spsNext.getUseQtbtDoubleITree(),                                                "qtbt_dual_intra_tree" );
+    WRITE_FLAG( spsNext.getUseDualITree(),                                                       "qtbt_dual_intra_tree" );
     WRITE_UVLC( g_aucLog2[spsNext.getCTUSize()]                                 - MIN_CU_LOG2,  "log2_CTU_size_minus2" );
     WRITE_UVLC( g_aucLog2[spsNext.getMinQTSize( I_SLICE ) ]                     - MIN_CU_LOG2,  "log2_minQT_ISlice_minus2" );
     WRITE_UVLC( g_aucLog2[spsNext.getMinQTSize( B_SLICE ) ]                     - MIN_CU_LOG2,  "log2_minQT_PBSlice_minus2" );
     WRITE_UVLC( spsNext.getMaxBTDepth(),                                                        "max_bt_depth" );
     WRITE_UVLC( spsNext.getMaxBTDepthI(),                                                       "max_bt_depth_i_slice" );
-    if( spsNext.getUseQtbtDoubleITree() )
+    if( spsNext.getUseDualITree() )
     {
       WRITE_UVLC( g_aucLog2[spsNext.getMinQTSize( I_SLICE, CHANNEL_TYPE_CHROMA )] - MIN_CU_LOG2, "log2_minQT_ISliceChroma_minus2" );
       WRITE_UVLC( spsNext.getMaxBTDepthIChroma(),                                                "max_bt_depth_i_slice_chroma" );
@@ -609,17 +609,17 @@ Void HLSWriter::codeSPSNext( const SPSNext& spsNext )
 
   if( spsNext.getUseAClip() )
   {
-    WRITE_CODE( spsNext.getAClipQuant()/2, 2,                                                   "aclip_quant");
+    WRITE_CODE( spsNext.getAClipQuant() / 2, 2,                                                 "aclip_quant" );
   }
 
-  if (spsNext.getUseLMChroma())
+  if( spsNext.getUseLMChroma() )
   {
-    WRITE_UVLC(spsNext.getELMMode(),                                                            "elm_mode");
+    WRITE_UVLC( spsNext.getELMMode(),                                                           "elm_mode" );
   }
 
-  if (spsNext.getUseIntraPDPC())
+  if( spsNext.getUseIntraPDPC() )
   {
-    WRITE_FLAG((spsNext.getIntraPDPCMode()-1), "planar_pdpc_flag ");
+    WRITE_FLAG( spsNext.getIntraPDPCMode() - 1,                                                 "planar_pdpc_flag" );
   }
 
   if( spsNext.getALFEnabled() )
@@ -629,10 +629,8 @@ Void HLSWriter::codeSPSNext( const SPSNext& spsNext )
 #else
     CHECK( true == spsNext.getGALFEnabled(),  "currently no support of ALF=2 with GALF disabled" );
 #endif
-
-    WRITE_FLAG( spsNext.getGALFEnabled(),                                                       "galf_enabled_flag");
+    WRITE_FLAG( spsNext.getGALFEnabled(),                                                       "galf_enabled_flag" );
   }
-
 
   // ADD_NEW_TOOL : (sps extension writer) write tool enabling flags and associated parameters here
 }

@@ -825,14 +825,14 @@ private:
   //=====  additional parameters  =====
   // qtbt
   unsigned    m_CTUSize;
-  unsigned    m_minQT[3];   // 0: I slice luma; 1: P/B slice
+  unsigned    m_minQT[3];   // 0: I slice luma; 1: P/B slice; 2: I slice chroma
   unsigned    m_maxBTDepth;
   unsigned    m_maxBTDepthI;
   unsigned    m_maxBTDepthIChroma;
   unsigned    m_maxBTSize;
   unsigned    m_maxBTSizeI;
   unsigned    m_maxBTSizeIChroma;
-  unsigned    m_qtbtIDoubleTree;
+  unsigned    m_dualITree;
   // sub-pu merging
   unsigned    m_subPuLog2Size;
   // cabac engine
@@ -942,8 +942,8 @@ public:
   unsigned  getMaxBTSizeI         ()                                      const     { return m_maxBTSizeI; }
   unsigned  getMaxBTSizeIChroma   ()                                      const     { return m_maxBTSizeIChroma; }
 
-  void      setUseQtbtDoubleITree ( bool b )                                        { m_qtbtIDoubleTree = b; }
-  bool      getUseQtbtDoubleITree ()                                      const     { return m_qtbtIDoubleTree; }
+  void      setUseDualITree       ( bool b )                                        { m_dualITree = b; }
+  bool      getUseDualITree       ()                                      const     { return m_dualITree; }
 
   // sub pu tmvp
   void      setSubPuMvpLog2Size   ( unsigned    log2Size )                          { m_subPuLog2Size = log2Size; }
@@ -987,7 +987,6 @@ public:
   int       getIntraPDPCMode      ()                                      const     { return m_IntraPDPCMode; }
   bool      isIntraPDPC           ()                                      const     { return 0 != (m_IntraPDPCMode&1); }
   bool      isPlanarPDPC          ()                                      const     { return 0 != (m_IntraPDPCMode&2); }
-
   // ADD_NEW_TOOL : (sps extension) add access functions for tool enabling flags and associated parameters here
 };
 
@@ -2043,7 +2042,7 @@ public:
     , rectCUs             (  sps.getSpsNext().getUseQTBT() )
     , only2Nx2N           (  sps.getSpsNext().getUseQTBT() )
     , noChroma2x2         ( !sps.getSpsNext().getUseQTBT() )
-    , ISingleTree         ( !sps.getSpsNext().getUseQTBT() || !sps.getSpsNext().getUseQtbtDoubleITree() )
+    , ISingleTree         ( !sps.getSpsNext().getUseQTBT() || !sps.getSpsNext().getUseDualITree() )
     , maxBtDepth          { sps.getSpsNext().getMaxBTDepthI(), sps.getSpsNext().getMaxBTDepth(), sps.getSpsNext().getMaxBTDepthIChroma() }
     , minBtSize           { MIN_BT_SIZE, MIN_BT_SIZE_INTER, MIN_BT_SIZE_C }
     , maxBtSize           { sps.getSpsNext().getMaxBTSizeI(), sps.getSpsNext().getMaxBTSize(), sps.getSpsNext().getMaxBTSizeIChroma() }

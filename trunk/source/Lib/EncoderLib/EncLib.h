@@ -143,6 +143,7 @@ public:
 
   Bool                   PPSNeedsWriting(Int ppsId);
   Bool                   SPSNeedsWriting(Int spsId);
+  const PPS* getPPS( int Id ) { return m_ppsMap.getPS( Id); }
 
   // -------------------------------------------------------------------------------------------------------------------
   // encoder function

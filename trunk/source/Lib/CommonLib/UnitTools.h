@@ -49,7 +49,7 @@ namespace CS
   UInt64 getEstBits                   ( const CodingStructure &cs );
   void   initFrucMvp                  (       CodingStructure &cs );
   UnitArea getArea                    ( const CodingStructure &cs, const UnitArea &area );
-  bool   isDoubleITree                ( const CodingStructure &cs );
+  bool   isDualITree                  ( const CodingStructure &cs );
 }
 
 
@@ -120,17 +120,13 @@ namespace PU
   void setAllAffineMvField            (      PredictionUnit &pu, MvField *mvField, RefPicList eRefList );
   void setAllAffineMv                 (      PredictionUnit &pu, Mv affLT, Mv affRT, Mv affLB, RefPicList eRefList );
   void setAllAffineMvd                (      MotionBuf mb, const Mv& affLT, const Mv& affRT, RefPicList eRefList, Bool useQTBT );
-
   bool isBIOLDB                       (const PredictionUnit &pu);
-
+  bool isBiPredFromDifferentDir       (const PredictionUnit &pu);
   void restrictBiPredMergeCands       (const PredictionUnit &pu, MergeCtx& mrgCtx);
-
   bool getNeighborMotion              (      PredictionUnit &pu, MotionInfo& mi, Position off, Int iDir, Bool bSubPu );
-
   bool getMvPair                      (const PredictionUnit &pu, RefPicList eCurRefPicList, const MvField & rCurMvField, MvField &rMvPair);
   bool isSameMVField                  (const PredictionUnit &pu, RefPicList eListA, MvField &rMVFieldA, RefPicList eListB, MvField &rMVFieldB);
   Mv   scaleMv                        (const Mv &rColMV, Int iCurrPOC, Int iCurrRefPOC, Int iColPOC, Int iColRefPOC, Slice *slice);
-
   bool isLMCMode                      (                          unsigned mode);
   bool isMMLMEnabled                  (const PredictionUnit &pu);
   bool isMFLMEnabled                  (const PredictionUnit &pu);
@@ -141,7 +137,7 @@ namespace PU
 // TU tools
 namespace TU
 {
-  UInt getNumNonZeroCoeffsNonTS       (const TransformUnit &tu);
+  UInt getNumNonZeroCoeffsNonTS       (const TransformUnit &tu, const bool bLuma = true, const bool bChroma = true);
   bool useDST                         (const TransformUnit &tu, const ComponentID &compID);
   bool isNonTransformedResidualRotated(const TransformUnit &tu, const ComponentID &compID);
   bool getCbf                         (const TransformUnit &tu, const ComponentID &compID);
