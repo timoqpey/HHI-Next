@@ -2164,10 +2164,10 @@ Bool EncModeCtrlMTnoRQT::tryMode( const EncTestMode& encTestmode, const CodingSt
         {
           for( k = 0; k < cuHeight - 1; k++ )
           {
-            horVal += abs( bufCurrArea.at( j + 1,            k     ) - bufCurrArea.at( j,            k ) );
-            verVal += abs( bufCurrArea.at( j    ,            k + 1 ) - bufCurrArea.at( j,            k ) );
-            dupVal += abs( bufCurrArea.at( j + 1,            k + 1 ) - bufCurrArea.at( j,            k ) );
-            dowVal += abs( bufCurrArea.at( j + 1, cuHeight - k + 1 ) - bufCurrArea.at( j, cuHeight - k ) );
+            horVal += abs( bufCurrArea.at( j + 1, k     ) - bufCurrArea.at( j, k ) );
+            verVal += abs( bufCurrArea.at( j    , k + 1 ) - bufCurrArea.at( j, k ) );
+            dupVal += abs( bufCurrArea.at( j + 1, k )     - bufCurrArea.at( j, k + 1 ) );
+            dowVal += abs( bufCurrArea.at( j + 1, k + 1 ) - bufCurrArea.at( j, k ) );
           }
         }
         if( horVal > th * verVal && sqrt( 2 ) * horVal > th * dowVal && sqrt( 2 ) * horVal > th * dupVal && getPartSplit( encTestmode ) == CU_HORZ_SPLIT )
