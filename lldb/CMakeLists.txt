@@ -27,7 +27,7 @@ if( ENABLE_LLDBINIT_UPDATE )
 
   # ---
   # Create a cmake script to update ~/.ldbinit 
-  set( cmake_lldbinit_module ${CMAKE_SOURCE_DIR}/cmake/modules/BBuildEnvLldb.cmake )
+  set( cmake_lldbinit_module ${CMAKE_SOURCE_DIR}/cmake/CMakeBuild/cmake/modules/BBuildEnvLldb.cmake )
   set( input_file ${LLDBINIT_FILE} )
   set( section_marker ${PROJECT_NAME} )
   set( lldbinit_content "command source -s 0 ${LLDB_INSTALL_ROOT}/lldbinit-${PROJECT_NAME}" )

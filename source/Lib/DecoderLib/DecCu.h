@@ -90,8 +90,6 @@ private:
   IntraPrediction*  m_pcIntraPred;
   InterPrediction*  m_pcInterPred;
 
-  MotionInfo        m_SubPuMiBuf   [( MAX_CU_SIZE * MAX_CU_SIZE ) >> ( MIN_CU_LOG2 << 1 )];
-  MotionInfo        m_SubPuExtMiBuf[( MAX_CU_SIZE * MAX_CU_SIZE ) >> ( MIN_CU_LOG2 << 1 )];
 };
 
 //! \}

@@ -104,8 +104,5 @@ private:
 
 
 typedef TBinDecoder<BinProbModel_Std>   BinDecoder_Std;
-typedef TBinDecoder<BinProbModel_JMP>   BinDecoder_JMP;
-typedef TBinDecoder<BinProbModel_JAW>   BinDecoder_JAW;
-typedef TBinDecoder<BinProbModel_JMPAW> BinDecoder_JMPAW;
 
 

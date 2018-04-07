@@ -45,15 +45,8 @@
 #include "CommonLib/Buffer.h"
 #include "CommonLib/Unit.h"
 
-#if ENABLE_TRACING
-
-inline unsigned calcCheckSum( const CPelBuf& buf, int bitdepth )
+inline unsigned calcCheckSum( const Int iWidth, const Int iHeight,  const Pel* p,  const UInt stride,  const Int bitdepth )
 {
-  const Int iWidth  = buf.width; 
-  const Int iHeight = buf.height;
-  const Pel* p      = buf.buf;
-  const UInt stride = buf.stride;
-
   unsigned checksum = 0;
   for( unsigned y = 0; y < iHeight; y++)
   {
@@ -70,6 +63,13 @@ inline unsigned calcCheckSum( const CPelBuf& buf, int bitdepth )
   }
   return checksum;
 }
+
+inline unsigned calcCheckSum( const CPelBuf& buf, int bitdepth )
+{
+  return calcCheckSum( buf.width, buf.height, buf.buf, buf.stride, bitdepth );
+}
+
+#if ENABLE_TRACING
 
 //////////////////////////////////////////////////////////////////////////
 //
@@ -143,26 +143,26 @@ inline void dtraceUnitComp( DTRACE_CHANNEL channel, CPelUnitBuf& pelUnitBuf, con
   DTRACE_BLOCK( g_trace_ctx, channel, piReco, uiStride, uiWidth, uiHeight );
 }
 
-inline void dtraceCRC( CDTrace *trace_ctx, DTRACE_CHANNEL channel, CodingStructure* cs, const CPelUnitBuf& pelUnitBuf )
+inline void dtraceCRC( CDTrace *trace_ctx, DTRACE_CHANNEL channel, const CodingStructure& cs, const CPelUnitBuf& pelUnitBuf, const Area* parea = NULL )
 {
-  DTRACE( trace_ctx, channel, "CRC: %6lld %3d @(%4d,%4d) [%2dx%2d] ,Checksum(%x %x %x)\n",
+  const Area& area = parea ? *parea : cs.area.Y();
+  DTRACE( trace_ctx, channel, " CRC: %6lld %3d @(%4d,%4d) [%2dx%2d] ,Checksum(%x %x %x)\n",
       DTRACE_GET_COUNTER( g_trace_ctx, channel ),
-      cs->slice->getPOC(),
-      cs->area.Y().x, cs->area.Y().y,
-      cs->area.Y().width, cs->area.Y().height,
-      calcCheckSum( pelUnitBuf.bufs[COMPONENT_Y], cs->sps->getBitDepth (CHANNEL_TYPE_LUMA)),
-      calcCheckSum( pelUnitBuf.bufs[COMPONENT_Cb], cs->sps->getBitDepth (CHANNEL_TYPE_CHROMA)),
-      calcCheckSum( pelUnitBuf.bufs[COMPONENT_Cr], cs->sps->getBitDepth (CHANNEL_TYPE_CHROMA)));
+      cs.slice->getPOC(),
+      area.x, area.y, area.width, area.height,
+      calcCheckSum( pelUnitBuf.bufs[COMPONENT_Y], cs.sps->getBitDepth (CHANNEL_TYPE_LUMA)),
+      calcCheckSum( pelUnitBuf.bufs[COMPONENT_Cb], cs.sps->getBitDepth (CHANNEL_TYPE_CHROMA)),
+      calcCheckSum( pelUnitBuf.bufs[COMPONENT_Cr], cs.sps->getBitDepth (CHANNEL_TYPE_CHROMA)));
 }
 
-inline void dtraceCCRC( CDTrace *trace_ctx, DTRACE_CHANNEL channel, CodingStructure* cs, const CPelBuf& pelBuf, ComponentID compId )
+inline void dtraceCCRC( CDTrace *trace_ctx, DTRACE_CHANNEL channel, const CodingStructure& cs, const CPelBuf& pelBuf, ComponentID compId, const Area* parea = NULL )
 {
+  const Area& area = parea ? *parea : cs.area.Y();
   DTRACE( trace_ctx, channel, "CRC: %6lld %3d @(%4d,%4d) [%2dx%2d] ,comp %d Checksum(%x)\n",
       DTRACE_GET_COUNTER( g_trace_ctx, channel ),
-      cs->slice->getPOC(),
-      cs->area.Y().x, cs->area.Y().y,
-      cs->area.Y().width, cs->area.Y().height, compId,
-      calcCheckSum( pelBuf, cs->sps->getBitDepth ( toChannelType(compId) )));
+      cs.slice->getPOC(),
+      area.x, area.y, area.width, area.height, compId,
+      calcCheckSum( pelBuf, cs.sps->getBitDepth ( toChannelType(compId) )));
 }
 
 
@@ -181,12 +181,12 @@ inline void dtraceCCRC( CDTrace *trace_ctx, DTRACE_CHANNEL channel, CodingStruct
 #define DTRACE_PEL_BUF(...)
 #define DTRACE_COEFF_BUF(...)
 #define DTRACE_BLOCK_REC(...)
-#define DTRACE_PEL_BUF_COND(...)  
+#define DTRACE_PEL_BUF_COND(...)
 #define DTRACE_COEFF_BUF_COND(...)
 #define DTRACE_BLOCK_REC_COND(...)
 #define DTRACE_UNIT_COMP(...)
-#define DTRACE_CRC(...)            
-#define DTRACE_CCRC(...)            
+#define DTRACE_CRC(...)
+#define DTRACE_CCRC(...)
 
 #endif
 

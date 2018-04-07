@@ -25,7 +25,19 @@ endif()
 
 set( SKIP_SVN_REVISION OFF CACHE BOOL "Don't add SVN path and revision info to the encoder and decoder output" )
 set( SET_ENABLE_TRACING OFF CACHE BOOL "Set ENABLE_TRACING as a compiler flag" )
-set( ENABLE_TRACING OFF CACHE BOOL "If ENABLE_TRACING is on, it will be set to this value" )
+set( ENABLE_TRACING OFF CACHE BOOL "If SET_ENABLE_TRACING is on, it will be set to this value" )
+
+if( ${CMAKE_SYSTEM_NAME} MATCHES "Darwin" )
+else()
+  set( SET_HHI_SPLIT_PARALLELISM OFF CACHE BOOL "Set HHI_SPLIT_PARALLELISM as a compiler flag" )
+  set( HHI_SPLIT_PARALLELISM OFF CACHE BOOL "If SET_HHI_SPLIT_PARALLELISM is on, it will be set to this value" )
+  set( SET_HHI_WPP_PARALLELISM OFF CACHE BOOL "Set HHI_WPP_PARALLELISM as a compiler flag" )
+  set( HHI_WPP_PARALLELISM OFF CACHE BOOL "If SET_HHI_WPP_PARALLELISM is on, it will be set to this value" )
+endif()
+
+if( CMAKE_COMPILER_IS_GNUCC )
+  set( BUILD_STATIC OFF CACHE BOOL "Build static executables" )
+endif()
 
 # set c++11
 set( CMAKE_CXX_STANDARD 11 )
@@ -41,18 +53,18 @@ set( CMAKE_POSITION_INDEPENDENT_CODE TRUE )
 set_property( GLOBAL PROPERTY USE_FOLDERS ON )
 
 # Include a utility module providing functions, macros, and settings
-include( ${CMAKE_SOURCE_DIR}/cmake/modules/NextSoftwareEnv.cmake )
+include( ${CMAKE_SOURCE_DIR}/cmake/CMakeBuild/cmake/modules/BBuildEnv.cmake )
 
 # Enable multithreading
-nse_multithreading()
+bb_multithreading()
 
 # Enable warnings for some generators and toolsets.
-nse_enable_warnings( gcc warnings-as-errors -Wno-sign-compare )
-# nse_enable_warnings( gcc -Wno-unused-variable )
-# nse_enable_warnings( gcc-4.8 warnings-as-errors -Wno-unused-variable )
+bb_enable_warnings( gcc warnings-as-errors -Wno-sign-compare )
+# bb_enable_warnings( gcc -Wno-unused-variable )
+# bb_enable_warnings( gcc-4.8 warnings-as-errors -Wno-unused-variable )
 
 if( XCODE )
-  nse_enable_warnings( clang warnings-as-errors
+  bb_enable_warnings( clang warnings-as-errors
                             -Wno-deprecated-declarations
                             -Wno-unknown-attributes
                             -Wno-deprecated-register
@@ -60,17 +72,17 @@ if( XCODE )
                             -Wno-absolute-value
                             -Wno-unused-const-variable )
 else()
-  nse_enable_warnings( clang warnings-as-errors
+  bb_enable_warnings( clang warnings-as-errors
                             -Wno-unknown-attributes
                             -Wno-deprecated-register
                             -Wno-pessimizing-move
                             -Wno-absolute-value
                             -Wno-unused-const-variable )
 endif()
-#nse_enable_warnings( clang warnings-as-errors )
+#bb_enable_warnings( clang warnings-as-errors )
 
 # enable warnings
-nse_enable_warnings( msvc warnings-as-errors "/wd4996" )
+bb_enable_warnings( msvc warnings-as-errors "/wd4996" )
 
 # enable sse4.1 build for all source files for gcc and clang
 if( UNIX )
@@ -91,17 +103,28 @@ if( CMAKE_CXX_COMPILER_ID STREQUAL "GNU" )
       add_compile_options( "-fsanitize=address" )
     endif()
   endif()
-  
+
   if( CMAKE_CXX_COMPILER_VERSION VERSION_LESS 5.0 )
     add_compile_options( "-fabi-version=6" )
+  endif()
+endif()
+
+if( ${CMAKE_SYSTEM_NAME} MATCHES "Darwin" )
+  add_definitions( -DHHI_SPLIT_PARALLELISM=0 )
+else()
+  find_package( OpenMP )
+  if( OPENMP_FOUND )
+    set( CMAKE_C_FLAGS          "${CMAKE_C_FLAGS} ${OpenMP_C_FLAGS}" )
+    set( CMAKE_CXX_FLAGS        "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}" )
+    set( CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${OpenMP_EXE_LINKER_FLAGS}" )
   endif()
 endif()
 
 # modify .lldbinit for lldb custom data formatters
 if( XCODE )
   set( LLDB_INSTALL_ROOT "$ENV{HOME}/.lldb.d" )
-  set( LLDBINIT_FILE "$ENV{HOME}/.lldbinit" )  
-  set( ENABLE_LLDBINIT_UPDATE ON )  
+  set( LLDBINIT_FILE "$ENV{HOME}/.lldbinit" )
+  set( ENABLE_LLDBINIT_UPDATE ON )
   # add custom target to install LLDB files.
   add_subdirectory( "lldb" )
 endif()
@@ -116,4 +139,5 @@ add_subdirectory( "source/Lib/Utilities" )
 add_subdirectory( "source/App/DecoderAnalyserApp" )
 add_subdirectory( "source/App/DecoderApp" )
 add_subdirectory( "source/App/EncoderApp" )
+add_subdirectory( "source/App/SEIRemovalApp" )
 

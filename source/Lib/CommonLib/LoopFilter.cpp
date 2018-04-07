@@ -42,6 +42,7 @@
 #include "UnitTools.h"
 #include "UnitPartitioner.h"
 #include "dtrace_codingstruct.h"
+#include "dtrace_buffer.h"
 
 //! \ingroup CommonLib
 //! \{
@@ -132,9 +133,23 @@ void LoopFilter::destroy()
  .
  \param  pcPic   picture class (Pic) pointer
  */
-void LoopFilter::loopFilterPic( CodingStructure& cs )
+void LoopFilter::loopFilterPic( CodingStructure& cs
+                                )
 {
   const PreCalcValues& pcv = *cs.pcv;
+
+  DTRACE_UPDATE( g_trace_ctx, ( std::make_pair( "poc", cs.slice->getPOC() ) ) );
+#if ENABLE_TRACING
+  for( int y = 0; y < pcv.heightInCtus; y++ )
+  {
+    for( int x = 0; x < pcv.widthInCtus; x++ )
+    {
+      const UnitArea ctuArea( pcv.chrFormat, Area( x << pcv.maxCUWidthLog2, y << pcv.maxCUHeightLog2, pcv.maxCUWidth, pcv.maxCUWidth ) );
+      DTRACE    ( g_trace_ctx, D_CRC, "CTU %d %d", ctuArea.Y().x, ctuArea.Y().y );
+      DTRACE_CRC( g_trace_ctx, D_CRC, cs, cs.picture->getRecoBuf( clipArea( ctuArea, *cs.picture ) ), &ctuArea.Y() );
+    }
+  }
+#endif
 
   for( int y = 0; y < pcv.heightInCtus; y++ )
   {
@@ -146,24 +161,20 @@ void LoopFilter::loopFilterPic( CodingStructure& cs )
       const UnitArea ctuArea( pcv.chrFormat, Area( x << pcv.maxCUWidthLog2, y << pcv.maxCUHeightLog2, pcv.maxCUWidth, pcv.maxCUWidth ) );
 
       // CU-based deblocking
-      for( auto &currCU : cs.traverseCUs( CS::getArea( cs, ctuArea ), CHANNEL_TYPE_LUMA ) )
+      for( auto &currCU : cs.traverseCUs( CS::getArea( cs, ctuArea, CH_L ), CH_L ) )
       {
         xDeblockCU( currCU, EDGE_VER );
       }
 
       if( CS::isDualITree( cs ) )
       {
-        cs.chType = CHANNEL_TYPE_CHROMA;
-
         memset( m_aapucBS       [EDGE_VER].data(), 0,     m_aapucBS       [EDGE_VER].byte_size() );
         memset( m_aapbEdgeFilter[EDGE_VER].data(), false, m_aapbEdgeFilter[EDGE_VER].byte_size() );
 
-        for( auto &currCU : cs.traverseCUs( CS::getArea( cs, ctuArea ), CHANNEL_TYPE_CHROMA ) )
+        for( auto &currCU : cs.traverseCUs( CS::getArea( cs, ctuArea, CH_C ), CH_C ) )
         {
           xDeblockCU( currCU, EDGE_VER );
         }
-
-        cs.chType = CHANNEL_TYPE_LUMA;
       }
     }
   }
@@ -179,33 +190,30 @@ void LoopFilter::loopFilterPic( CodingStructure& cs )
       const UnitArea ctuArea( pcv.chrFormat, Area( x << pcv.maxCUWidthLog2, y << pcv.maxCUHeightLog2, pcv.maxCUWidth, pcv.maxCUWidth ) );
 
       // CU-based deblocking
-      for( auto &currCU : cs.traverseCUs( CS::getArea( cs, ctuArea ), CHANNEL_TYPE_LUMA ) )
+      for( auto &currCU : cs.traverseCUs( CS::getArea( cs, ctuArea, CH_L ), CH_L ) )
       {
         xDeblockCU( currCU, EDGE_HOR );
       }
 
       if( CS::isDualITree( cs ) )
       {
-        cs.chType = CHANNEL_TYPE_CHROMA;
-
         memset( m_aapucBS       [EDGE_HOR].data(), 0,     m_aapucBS       [EDGE_HOR].byte_size() );
         memset( m_aapbEdgeFilter[EDGE_HOR].data(), false, m_aapbEdgeFilter[EDGE_HOR].byte_size() );
 
-        for( auto &currCU : cs.traverseCUs( CS::getArea( cs, ctuArea ), CHANNEL_TYPE_CHROMA ) )
+        for( auto &currCU : cs.traverseCUs( CS::getArea( cs, ctuArea, CH_C ), CH_C ) )
         {
           xDeblockCU( currCU, EDGE_HOR );
         }
-
-        cs.chType = CHANNEL_TYPE_LUMA;
       }
     }
   }
 
-  DTRACE_UPDATE  (g_trace_ctx, (std::make_pair("poc", cs.slice->getPOC())));
-
   DTRACE_PIC_COMP(D_REC_CB_LUMA_LF,   cs, cs.getRecoBuf(), COMPONENT_Y);
   DTRACE_PIC_COMP(D_REC_CB_CHROMA_LF, cs, cs.getRecoBuf(), COMPONENT_Cb);
   DTRACE_PIC_COMP(D_REC_CB_CHROMA_LF, cs, cs.getRecoBuf(), COMPONENT_Cr);
+
+  DTRACE    ( g_trace_ctx, D_CRC, "LoopFilter" );
+  DTRACE_CRC( g_trace_ctx, D_CRC, cs, cs.getRecoBuf() );
 }
 
 
@@ -222,7 +230,7 @@ void LoopFilter::loopFilterPic( CodingStructure& cs )
 void LoopFilter::xDeblockCU( CodingUnit& cu, const DeblockEdgeDir edgeDir )
 {
   const PreCalcValues& pcv = *cu.cs->pcv;
-  const Area area          = cu.Y().valid() ? cu.Y() : Area( recalcPosition( cu.chromaFormat, cu.cs->chType, CHANNEL_TYPE_LUMA, cu.blocks[cu.cs->chType].pos() ), recalcSize( cu.chromaFormat, cu.cs->chType, CHANNEL_TYPE_LUMA, cu.blocks[cu.cs->chType].size() ) );
+  const Area area          = cu.Y().valid() ? cu.Y() : Area( recalcPosition( cu.chromaFormat, cu.chType, CHANNEL_TYPE_LUMA, cu.blocks[cu.chType].pos() ), recalcSize( cu.chromaFormat, cu.chType, CHANNEL_TYPE_LUMA, cu.blocks[cu.chType].size() ) );
 
   xSetLoopfilterParam( cu );
 
@@ -236,39 +244,12 @@ void LoopFilter::xDeblockCU( CodingUnit& cu, const DeblockEdgeDir edgeDir )
   for( auto &currPU : CU::traversePUs( cu ) )
   {
     const Area& areaPu = cu.Y().valid() ? currPU.block( COMPONENT_Y ) : area;
-    const Bool xOff    = areaPu.x != cu.lumaPos().x;
-    const Bool yOff    = areaPu.y != cu.lumaPos().y;
+    const Bool xOff    = currPU.blocks[cu.chType].x != cu.blocks[cu.chType].x;
+    const Bool yOff    = currPU.blocks[cu.chType].y != cu.blocks[cu.chType].y;
 
     xSetEdgefilterMultiple( cu, EDGE_VER, areaPu, (xOff ? m_stLFCUParam.internalEdge : m_stLFCUParam.leftEdge), xOff );
     xSetEdgefilterMultiple( cu, EDGE_HOR, areaPu, (yOff ? m_stLFCUParam.internalEdge : m_stLFCUParam.topEdge),  yOff );
-    
-    if( currPU.frucMrgMode )
-    {
-      if( areaPu.width == areaPu.height )
-      {
-        for( UInt off = FRUC_MERGE_REFINE_MINBLKSIZE; off < areaPu.height; off += FRUC_MERGE_REFINE_MINBLKSIZE )
-        {
-          xSetEdgefilterMultipleSubPu( cu, EDGE_VER, areaPu, areaPu.offset( (PosType) off, 0 ), m_stLFCUParam.internalEdge );
-          xSetEdgefilterMultipleSubPu( cu, EDGE_HOR, areaPu, areaPu.offset( 0, (PosType) off ), m_stLFCUParam.internalEdge );
-        }
-      }
-    }
-  }
 
-  if ( cu.affine )
-  {
-    const Int widthInBaseUnits = cu.Y().width >> pcv.minCUWidthLog2;
-    for( UInt edgeIdx = 1 ; edgeIdx < widthInBaseUnits ; edgeIdx++ )
-    {
-      const Area affiBlockV( cu.Y().x + edgeIdx * pcv.minCUWidth, cu.Y().y, pcv.minCUWidth, cu.Y().height );
-      xSetEdgefilterMultiple( cu, EDGE_VER, affiBlockV, m_stLFCUParam.internalEdge, 1 );
-    }
-    const Int heightInBaseUnits = cu.Y().height >> pcv.minCUHeightLog2;
-    for( UInt edgeIdx = 1 ; edgeIdx < heightInBaseUnits ; edgeIdx++ )
-    {
-      const Area affiBlockH( cu.Y().x, cu.Y().y + edgeIdx * pcv.minCUHeight, cu.Y().width, pcv.minCUHeight );
-      xSetEdgefilterMultiple( cu, EDGE_HOR, affiBlockH, m_stLFCUParam.internalEdge, 1 );
-    }
   }
 
   const unsigned uiPelsInPart = pcv.minCUWidth;
@@ -334,26 +315,6 @@ void LoopFilter::xSetEdgefilterMultiple( const CodingUnit&    cu,
     uiBsIdx += uiAdd;
   }
 }
-
-Void LoopFilter::xSetEdgefilterMultipleSubPu(const CodingUnit& cu,
-                                             DeblockEdgeDir edgeDir,
-                                             const Area&    area,
-                                             const Position subPuPos,
-                                             Bool           bValue )
-{
-  const PreCalcValues& pcv = *cu.cs->pcv;
-  
-  UInt uiAdd     = (edgeDir == EDGE_VER) ? pcv.partsInCtuWidth : 1;
-  UInt uiNumElem = (edgeDir == EDGE_VER) ? (area.height / pcv.minCUHeight) : (area.width / pcv.minCUWidth);
-  UInt uiBsIdx   = getRasterIdx( subPuPos, pcv );
-  
-  for (UInt ui = 0; ui < uiNumElem; ui++)
-  {
-    m_aapbEdgeFilter[edgeDir][uiBsIdx] = bValue;
-    uiBsIdx += uiAdd;
-  }
-}
-
 void LoopFilter::xSetLoopfilterParam( const CodingUnit& cu )
 {
   const Slice& slice = *cu.slice;
@@ -365,11 +326,11 @@ void LoopFilter::xSetLoopfilterParam( const CodingUnit& cu )
     return;
   }
 
-  const Position& pos = cu.blocks[cu.cs->chType].pos();
+  const Position& pos = cu.blocks[cu.chType].pos();
 
   m_stLFCUParam.internalEdge = true;
-  m_stLFCUParam.leftEdge = ( 0 < pos.x ) && isAvailableLeft ( cu, *cu.cs->getCU( pos.offset( -1,  0 ), cu.cs->chType ), !slice.getLFCrossSliceBoundaryFlag(), !pps.getLoopFilterAcrossTilesEnabledFlag() );
-  m_stLFCUParam.topEdge  = ( 0 < pos.y ) && isAvailableAbove( cu, *cu.cs->getCU( pos.offset(  0, -1 ), cu.cs->chType ), !slice.getLFCrossSliceBoundaryFlag(), !pps.getLoopFilterAcrossTilesEnabledFlag() );
+  m_stLFCUParam.leftEdge     = ( 0 < pos.x ) && isAvailableLeft ( cu, *cu.cs->getCU( pos.offset( -1,  0 ), cu.chType ), !slice.getLFCrossSliceBoundaryFlag(), !pps.getLoopFilterAcrossTilesEnabledFlag() );
+  m_stLFCUParam.topEdge      = ( 0 < pos.y ) && isAvailableAbove( cu, *cu.cs->getCU( pos.offset(  0, -1 ), cu.chType ), !slice.getLFCrossSliceBoundaryFlag(), !pps.getLoopFilterAcrossTilesEnabledFlag() );
 }
 
 unsigned LoopFilter::xGetBoundaryStrengthSingle ( const CodingUnit& cu, const DeblockEdgeDir edgeDir, const Position& localPos ) const
@@ -384,7 +345,7 @@ unsigned LoopFilter::xGetBoundaryStrengthSingle ( const CodingUnit& cu, const De
   const bool sameCU     = posP.x >= cuPosLuma.x && posP.y >= cuPosLuma.y;
 
   const CodingUnit& cuQ = cu;
-  const CodingUnit& cuP = sameCU ? cu : *cu.cs->getCU( posP );
+  const CodingUnit& cuP = sameCU ? cu : *cu.cs->getCU( posP, cu.chType );
 
   //-- Set BS for Intra MB : BS = 4 or 3
   if( ( MODE_INTRA == cuP.predMode ) || ( MODE_INTRA == cuQ.predMode ) )
@@ -392,8 +353,8 @@ unsigned LoopFilter::xGetBoundaryStrengthSingle ( const CodingUnit& cu, const De
     return 2;
   }
 
-  const TransformUnit& tuQ = posQ == cuQ.lumaPos() ? *cuQ.firstTU : *cuQ.cs->getTU(posQ);
-  const TransformUnit& tuP = posP == cuP.lumaPos() ? *cuP.firstTU : *cuP.cs->getTU(posP);
+  const TransformUnit& tuQ = posQ == cuQ.lumaPos() ? *cuQ.firstTU : *cuQ.cs->getTU(posQ, cuQ.chType);
+  const TransformUnit& tuP = posP == cuP.lumaPos() ? *cuP.firstTU : *cuP.cs->getTU(posP, cuP.chType);
   const PreCalcValues& pcv = *cu.cs->pcv;
   const unsigned rasterIdx = getRasterIdx( posQ, pcv );
 
@@ -423,15 +384,6 @@ unsigned LoopFilter::xGetBoundaryStrengthSingle ( const CodingUnit& cu, const De
     if( 0 <= miQ.refIdx[1] ) { mvQ1 = miQ.mv[1]; }
 
     Int nThreshold = 4;
-    if( cu.cs->sps->getSpsNext().getUseHighPrecMv() )
-    {
-      mvP0.setHighPrec();
-      mvP1.setHighPrec();
-      mvQ0.setHighPrec();
-      mvQ1.setHighPrec();
-      nThreshold = 4 << VCEG_AZ07_MV_ADD_PRECISION_BIT_FOR_STORE;
-    }
-
     unsigned uiBs = 0;
 
     //th can be optimized
@@ -485,13 +437,6 @@ unsigned LoopFilter::xGetBoundaryStrengthSingle ( const CodingUnit& cu, const De
   Mv mvQ0 = miQ.mv[0];
 
   Int nThreshold = 4;
-  if( cu.cs->sps->getSpsNext().getUseHighPrecMv() )
-  {
-    mvP0.setHighPrec();
-    mvQ0.setHighPrec();
-    nThreshold = 4 << VCEG_AZ07_MV_ADD_PRECISION_BIT_FOR_STORE;
-  }
-
   return ( ( abs( mvQ0.getHor() - mvP0.getHor() ) >= nThreshold ) || ( abs( mvQ0.getVer() - mvP0.getVer() ) >= nThreshold ) ) ? 1 : 0;
 }
 
@@ -559,7 +504,7 @@ Void LoopFilter::xEdgeFilterLuma(const CodingUnit& cu, const DeblockEdgeDir edge
     if( uiBs )
     {
       const CodingUnit& cuQ =  cu;
-      const CodingUnit& cuP = *cu.cs->getCU(pos.offset(xoffset - pelsInPart, yoffset - pelsInPart));
+      const CodingUnit& cuP = *cu.cs->getCU(pos.offset(xoffset - pelsInPart, yoffset - pelsInPart), cu.chType);
       // Derive neighboring PU index
       if (edgeDir == EDGE_VER)
       {
@@ -630,14 +575,14 @@ Void LoopFilter::xEdgeFilterLuma(const CodingUnit& cu, const DeblockEdgeDir edge
 
 void LoopFilter::xEdgeFilterChroma(const CodingUnit& cu, const DeblockEdgeDir edgeDir, const int iEdge)
 {
-  const Position lumaPos   = cu.Y().valid() ? cu.Y().pos() : recalcPosition( cu.chromaFormat, cu.cs->chType, CHANNEL_TYPE_LUMA, cu.blocks[cu.cs->chType].pos() );
-  const Size     lumaSize  = cu.Y().valid() ? cu.Y().size() : recalcSize( cu.chromaFormat, cu.cs->chType, CHANNEL_TYPE_LUMA, cu.blocks[cu.cs->chType].size() );
+  const Position lumaPos   = cu.Y().valid() ? cu.Y().pos() : recalcPosition( cu.chromaFormat, cu.chType, CHANNEL_TYPE_LUMA, cu.blocks[cu.chType].pos() );
+  const Size     lumaSize  = cu.Y().valid() ? cu.Y().size() : recalcSize( cu.chromaFormat, cu.chType, CHANNEL_TYPE_LUMA, cu.blocks[cu.chType].size() );
 
   const PreCalcValues& pcv = *cu.cs->pcv;
   unsigned  rasterIdx      = getRasterIdx( lumaPos, pcv );
 
-  PelBuf     picYuvRecCb   = cu.cs->getRecoBuf(cu.block(COMPONENT_Cb) );
-  PelBuf     picYuvRecCr   = cu.cs->getRecoBuf(cu.block(COMPONENT_Cr) );
+  PelBuf     picYuvRecCb   = cu.cs->getRecoBuf( cu.block(COMPONENT_Cb) );
+  PelBuf     picYuvRecCr   = cu.cs->getRecoBuf( cu.block(COMPONENT_Cr) );
   Pel       *piSrcCb       = picYuvRecCb.buf;
   Pel       *piSrcCr       = picYuvRecCr.buf;
   const int  iStride       = picYuvRecCb.stride;
@@ -716,7 +661,7 @@ void LoopFilter::xEdgeFilterChroma(const CodingUnit& cu, const DeblockEdgeDir ed
     if (ucBs > 1)
     {
       const CodingUnit& cuQ =  cu;
-      const CodingUnit& cuP = *cu.cs->getCU( recalcPosition( cu.chromaFormat, CHANNEL_TYPE_LUMA, cu.cs->chType, pos.offset( xoffset - uiNumPelsLuma, yoffset - uiNumPelsLuma ) ) );
+      const CodingUnit& cuP = *cu.cs->getCU( recalcPosition( cu.chromaFormat, CHANNEL_TYPE_LUMA, cu.chType, pos.offset( xoffset - uiNumPelsLuma, yoffset - uiNumPelsLuma ) ), cu.chType );
 
       if (edgeDir == EDGE_VER)
       {

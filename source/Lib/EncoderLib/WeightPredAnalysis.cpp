@@ -629,7 +629,7 @@ Bool WeightPredAnalysis::xSelectWP(Slice *const slice, const Int log2Denom)
       }
 
       const Double dRatio     = SADnoWP > 0 ? (((Double)SADWP / (Double)SADnoWP)) : std::numeric_limits<Double>::max();
-      const Double dMaxRatio  = Double( slice->getSPS()->getSpsNext().getLICMode() ? 0.85 : 0.99 );
+      const Double dMaxRatio  = Double( 0.99 );
       if(dRatio >= dMaxRatio)
       {
         for(Int comp=0; comp < ::getNumberValidComponents(pPic.chromaFormat); comp++)

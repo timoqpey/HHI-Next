@@ -40,20 +40,10 @@
 #include "Common.h"
 #include "Slice.h"
 
-void roundMV( Mv & rMV, unsigned imvShift )
-{
-  CHECK( imvShift == 0, "roundMV called for imvShift=0" );
-  if( rMV.highPrec ) imvShift += VCEG_AZ07_MV_ADD_PRECISION_BIT_FOR_STORE;
-  int offset = 1 << ( imvShift - 1 );
-
-  rMV.setHor( ( ( rMV.getHor() + offset ) >> imvShift ) << imvShift );
-  rMV.setVer( ( ( rMV.getVer() + offset ) >> imvShift ) << imvShift );
-}
 
 Void clipMv( Mv& rcMv, const Position& pos, const SPS& sps )
 {
-  //const SPS &sps = *( m_pcSlice->getSPS() );
-  int iMvShift = 2 + ( rcMv.highPrec ? VCEG_AZ07_MV_ADD_PRECISION_BIT_FOR_STORE : 0 );
+  int iMvShift = 2;
   int iOffset = 8;
   int iHorMax = ( sps.getPicWidthInLumaSamples() + iOffset - ( int ) pos.x - 1 ) << iMvShift;
   int iHorMin = ( -( int ) sps.getMaxCUWidth()   - iOffset - ( int ) pos.x + 1 ) << iMvShift;

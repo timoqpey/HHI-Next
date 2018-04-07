@@ -99,11 +99,11 @@ public:
   unsigned        lastXCtxId      ( unsigned  posLastX  )   const { return m_CtxSetLastX( m_lastOffsetX + ( posLastX >> m_lastShiftX ) ); }
   unsigned        lastYCtxId      ( unsigned  posLastY  )   const { return m_CtxSetLastY( m_lastOffsetY + ( posLastY >> m_lastShiftY ) ); }
   unsigned        sigGroupCtxId   ()                        const { return m_sigGroupCtxId; }
-  unsigned        sigCtxId        ( int       scanPos   )   const;
+  unsigned        sigCtxId        ( int       scanPos   )   const { return m_sigCtxSet( m_sigScanCtxId[ scanPos ] ); }
   unsigned        greater1CtxId   ( int       gt1Ctx    )   const { return m_gt1FlagCtxSet( gt1Ctx ); }
   unsigned        greater2CtxId   ()                        const { return m_gt2FlagCtxId; }
-  unsigned        altResiCompId   ()                        const { return m_altResiCompId; }
-  void            getAltResiCtxSet( const TCoeff* coeff, int scanPos, UInt& sigCtxIdx, UInt& gt1CtxIdx, UInt& gt2CtxIdx, UInt& goRicePar, int strd = 0 );
+
+/*#endif*/
 
   unsigned        sigGroupCtxIdOfs() const
   {
@@ -319,9 +319,6 @@ public:
     return ( order == MAX_GR_ORDER_RESIDUAL ? ( MAX_GR_ORDER_RESIDUAL - 1 ) : order );
   }
 
-  unsigned        emtNumSigCoeff()                          const { return m_emtNumSigCoeff; }
-  void            setEmtNumSigCoeff( unsigned val )               { m_emtNumSigCoeff = val; }
-
 private:
   // constant
   const ComponentID         m_compID;
@@ -335,8 +332,6 @@ private:
   const unsigned            m_heightInGroups;
   const unsigned            m_log2BlockWidth;
   const unsigned            m_log2BlockHeight;
-  const unsigned            m_log2WidthInGroups;
-  const unsigned            m_log2HeightInGroups;
   const unsigned            m_log2BlockSize;
   const unsigned            m_maxNumCoeff;
   const bool                m_AlignFlag;
@@ -359,6 +354,7 @@ private:
   const int                 m_lastShiftY;
   const bool                m_TrafoBypass;
   const int                 m_SigBlockType;
+  const uint8_t**           m_SigScanPatternBase;
   CtxSet                    m_sigCtxSet;
   // modified
   int                       m_scanPosLast;
@@ -369,47 +365,41 @@ private:
   int                       m_minSubPos;
   int                       m_maxSubPos;
   unsigned                  m_sigGroupCtxId;
-  int                       m_sigCGPattern;
+  const uint8_t*            m_sigScanCtxId;
   CtxSet                    m_gt1FlagCtxSet;
   unsigned                  m_gt2FlagCtxId;
   unsigned                  m_currentGolombRiceStatistic;
   bool                      m_prevGt2;
   std::bitset<MLS_GRP_NUM>  m_sigCoeffGroupFlag;
-  unsigned                  m_altResiCompId;
-  unsigned                  m_emtNumSigCoeff;
 };
 
 
 class CUCtx
 {
 public:
-  CUCtx()              : isDQPCoded(false), isChromaQpAdjCoded(false), numNonZeroCoeffNonTs(0) {}
-  CUCtx(int _qp)       : isDQPCoded(false), isChromaQpAdjCoded(false), numNonZeroCoeffNonTs(0), qp(_qp) {}
+  CUCtx()              : isDQPCoded(false), isChromaQpAdjCoded(false),
+                         numNonZeroCoeffNonTs(0) {}
+  CUCtx(int _qp)       : isDQPCoded(false), isChromaQpAdjCoded(false),
+                         numNonZeroCoeffNonTs(0), qp(_qp) {}
   ~CUCtx() {}
 public:
   bool      isDQPCoded;
   bool      isChromaQpAdjCoded;
   UInt      numNonZeroCoeffNonTs;
-  int       qp;                   // used as a previous(last) QP and for QP prediction
-  int       quadtreeTULog2MinSizeInCU;
+  SChar     qp;                   // used as a previous(last) QP and for QP prediction
 };
 
 class MergeCtx
 {
 public:
-  MergeCtx() : numValidMergeCand( 0 ), hasMergedCandList( false ) { for( unsigned i = 0; i < MRG_MAX_NUM_CANDS; i++ ) mrgTypeNeighnours[i] = MRG_TYPE_DEFAULT_N; }
+  MergeCtx() : numValidMergeCand( 0 ), hasMergedCandList( false ) { for( unsigned i = 0; i < MRG_MAX_NUM_CANDS; i++ ) mrgTypeNeighbours[i] = MRG_TYPE_DEFAULT_N; }
   ~MergeCtx() {}
 public:
   MvField       mvFieldNeighbours [ MRG_MAX_NUM_CANDS << 1 ]; // double length for mv of both lists
-  bool          LICFlags          [ MRG_MAX_NUM_CANDS      ];
   unsigned char interDirNeighbours[ MRG_MAX_NUM_CANDS      ];
-  MergeType     mrgTypeNeighnours [ MRG_MAX_NUM_CANDS      ];
+  MergeType     mrgTypeNeighbours [ MRG_MAX_NUM_CANDS      ];
   int           numValidMergeCand;
   bool          hasMergedCandList;
-
-  MotionBuf     subPuMvpMiBuf;
-  MotionBuf     subPuMvpExtMiBuf;
-  MotionBuf     subPuFrucMiBuf;
 
   Void setMergeInfo( PredictionUnit& pu, int candIdx );
 };
@@ -417,15 +407,12 @@ public:
 
 namespace DeriveCtx
 {
+unsigned CtxSplitMod  ( const CodingStructure& cs, Partitioner& partitioner, const PartSplit splitBase );
 unsigned CtxCUsplit   ( const CodingStructure& cs, Partitioner& partitioner );
 unsigned CtxBTsplit   ( const CodingStructure& cs, Partitioner& partitioner );
-unsigned CtxQtCbf     ( const ComponentID compID, const unsigned trDepth );
+unsigned CtxQtCbf     ( const ComponentID compID );
 unsigned CtxInterDir  ( const PredictionUnit& pu );
 unsigned CtxSkipFlag  ( const CodingUnit& cu );
-unsigned CtxIMVFlag   ( const CodingUnit& cu );
-unsigned CtxAffineFlag( const CodingUnit& cu );
-unsigned CtxFrucFlag  ( const PredictionUnit& pu );
-unsigned CtxFrucMode  ( const PredictionUnit& pu );
 }
 
 #endif // __CONTEXTMODELLING__

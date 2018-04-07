@@ -44,7 +44,6 @@
 #include "CommonLib/RdCost.h"
 #include "CommonLib/Buffer.h"
 
-
 #ifdef TARGET_SIMD_X86
 
 
@@ -111,9 +110,5 @@ Void RdCost::initRdCostX86()
 }
 #endif
 
-
-
-
 #endif
-
 

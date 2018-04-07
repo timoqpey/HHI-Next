@@ -75,7 +75,8 @@ public:
   Bool  read ( PelUnitBuf& pic, PelUnitBuf& picOrg, const InputColourSpaceConversion ipcsc, Int aiPad[2], ChromaFormat fileFormat=NUM_CHROMA_FORMAT, const Bool bClipToRec709=false );     ///< read one frame with padding parameter
 
   // If fileFormat=NUM_CHROMA_FORMAT, use the format defined by pPicYuv
-  Bool  write( const CPelUnitBuf& pic, const InputColourSpaceConversion ipCSC, Int confLeft = 0, Int confRight = 0, Int confTop = 0, Int confBottom = 0, ChromaFormat format = NUM_CHROMA_FORMAT, const Bool bClipToRec709 = false ); ///< write one YUV frame with padding parameter
+  Bool  write( const CPelUnitBuf& pic,
+               const InputColourSpaceConversion ipCSC, Int confLeft = 0, Int confRight = 0, Int confTop = 0, Int confBottom = 0, ChromaFormat format = NUM_CHROMA_FORMAT, const Bool bClipToRec709 = false ); ///< write one YUV frame with padding parameter
 
   // If fileFormat=NUM_CHROMA_FORMAT, use the format defined by pPicYuvTop and pPicYuvBottom
   Bool  write( const CPelUnitBuf& picTop, const CPelUnitBuf& picBot, const InputColourSpaceConversion ipCSC, Int confLeft=0, Int confRight=0, Int confTop=0, Int confBottom=0, ChromaFormat fileFormat=NUM_CHROMA_FORMAT, const Bool isTff=false, const Bool bClipToRec709=false);
