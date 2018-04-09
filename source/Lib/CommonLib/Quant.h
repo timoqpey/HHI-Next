@@ -77,7 +77,7 @@ private:
 
 public:
 
-  QpParam(const TransformUnit& tu, const ComponentID &compID);
+  QpParam(const TransformUnit& tu, const ComponentID &compID, const int QP = -MAX_INT);
 
 }; // END STRUCT DEFINITION QpParam
 
@@ -85,14 +85,16 @@ public:
 class Quant
 {
 public:
-  Quant();
+  Quant( const Quant* other );
   virtual ~Quant();
 
   // initialize class
   virtual Void init( UInt uiMaxTrSize,
                      Bool useRDOQ = false,
                      Bool useRDOQTS = false,
+#if JEM_TOOLS
                      UInt uiAltResiCompId = 0,
+#endif
 #if T0196_SELECTIVE_RDOQ
                      Bool useSelectiveRDOQ = false
 #endif
@@ -104,12 +106,12 @@ public:
   Void   invTrSkipDeQuantOneSample  (TransformUnit &tu, const ComponentID &compID, const TCoeff &pcCoeff,  Pel &reconSample, const UInt &uiPos, const QpParam &cQP);
 
 #if RDOQ_CHROMA_LAMBDA
-  Void   setLambdas              ( const Double lambdas[MAX_NUM_COMPONENT]) { for (UInt component = 0; component < MAX_NUM_COMPONENT; component++) m_lambdas[component] = lambdas[component]; }
-  Void   selectLambda            ( const ComponentID compIdx)               { m_dLambda = m_lambdas[ MAP_CHROMA(compIdx) ]; }
+  Void   setLambdas              ( const Double lambdas[MAX_NUM_COMPONENT] )   { for (UInt component = 0; component < MAX_NUM_COMPONENT; component++) m_lambdas[component] = lambdas[component]; }
+  Void   selectLambda            ( const ComponentID compIdx )                 { m_dLambda = m_lambdas[ MAP_CHROMA(compIdx) ]; }
+  Void   getLambdas              ( Double (&lambdas)[MAX_NUM_COMPONENT]) const { for (UInt component = 0; component < MAX_NUM_COMPONENT; component++) lambdas[component] = m_lambdas[component]; }
 #endif
-  Void   setLambda               ( const Double dLambda)                    { m_dLambda = dLambda; }
-  Double getLambda               () const                                   { return m_dLambda; }
-  Void   setRDOQOffset           ( UInt uiRDOQOffset )                      { m_uiRDOQOffset = uiRDOQOffset; }
+  Void   setLambda               ( const Double dLambda )                      { m_dLambda = dLambda; }
+  Double getLambda               () const                                      { return m_dLambda; }
 
   Int* getQuantCoeff             ( UInt list, Int qp, UInt sizeX, UInt sizeY ) { return m_quantCoef            [sizeX][sizeY][list][qp]; };  //!< get Quant Coefficent
   Int* getDequantCoeff           ( UInt list, Int qp, UInt sizeX, UInt sizeY ) { return m_dequantCoef          [sizeX][sizeY][list][qp]; };  //!< get DeQuant Coefficent
@@ -127,7 +129,11 @@ public:
   // quantization
   virtual Void quant             ( TransformUnit &tu, const ComponentID &compID, const CCoeffBuf &pSrc, TCoeff &uiAbsSum, const QpParam &cQP, const Ctx& ctx );
   // de-quantization
-  Void dequant                   ( const TransformUnit &tu, CoeffBuf &dstCoeff, const ComponentID &compID, const QpParam &cQP );
+  virtual Void dequant           ( const TransformUnit &tu, CoeffBuf &dstCoeff, const ComponentID &compID, const QpParam &cQP );
+
+#if HHI_SPLIT_PARALLELISM
+  virtual void copyState         ( const Quant& other );
+#endif
 
 protected:
 
@@ -136,17 +142,17 @@ protected:
 #endif
 
   Double   m_dLambda;
-  UInt     m_uiRDOQOffset;
   UInt     m_uiMaxTrSize;
   Bool     m_useRDOQ;
   Bool     m_useRDOQTS;
 #if T0196_SELECTIVE_RDOQ
   Bool     m_useSelectiveRDOQ;
 #endif
+#if JEM_TOOLS
   Int      m_altResiCompId;
-
+#endif
 private:
-  Void xInitScalingList   ();
+  Void xInitScalingList   ( const Quant* other );
   Void xDestroyScalingList();
   Void xSetFlatScalingList( UInt list, UInt sizeX, UInt sizeY, Int qp );
   Void xSetScalingListEnc ( ScalingList *scalingList, UInt list, UInt size, Int qp );
@@ -159,28 +165,13 @@ private:
   Double   m_lambdas[MAX_NUM_COMPONENT];
 #endif
   Bool     m_scalingListEnabledFlag;
+  Bool     m_isScalingListOwner;
 
   Int      *m_quantCoef            [SCALING_LIST_SIZE_NUM][SCALING_LIST_SIZE_NUM][SCALING_LIST_NUM][SCALING_LIST_REM_NUM]; ///< array of quantization matrix coefficient 4x4
   Int      *m_dequantCoef          [SCALING_LIST_SIZE_NUM][SCALING_LIST_SIZE_NUM][SCALING_LIST_NUM][SCALING_LIST_REM_NUM]; ///< array of dequantization matrix coefficient 4x4
 
 };// END CLASS DEFINITION Quant
 
-
-
-// ====================================================================================================================
-// Inline helper functions
-// ====================================================================================================================
-
-
-inline bool needsSqrt2Scale( const Size& size )
-{
-  return ( ( ( g_aucLog2[size.width] + g_aucLog2[size.height] ) & 1 ) == 1 );
-}
-
-inline bool needsBlockSizeQuantScale( const Size& size )
-{
-  return needsSqrt2Scale( size );
-}
 
 //! \}
 

@@ -41,6 +41,9 @@
 #include "UnitTools.h"
 #include "Buffer.h"
 
+#include "dtrace_next.h"
+#include "Rom.h"
+
 #include <memory.h>
 
 //! \ingroup CommonLib
@@ -59,7 +62,7 @@ const UChar IntraPrediction::m_aucIntraFilter[MAX_NUM_CHANNEL_TYPE][MAX_INTRA_FI
     14, //   8xn
     2,  //  16xn
     0,  //  32xn
-    20, //  64xn
+    0,  //  64xn
     0,  // 128xn
   },
   { // Chroma
@@ -69,7 +72,7 @@ const UChar IntraPrediction::m_aucIntraFilter[MAX_NUM_CHANNEL_TYPE][MAX_INTRA_FI
     28, //   8xn
     4,  //  16xn
     0,  //  32xn
-    40, //  64xn
+    0,  //  64xn
     0,  // 128xn
   }
 };
@@ -78,7 +81,9 @@ const UChar IntraPrediction::m_aucIntraFilter[MAX_NUM_CHANNEL_TYPE][MAX_INTRA_FI
 // Constructor / destructor / initialize
 // ====================================================================================================================
 
-IntraPrediction::IntraPrediction() : m_currChromaFormat(NUM_CHROMA_FORMAT)
+IntraPrediction::IntraPrediction()
+:
+  m_currChromaFormat( NUM_CHROMA_FORMAT )
 {
   for (UInt ch = 0; ch < MAX_NUM_COMPONENT; ch++)
   {
@@ -89,11 +94,13 @@ IntraPrediction::IntraPrediction() : m_currChromaFormat(NUM_CHROMA_FORMAT)
   }
 
   m_piTemp = nullptr;
+#if JEM_TOOLS
 
   for (Int i = 0; i < LM_FILTER_NUM; i++)
   {
     m_pLumaRecBufferMul[i] = nullptr;
   }
+#endif
 }
 
 IntraPrediction::~IntraPrediction()
@@ -114,6 +121,7 @@ Void IntraPrediction::destroy()
 
   delete[] m_piTemp;
   m_piTemp = nullptr;
+#if JEM_TOOLS
 
   for (Int i = 0; i < LM_FILTER_NUM; i++)
   {
@@ -123,6 +131,7 @@ Void IntraPrediction::destroy()
       m_pLumaRecBufferMul[i] = nullptr;
     }
   }
+#endif
 }
 
 Void IntraPrediction::init(ChromaFormat chromaFormatIDC, const unsigned bitDepthY)
@@ -148,17 +157,24 @@ Void IntraPrediction::init(ChromaFormat chromaFormatIDC, const unsigned bitDepth
     }
   }
 
+#if JEM_TOOLS
   Int shift = bitDepthY + 4;
   for (Int i = 32; i < 64; i++)
   {
     m_auShiftLM[i - 32] = ((1 << shift) + i / 2) / i;
   }
 
+#endif
   if (m_piTemp == nullptr)
   {
-    const int MMLM_Lines = std::max<int>(1, MMLM_SAMPLE_NEIGHBOR_LINES);
-    m_piTemp = new Pel[ (MAX_CU_SIZE + MMLM_Lines) * (MAX_CU_SIZE + MMLM_Lines) ];
+#if JEM_TOOLS
+    const int MMLM_Lines = std::max<int>( 1, MMLM_SAMPLE_NEIGHBOR_LINES );
+    m_piTemp = new Pel[( MAX_CU_SIZE + MMLM_Lines ) * ( MAX_CU_SIZE + MMLM_Lines )];
+#else
+    m_piTemp = new Pel[ MAX_CU_SIZE * MAX_CU_SIZE ];
+#endif
   }
+#if JEM_TOOLS
 
   for (Int i = 0; i < LM_FILTER_NUM; i++)
   {
@@ -167,6 +183,7 @@ Void IntraPrediction::init(ChromaFormat chromaFormatIDC, const unsigned bitDepth
       m_pLumaRecBufferMul[i] = new Pel[ (MAX_CU_SIZE + MMLM_SAMPLE_NEIGHBOR_LINES) * (MAX_CU_SIZE + MMLM_SAMPLE_NEIGHBOR_LINES) ];
     }
   }
+#endif
 }
 
 // ====================================================================================================================
@@ -181,23 +198,25 @@ Pel IntraPrediction::xGetPredValDc( const CPelBuf &pSrc, const Size &dstSize )
 
   Int iInd, iSum = 0;
   Pel pDcVal;
+  const int width  = dstSize.width;
+  const int height = dstSize.height;
 
-  for( iInd = 0; iInd < dstSize.width; iInd++ )
+  for( iInd = 0; iInd < width; iInd++ )
   {
     iSum += pSrc.at( 1 + iInd, 0 );
   }
-  for( iInd = 0; iInd < dstSize.height; iInd++ )
+  for( iInd = 0; iInd < height; iInd++ )
   {
     iSum += pSrc.at( 0, 1 + iInd );
   }
 
-  pDcVal = ( iSum + ( ( dstSize.width + dstSize.height ) >> 1 ) ) / ( dstSize.width + dstSize.height );
+  pDcVal = ( iSum + ( ( width + height ) >> 1 ) ) / ( width + height );
   return pDcVal;
 }
 
-Void IntraPrediction::predIntraAng( const ComponentID compIDX, PelBuf &piOrg, PelBuf &piPred, const PredictionUnit &pu, const Bool &bUseFilteredPredSamples, const Bool &bUseLosslessDPCM )
+void IntraPrediction::predIntraAng( const ComponentID compId, PelBuf &piPred, const PredictionUnit &pu, const bool &useFilteredPredSamples )
 {
-  const ComponentID    compID       = MAP_CHROMA( compIDX );
+  const ComponentID    compID       = MAP_CHROMA( compId );
   const ChannelType    channelType  = toChannelType( compID );
   const Int            iWidth       = piPred.width;
   const Int            iHeight      = piPred.height;
@@ -210,117 +229,103 @@ Void IntraPrediction::predIntraAng( const ComponentID compIDX, PelBuf &piOrg, Pe
 
   const Int  srcStride = ( iWidth + iHeight + 1 );
 
-  if( bUseLosslessDPCM )
-  {
-    const Pel *ptrSrc = getPredictorPtr( compID, false );
-    xPredIntraDPCM( CPelBuf( ptrSrc, srcStride, srcStride ), piPred, piOrg, uiDirMode );
-  }
-  else
-  {
-    const Bool enableEdgeFilters = !(CU::isRDPCMEnabled( *pu.cu ) && pu.cu->transQuantBypass);
-    Pel *ptrSrc = getPredictorPtr( compID, bUseFilteredPredSamples );
+  const Bool enableEdgeFilters = !(CU::isRDPCMEnabled( *pu.cu ) && pu.cu->transQuantBypass);
+  Pel *ptrSrc = getPredictorPtr( compID, useFilteredPredSamples );
 
-    if ((pu.cs->sps->getSpsNext().isIntraPDPC() && pu.cu->pdpc && (pu.cs->pcv->rectCUs || (pu.cu->lumaPos().x && pu.cu->lumaPos().y))) || (pu.cs->sps->getSpsNext().isPlanarPDPC() && (uiDirMode == PLANAR_IDX)))
+#if JEM_TOOLS
+  bool pdpcCondition = ((pu.cs->sps->getSpsNext().isIntraPDPC()) && pu.cu->pdpc) || (pu.cs->sps->getSpsNext().isPlanarPDPC() && (uiDirMode == PLANAR_IDX));
+
+  if( pdpcCondition )
+  {
+    int idxW = std::min( 4, (int)g_aucLog2[iWidth]  - 1 );
+    int idxH = std::min( 4, (int)g_aucLog2[iHeight] - 1 );
+    const int *pPdpcParWidth;
+    const int *pPdpcParHeight;
+    if( pu.cs->sps->getSpsNext().isPlanarPDPC() )
     {
-      int idxW = std::min( 4, (int)g_aucLog2[iWidth]  - 1 );
-      int idxH = std::min( 4, (int)g_aucLog2[iHeight] - 1 );
-      if( !pu.cs->pcv->only2Nx2N )
-      {
-        CHECK( idxW != idxH, "Non-square partitions not supported by this config" );
-        if( pu.cu->partSize == SIZE_NxN && idxW == 1 ) { idxW = idxH = 0; }
-      }
-      const int *pPdpcParWidth;
-      const int *pPdpcParHeight;
-      if( pu.cs->sps->getSpsNext().isPlanarPDPC() )
-      {
-        pPdpcParWidth = g_pdpcParam[idxW];
-        pPdpcParHeight = g_pdpcParam[idxH];
-      }
-      else
-      {
-        pPdpcParWidth = g_pdpc_pred_param[idxW][g_intraMode65to33AngMapping[uiDirMode]];
-        pPdpcParHeight = g_pdpc_pred_param[idxH][g_intraMode65to33AngMapping[uiDirMode]];
-      }
-      const int *pPdpcParMain   = (iWidth < iHeight) ? pPdpcParHeight : pPdpcParWidth;
-
-      const int srcStride  = iWidth + iHeight + 1;
-      const int doubleSize = iWidth + iHeight;
-
-      // copy unfiltered ref. samples to line buffer
-      Pel* piTempRef = new Pel[4 * MAX_CU_SIZE + 1];
-      Pel* piFiltRef = new Pel[4 * MAX_CU_SIZE + 1];
-
-      Pel* piRefVector = piTempRef + doubleSize;
-      Pel* piLowpRefer = piFiltRef + doubleSize;
-
-      for( int j = 0; j <= doubleSize; j++ ) { piRefVector[ j] = ptrSrc[j]; }
-      for( int i = 1; i <= doubleSize; i++ ) { piRefVector[-i] = ptrSrc[i*srcStride]; }
-
-      if( pPdpcParMain[5] != 0 )
-      {
-        xReferenceFilter( doubleSize, pPdpcParMain[4], pPdpcParMain[5], piRefVector, piLowpRefer );
-
-        // copy filtered ref. samples back to ref. buffer
-        for( int j = 0; j <= doubleSize; j++ ) { ptrSrc[j]           = piLowpRefer[ j]; }
-        for( int i = 1; i <= doubleSize; i++ ) { ptrSrc[i*srcStride] = piLowpRefer[-i]; }
-      }
-
-      const ClpRng& clpRng( pu.cu->cs->slice->clpRng(compID) );
-
-      switch( uiDirMode )
-      {
-      case( PLANAR_IDX ): xPredIntraPlanar( CPelBuf( ptrSrc, srcStride, srcStride ), piPred, *pu.cs->sps );         break;
-      case( DC_IDX ):     xPredIntraDc    ( CPelBuf( ptrSrc, srcStride, srcStride ), piPred, channelType, false );  break; // including DCPredFiltering
-      default:            xPredIntraAng   ( CPelBuf( ptrSrc, srcStride, srcStride ), piPred, channelType,
-                                            uiDirMode, clpRng, enableEdgeFilters, *pu.cs->sps, false );             break;
-      }
-
-      if( pPdpcParMain[5] != 0 )
-      {
-        // copy unfiltered ref. samples back to ref. buffer for weighted prediction
-        for( int j = 0; j <= doubleSize; j++ ) { ptrSrc[j]           = piRefVector[ j]; }
-        for( int i = 1; i <= doubleSize; i++ ) { ptrSrc[i*srcStride] = piRefVector[-i]; }
-      }
-
-      int scale     = (g_aucLog2[iWidth] + g_aucLog2[iHeight] < 10) ? 0 : 1;
-      int parShift  = 6; //normalization factor
-      int parScale  = 1 << parShift;
-      int parOffset = 1 << (parShift - 1);
-
-      for( int y = 0; y < iHeight; y++ )
-      {
-        int shiftRow     = y >> scale;
-        int coeff_Top    = pPdpcParHeight[2] >> shiftRow;
-        int coeff_offset = pPdpcParHeight[3] >> shiftRow;
-
-        for( int x = 0; x < iWidth; x++ )
-        {
-          int shiftCol      = x >> scale;
-          int coeff_Left    =  pPdpcParWidth[0] >> shiftCol;
-          int coeff_TopLeft = (pPdpcParWidth[1] >> shiftCol) + coeff_offset;
-          int coeff_Cur     = parScale - coeff_Left - coeff_Top + coeff_TopLeft;
-
-          int sampleVal = (coeff_Left* piRefVector[-y - 1] + coeff_Top * piRefVector[x + 1] - coeff_TopLeft * piRefVector[0] + coeff_Cur * piPred.at( x, y ) + parOffset) >> parShift;
-          piPred.at( x, y ) = ClipPel( sampleVal, clpRng );
-        }
-      }
-
-      delete[] piTempRef;
-      delete[] piFiltRef;
+      pPdpcParWidth = g_pdpcParam[idxW];
+      pPdpcParHeight = g_pdpcParam[idxH];
     }
     else
     {
-      switch( uiDirMode )
+      pPdpcParWidth = g_pdpc_pred_param[idxW][g_intraMode65to33AngMapping[uiDirMode]];
+      pPdpcParHeight = g_pdpc_pred_param[idxH][g_intraMode65to33AngMapping[uiDirMode]];
+    }
+    const int *pPdpcParMain   = (iWidth < iHeight) ? pPdpcParHeight : pPdpcParWidth;
+
+    const int srcStride  = iWidth + iHeight + 1;
+    const int doubleSize = iWidth + iHeight;
+
+    Pel* piRefVector = m_piTempRef + doubleSize;
+    Pel* piLowpRefer = m_piFiltRef + doubleSize;
+
+    for( int j = 0; j <= doubleSize; j++ ) { piRefVector[ j] = ptrSrc[j]; }
+    for( int i = 1; i <= doubleSize; i++ ) { piRefVector[-i] = ptrSrc[i*srcStride]; }
+
+    if( pPdpcParMain[5] != 0 )
+    {
+      xReferenceFilter( doubleSize, pPdpcParMain[4], pPdpcParMain[5], piRefVector, piLowpRefer );
+
+      // copy filtered ref. samples back to ref. buffer
+      for( int j = 0; j <= doubleSize; j++ ) { ptrSrc[j]           = piLowpRefer[ j]; }
+      for( int i = 1; i <= doubleSize; i++ ) { ptrSrc[i*srcStride] = piLowpRefer[-i]; }
+    }
+
+    const ClpRng& clpRng( pu.cu->cs->slice->clpRng(compID) );
+
+    switch( uiDirMode )
+    {
+    case( PLANAR_IDX ): xPredIntraPlanar( CPelBuf( ptrSrc, srcStride, srcStride ), piPred, *pu.cs->sps );         break;
+    case( DC_IDX ):     xPredIntraDc    ( CPelBuf( ptrSrc, srcStride, srcStride ), piPred, channelType, false );  break; // including DCPredFiltering
+    default:            xPredIntraAng   ( CPelBuf( ptrSrc, srcStride, srcStride ), piPred, channelType,
+                                          uiDirMode, clpRng, enableEdgeFilters, *pu.cs->sps, false );             break;
+    }
+
+
+    if( pPdpcParMain[5] != 0 )
+    {
+      // copy unfiltered ref. samples back to ref. buffer for weighted prediction
+      for( int j = 0; j <= doubleSize; j++ ) { ptrSrc[j]           = piRefVector[ j]; }
+      for( int i = 1; i <= doubleSize; i++ ) { ptrSrc[i*srcStride] = piRefVector[-i]; }
+    }
+
+    int scale     = (g_aucLog2[iWidth] + g_aucLog2[iHeight] < 10) ? 0 : 1;
+    int parShift  = 6; //normalization factor
+    int parScale  = 1 << parShift;
+    int parOffset = 1 << (parShift - 1);
+
+    for( int y = 0; y < iHeight; y++ )
+    {
+      int shiftRow     = y >> scale;
+      int coeff_Top    = pPdpcParHeight[2] >> shiftRow;
+      int coeff_offset = pPdpcParHeight[3] >> shiftRow;
+
+      for( int x = 0; x < iWidth; x++ )
       {
-      case( PLANAR_IDX ): xPredIntraPlanar( CPelBuf( ptrSrc, srcStride, srcStride ), piPred, *pu.cs->sps );         break;
-      case( DC_IDX ):     xPredIntraDc    ( CPelBuf( ptrSrc, srcStride, srcStride ), piPred, channelType );         break; // including DCPredFiltering
-      default:            xPredIntraAng   ( CPelBuf( ptrSrc, srcStride, srcStride ), piPred, channelType, uiDirMode,
-                                            pu.cs->slice->clpRng( compID ), enableEdgeFilters, *pu.cs->sps );       break;
+        int shiftCol      = x >> scale;
+        int coeff_Left    =  pPdpcParWidth[0] >> shiftCol;
+        int coeff_TopLeft = (pPdpcParWidth[1] >> shiftCol) + coeff_offset;
+        int coeff_Cur     = parScale - coeff_Left - coeff_Top + coeff_TopLeft;
+
+        int sampleVal = (coeff_Left* piRefVector[-y - 1] + coeff_Top * piRefVector[x + 1] - coeff_TopLeft * piRefVector[0] + coeff_Cur * piPred.at( x, y ) + parOffset) >> parShift;
+        piPred.at( x, y ) = ClipPel( sampleVal, clpRng );
       }
+    }
+  }
+  else
+#endif
+  {
+    switch( uiDirMode )
+    {
+    case( DC_IDX ):     xPredIntraDc    ( CPelBuf( ptrSrc, srcStride, srcStride ), piPred, channelType );            break; // including DCPredFiltering
+    case( PLANAR_IDX ): xPredIntraPlanar( CPelBuf( ptrSrc, srcStride, srcStride ), piPred, *pu.cs->sps );            break;
+    default:            xPredIntraAng   ( CPelBuf( ptrSrc, srcStride, srcStride ), piPred, channelType, uiDirMode,   
+                                          pu.cs->slice->clpRng( compID ), enableEdgeFilters, *pu.cs->sps );          break;
     }
   }
 }
 
+#if JEM_TOOLS
 Void IntraPrediction::predIntraChromaLM(const ComponentID compID, PelBuf &piPred, const PredictionUnit &pu, const CompArea& chromaArea, Int intraDir)
 {
   bool DO_ELM = false;
@@ -454,6 +459,8 @@ Void IntraPrediction::addCrossColorResi(const ComponentID compID, PelBuf &piPred
   }
 }
 
+#endif
+
 Void IntraPrediction::xFilterGroup(Pel* pMulDst[], Int i, Pel const * const piSrc, Int iRecStride, Bool bAboveAvaillable, Bool bLeftAvaillable)
 {
   pMulDst[0][i] = (piSrc[1] + piSrc[iRecStride + 1] + 1) >> 1;
@@ -464,43 +471,6 @@ Void IntraPrediction::xFilterGroup(Pel* pMulDst[], Int i, Pel const * const piSr
 
   pMulDst[2][i] = (piSrc[0] + piSrc[1] + piSrc[iRecStride] + piSrc[iRecStride + 1] + 2) >> 2;
 
-}
-
-Void IntraPrediction::xPredIntraDPCM( const CPelBuf &pSrc, PelBuf &pDst, PelBuf &piOrg, const UInt &dirMode )
-{
-  // Sample Adaptive intra-Prediction (SAP)
-  if( dirMode == HOR_IDX )
-  {
-    // left column filled with reference samples
-    // remaining columns filled with piOrg data (if available).
-    for( Int y = 0; y < pDst.height; y++ )
-    {
-      pDst.at( 0, y ) = pSrc.at( 0, 1 + y );
-    }
-    if( piOrg.buf != 0 )
-    {
-      CPelBuf piOrgRest = piOrg.subBuf( 0, 0, piOrg.width - 1, piOrg.height );
-      PelBuf piPredRest =  pDst.subBuf( 1, 0,  pDst.width - 1,  pDst.height );
-
-      piPredRest.copyFrom( piOrgRest );
-    }
-  }
-  else // VER_IDX
-  {
-    // top row filled with reference samples
-    // remaining rows filled with piOrd data (if available)
-    for( Int x = 0; x < pDst.width; x++ )
-    {
-      pDst.at( x, 0 ) = pSrc.at( 1 + x, 0 );
-    }
-    if( piOrg.buf != 0 )
-    {
-      CPelBuf piOrgRest = piOrg.subBuf( 0, 0, piOrg.width, piOrg.height - 1 );
-      PelBuf piPredRest =  pDst.subBuf( 0, 1,  pDst.width,  pDst.height - 1 );
-
-      piPredRest.copyFrom( piOrgRest );
-    }
-  }
 }
 
 
@@ -560,6 +530,8 @@ Void IntraPrediction::xPredIntraPlanar( const CPelBuf &pSrc, PelBuf &pDst, const
     }
   }
 }
+
+
 
 
 Void IntraPrediction::xPredIntraDc( const CPelBuf &pSrc, PelBuf &pDst, const ChannelType &channelType, const bool &enableBoundaryFilter )
@@ -686,6 +658,7 @@ Void IntraPrediction::xPredIntraAng( const CPelBuf &pSrc, PelBuf &pDst, const Ch
     std::swap(width, height);
   }
 
+
   if( intraPredAngle == 0 )  // pure vertical or pure horizontal
   {
     for( Int y = 0; y < height; y++ )
@@ -713,14 +686,15 @@ Void IntraPrediction::xPredIntraAng( const CPelBuf &pSrc, PelBuf &pDst, const Ch
       const Int deltaInt   = deltaPos >> 5;
       const Int deltaFract = deltaPos & (32 - 1);
 
-      if (deltaFract)
+      if( absAng < 32 )
       {
+#if JEM_TOOLS
         if( sps.getSpsNext().getUseIntra4Tap() )
         {
-          Int   p[4];
-          Bool  useCubicFilter = (width <= 8);
-          Int  *f              = (useCubicFilter) ? intraCubicFilter[deltaFract] : intraGaussFilter[deltaFract];
-          Int   refMainIndex   = deltaInt + 1;
+          Int         p[4];
+          const Bool  useCubicFilter = (width <= 8);
+          const Int  *f              = (useCubicFilter) ? g_intraCubicFilter[deltaFract] : g_intraGaussFilter[deltaFract];
+          Int         refMainIndex   = deltaInt + 1;
 
           for( Int x = 0; x < width; x++, refMainIndex++ )
           {
@@ -739,6 +713,7 @@ Void IntraPrediction::xPredIntraAng( const CPelBuf &pSrc, PelBuf &pDst, const Ch
           }
         }
         else
+#endif
         {
           // Do linear filtering
           const Pel *pRM = refMain + deltaInt + 1;
@@ -781,6 +756,7 @@ Void IntraPrediction::xPredIntraAng( const CPelBuf &pSrc, PelBuf &pDst, const Ch
       pDstBuf += dstStride;
     }
   }
+#if JEM_TOOLS
 
   if( sps.getSpsNext().getUseIntraBoundaryFilter() && enableBoundaryFilter && isLuma( channelType ) && width > 2 && height > 2 )
   {
@@ -797,7 +773,9 @@ Void IntraPrediction::xPredIntraAng( const CPelBuf &pSrc, PelBuf &pDst, const Ch
       xIntraPredFilteringModeDGL( pSrc, pDst, dirMode );
     }
   }
+#endif
 }
+#if JEM_TOOLS
 
 Void IntraPrediction::xIntraPredFilteringMode34(const CPelBuf &pSrc, PelBuf &pDst)
 {
@@ -888,6 +866,7 @@ Void IntraPrediction::xIntraPredFilteringModeDGL(const CPelBuf &pSrc, PelBuf &pD
 
   return;
 }
+#endif
 
 void IntraPrediction::xReferenceFilter( const int doubleSize, const int origWeight, const int filterOrder, Pel *piRefVector, Pel *piLowPassRef )
 {
@@ -1035,6 +1014,7 @@ void IntraPrediction::xFillReferenceSamples( const CPelBuf &recoBuf, Pel* refBuf
   const Pel*  ptrSrc;
   const Pel   valueDC   = 1 << (sps.getBitDepth( chType ) - 1);
 
+
   if( numIntraNeighbor == 0 )
   {
     // Fill border with DC value
@@ -1046,13 +1026,14 @@ void IntraPrediction::xFillReferenceSamples( const CPelBuf &recoBuf, Pel* refBuf
     // Fill top-left border and top and top right with rec. samples
     ptrSrc = srcBuf - srcStride - 1;
     for( int j = 0; j <= predSize; j++ ) { ptrDst[j] = ptrSrc[j]; }
-
     // Fill left and below left border with rec. samples
     ptrSrc = srcBuf - 1;
     for( int i = 1; i <= predSize; i++ ) { ptrDst[i*predStride] = *(ptrSrc); ptrSrc += srcStride; }
   }
   else // reference samples are partially available
   {
+    // BB: old implementation using tmpLineBuf
+    // ---------------------------------------
     Pel  tmpLineBuf[5 * MAX_CU_SIZE];
     Pel* ptrTmp;
     int  unitIdx;
@@ -1228,17 +1209,24 @@ bool IntraPrediction::useFilteredIntraRefSamples( const ComponentID &compID, con
   if( sps.getSpsRangeExtension().getIntraSmoothingDisabledFlag() )                                       { return false; }
   if( !isLuma( chType ) && pu.chromaFormat != CHROMA_444 )                                               { return false; }
 
+#if JEM_TOOLS
   // PDPC related conditions
   if( sps.getSpsNext().isIntraPDPC() )                                                                   { return false; }
 
   // NSST related conditions
-  if( sps.getSpsNext().isPlanarPDPC() && pu.cu->nsstIdx == 0 )                                           { return false; }
+  if( sps.getSpsNext().isPlanarPDPC() && (sps.getSpsNext().getUseNSST() && pu.cu->nsstIdx == 0) )        { return false; }
+
+#endif
 
   if( !modeSpecific )                                                                                    { return true; }
 
   // pred. mode related conditions
   const int dirMode = PU::getFinalIntraMode( pu, chType );
+#if JEM_TOOLS
   if( dirMode == DC_IDX || (sps.getSpsNext().isPlanarPDPC() && dirMode == PLANAR_IDX) )                  { return false; }
+#else
+  if( dirMode == DC_IDX )                                                                                { return false; }
+#endif
 
   int diff = std::min<int>( abs( dirMode - HOR_IDX ), abs( dirMode - VER_IDX ) );
   int log2Size = ((g_aucLog2[tuArea.blocks[compID].width] + g_aucLog2[tuArea.blocks[compID].height]) >> 1);
@@ -1387,6 +1375,7 @@ Int isBelowLeftAvailable(const CodingUnit &cu, const ChannelType &chType, const 
   return iNumIntra;
 }
 
+#if JEM_TOOLS
 // LumaRecPixels
 Void IntraPrediction::xGetLumaRecPixels(const PredictionUnit &pu, CompArea chromaArea)
 {
@@ -1417,16 +1406,15 @@ Void IntraPrediction::xGetLumaRecPixels(const PredictionUnit &pu, CompArea chrom
   const SizeType uiCHeight = chromaArea.height;
 
   const CPelBuf Src = pu.cs->picture->getRecoBuf( lumaArea );
-
   Pel const* pRecSrc0   = Src.bufAt( 0, 0 );
   Int iRecStride        = Src.stride;
   Int iRecStride2       = iRecStride << 1;
 
   CodingStructure&      cs = *pu.cs;
-  const CodingUnit& lumaCU = isChroma( cs.chType ) ? *pu.cs->picture->cs->getCU( lumaArea.pos(), CHANNEL_TYPE_LUMA ) : *pu.cu;
+  const CodingUnit& lumaCU = isChroma( pu.chType ) ? *pu.cs->picture->cs->getCU( lumaArea.pos(), CH_L ) : *pu.cu;
   const CodingUnit&     cu = *pu.cu;
 
-  const CompArea& area = isChroma( cu.cs->chType ) ? chromaArea : lumaArea;
+  const CompArea& area = isChroma( pu.chType ) ? chromaArea : lumaArea;
 
   const SPS &sps = *cs.sps;
 
@@ -1452,7 +1440,7 @@ Void IntraPrediction::xGetLumaRecPixels(const PredictionUnit &pu, CompArea chrom
   memset( bNeighborFlags, 0, 1 + iLeftUnits + iAboveUnits );
   Bool bAboveAvaillable, bLeftAvaillable;
 
-  Int availlableUnit = isLeftAvailable( isChroma( cu.cs->chType ) ? cu : lumaCU, toChannelType( area.compID ), area.pos(), iLeftUnits, iUnitHeight, ( bNeighborFlags + iLeftUnits - 1 ) );
+  Int availlableUnit = isLeftAvailable( isChroma( pu.chType ) ? cu : lumaCU, toChannelType( area.compID ), area.pos(), iLeftUnits, iUnitHeight, ( bNeighborFlags + iLeftUnits - 1 ) );
 
   if( lumaCU.cs->pcv->rectCUs )
   {
@@ -1463,7 +1451,7 @@ Void IntraPrediction::xGetLumaRecPixels(const PredictionUnit &pu, CompArea chrom
     bLeftAvaillable = availlableUnit == iTUWidthInUnits;
   }
 
-  availlableUnit = isAboveAvailable( isChroma( cu.cs->chType ) ? cu : lumaCU, toChannelType( area.compID ), area.pos(), iAboveUnits, iUnitWidth, ( bNeighborFlags + iLeftUnits + 1 ) );
+  availlableUnit = isAboveAvailable( isChroma( pu.chType ) ? cu : lumaCU, toChannelType( area.compID ), area.pos(), iAboveUnits, iUnitWidth, ( bNeighborFlags + iLeftUnits + 1 ) );
 
   if( lumaCU.cs->pcv->rectCUs )
   {
@@ -1499,9 +1487,9 @@ Void IntraPrediction::xGetLumaRecPixels(const PredictionUnit &pu, CompArea chrom
 
     if (pu.cs->sps->getSpsNext().isELMModeMMLM())
     {
-      for (int line = 2; line <= MMLM_Lines; line++)
+      for (Int line = 2; line <= MMLM_Lines; line++)
       {
-        pDst = pDst0 - iDstStride * line;
+        pDst  = pDst0    - iDstStride  * line;
         piSrc = pRecSrc0 - iRecStride2 * line;
 
         for (Int i = 0; i < uiCWidth; i++)
@@ -1512,9 +1500,9 @@ Void IntraPrediction::xGetLumaRecPixels(const PredictionUnit &pu, CompArea chrom
           }
           else
           {
-            pDst[i] = (((piSrc[2 * i] * 2) + piSrc[2 * i - 1] + piSrc[2 * i + 1])
-              + ((piSrc[2 * i + iRecStride] * 2) + piSrc[2 * i - 1 + iRecStride] + piSrc[2 * i + 1 + iRecStride])
-              + 4) >> 3;
+            pDst[i] = ( ( (piSrc[2 * i             ] * 2 ) + piSrc[2 * i - 1             ] + piSrc[2 * i + 1             ] )
+                      + ( (piSrc[2 * i + iRecStride] * 2 ) + piSrc[2 * i - 1 + iRecStride] + piSrc[2 * i + 1 + iRecStride] )
+                      + 4 ) >> 3;
           }
         }
       }
@@ -1573,20 +1561,18 @@ Void IntraPrediction::xGetLumaRecPixels(const PredictionUnit &pu, CompArea chrom
 
     if (pu.cs->sps->getSpsNext().isELMModeMMLM())
     {
-      for (int line = 2; line <= MMLM_Lines; line++)
+      for (Int line = 2; line <= MMLM_Lines; line++)
       {
-        pDst = pDst0 - line;
+        pDst  = pDst0    - line;
         piSrc = pRecSrc0 - 2 * line - 1;
 
+        for (Int j = 0; j < uiCHeight; j++)
         {
-          for (Int j = 0; j < uiCHeight; j++)
-          {
-            pDst[0] = ((piSrc[1] * 3 + piSrc[2])
-              + (piSrc[1 + iRecStride] * 3 + piSrc[2 + iRecStride])
-              + 4) >> 3;
-            piSrc += iRecStride2;
-            pDst += iDstStride;
-          }
+          pDst[0] = ( ( piSrc[1             ] * 3 + piSrc[2             ] )
+                    + ( piSrc[1 + iRecStride] * 3 + piSrc[2 + iRecStride] )
+                    + 4 ) >> 3;
+          piSrc += iRecStride2;
+          pDst  += iDstStride;
         }
       }
     }
@@ -2345,4 +2331,5 @@ Void IntraPrediction::xGetLMParameters(const PredictionUnit &pu, const Component
   }
 }
 
+#endif
 //! \}

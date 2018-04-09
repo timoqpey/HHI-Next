@@ -3,7 +3,7 @@
  * and contributor rights, including patent rights, and no such rights are
  * granted under this license.
  *
- * Copyright (c) 2010-2015, ITU/ISO/IEC
+ * Copyright (c) 2010-2017, ITU/ISO/IEC
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -31,16 +31,18 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include "BilateralFilter.h"
+
+#if JEM_TOOLS
+
 #include <stdio.h>
 #include <math.h>
 #include <string.h>
 #include <algorithm>
-#include "BilateralFilter.h"
 
 const int BilateralFilter::SpatialSigmaValue = 62;
 
 const int BilateralFilter::spatialSigmaBlockLengthOffsets[] = {20, 10, -10, 0, -10};
-BilateralFilter* BilateralFilter::m_bilateralFilterInstance = NULL;
 
 const unsigned short maxPosList[34] = {6, 12, 18, 23, 29, 35, 41, 46, 52, 58, 64, 69, 75, 81, 87, 92, 98, 104, 110, 115, 121, 127, 133, 138, 144, 150, 156, 161, 167, 173, 179, 184, 190, 196};
 
@@ -66,19 +68,34 @@ BilateralFilter::BilateralFilter()
 
 BilateralFilter::~BilateralFilter()
 {
-  int numQP = MAX_QP-18+1;
-  for(int i = 0; i < numQP; ++i)
-  {
-    delete [] m_bilateralFilterTable[i];
-  }
-  delete [] m_bilateralFilterTable;
+  destroy();
 }
 
-BilateralFilter* BilateralFilter::instance()
+void BilateralFilter::create()
 {
-  if (m_bilateralFilterInstance == NULL)
-    m_bilateralFilterInstance = new BilateralFilter();
-  return m_bilateralFilterInstance;
+  createdivToMulLUTs();
+
+  for( Int qp = 18; qp < MAX_QP + 1; qp++ )
+  {
+    createBilateralFilterTable( qp );
+  }
+}
+
+void BilateralFilter::destroy()
+{
+  if( m_bilateralFilterTable )
+  {
+    int numQP = MAX_QP - 18 + 1;
+
+    for( int i = 0; i < numQP; ++i )
+    {
+      delete[] m_bilateralFilterTable[i];
+      m_bilateralFilterTable[i] = nullptr;
+    }
+
+    delete[] m_bilateralFilterTable;
+    m_bilateralFilterTable = nullptr;
+  }
 }
 
 void BilateralFilter::createdivToMulLUTs()
@@ -86,11 +103,11 @@ void BilateralFilter::createdivToMulLUTs()
   UInt one = 1 << BITS_PER_DIV_LUT_ENTRY; // 1 is represented by 2^14 (not 2^14 -1)
   divToMulOneOverN[0] = one; // We can never divide by zero since the centerweight is non-zero, so we can set this value to something arbitrary.
   divToMulShift[0] = 0;
-  
+
   for (UInt n=1; n<BILATERAL_FILTER_MAX_DENOMINATOR_PLUS_ONE; n++)
   {
     UInt tryLUT = one / n;
-    
+
     UInt tryShift = 0;
     // Make sure the LUT entry stored does not start with (binary) zeros.
     while(tryLUT <= one)
@@ -98,11 +115,11 @@ void BilateralFilter::createdivToMulLUTs()
       // This value of tryLUT
       divToMulOneOverN[n] = tryLUT;
       divToMulShift[n] = tryShift;
-      
+
       tryShift++;
       tryLUT = (one << tryShift) / n;
     }
-    
+
     // We may need to add 1 to the LUT entry in order to make 3/3, 4/4, 5/5, ... come out right.
     UInt adiv = divToMulOneOverN[n] * n / (one << divToMulShift[n]);
     if(adiv != 1)
@@ -124,7 +141,7 @@ void BilateralFilter::createBilateralFilterTable(int qp)
     sqrtSpatialSigmaMulTwo = 2 * (spatialSigmaValue + spatialSigmaBlockLengthOffsets[i]) * (spatialSigmaValue + spatialSigmaBlockLengthOffsets[i]);
 
     // Calculate the multiplication factor that we will use to convert the first table (with the strongest filter) to one of the
-    // tables that gives weaker filtering (such as when TU = 8 or 16 or when we have inter filtering). 
+    // tables that gives weaker filtering (such as when TU = 8 or 16 or when we have inter filtering).
     Int sqrtSpatialSigmaMulTwoStrongestFiltering = 2 * (spatialSigmaValue + spatialSigmaBlockLengthOffsets[0]) * (spatialSigmaValue + spatialSigmaBlockLengthOffsets[0]);
 
     // multiplication factor equals exp(-1/stronger)/exp(-1/weaker)
@@ -134,7 +151,7 @@ void BilateralFilter::createBilateralFilterTable(int qp)
   Int i = 0;
   sqrtSpatialSigmaMulTwo = 2 * (spatialSigmaValue + spatialSigmaBlockLengthOffsets[i]) * (spatialSigmaValue + spatialSigmaBlockLengthOffsets[i]);
   for (Int j = 0; j < (maxPosList[qp-18]+1); j++)
-  {        
+  {
     Int temp = j * 25;
     m_bilateralFilterTable[qp-18][j] = UShort(exp(-(10000.0 / sqrtSpatialSigmaMulTwo) - (temp * temp / (sqrtIntensitySigmaMulTwo * 1.0))) * 65 + 0.5);
   }
@@ -148,7 +165,7 @@ void BilateralFilter::smoothBlockBilateralFilter(unsigned uiWidth, unsigned uiHe
   Int sumWeights[MAX_CU_SIZE];
   Int sumDelta[MAX_CU_SIZE];
   Int blockLengthIndex;
-  
+
   Int dIB, dIR;
 
   if( length >= 16 )
@@ -166,14 +183,14 @@ void BilateralFilter::smoothBlockBilateralFilter(unsigned uiWidth, unsigned uiHe
 
 
   UShort *lookupTablePtr;
-  
+
   centerWeight = m_bilateralCenterWeightTable[blockLengthIndex + 3 * isInterBlock];
-  
+
   Int theMaxPos = maxPosList[qp-18];
   lookupTablePtr = m_bilateralFilterTable[qp-18];
 
   // for each pixel in block
-  
+
   // These are the types of pixels:
   //
   // A BB C
@@ -203,16 +220,16 @@ void BilateralFilter::smoothBlockBilateralFilter(unsigned uiWidth, unsigned uiHe
   Int rightPixelSumWeights;
   Int rightWeightTimesdIR;
   Int bottomWeightTimesdIB;
-  
+
   Int mySignIfNeg;
   Int mySign;
-  
+
   Short *blockCurrentPixelPtr = block;
   Short *blockRightPixelPtr = blockCurrentPixelPtr+1;
   Short *blockNextLinePixelPtr = blockCurrentPixelPtr + uiWidth;
   Int *sumWeightsPtr = sumWeights;
   Int *sumDeltaPtr = sumDelta;
-  
+
   // A pixel. uses filter type xx
   //                           x
   //
@@ -220,34 +237,34 @@ void BilateralFilter::smoothBlockBilateralFilter(unsigned uiWidth, unsigned uiHe
   // No information from previous pixel
   // Storing information to next row
   // Storing information to next pixel
-  
+
   // top left pixel; i = 0, j = 0;
-  
+
   centerPixel = *(blockCurrentPixelPtr);
   rightPixel = *(blockRightPixelPtr++);
   dIR = rightPixel - centerPixel;
   dIB = *(blockNextLinePixelPtr++) - centerPixel;
-  
+
   rightWeight = lookupTablePtr[std::min(theMaxPos, abs(dIR))];
   bottomWeight = lookupTablePtr[std::min(theMaxPos, abs(dIB))];
-  
+
   rightWeightTimesdIR = rightWeight*dIR;
   bottomWeightTimesdIB = bottomWeight*dIB;
-  
+
   currentPixelSumWeights = centerWeight + rightWeight + bottomWeight;
   currentPixelDeltaSum = rightWeightTimesdIR + bottomWeightTimesdIB;
-  
+
   rightPixelSumWeights = rightWeight; //next pixel to the right
   rightPixelDeltaSum = rightWeightTimesdIR;
-  
+
   *(sumWeightsPtr++) = bottomWeight; //next pixel to the bottom
   *(sumDeltaPtr++) = bottomWeightTimesdIB; //next pixel to the bottom
-  
+
   mySignIfNeg = SIGN_IF_NEG(currentPixelDeltaSum);
   mySign = 1 | mySignIfNeg;
 
   *(blockCurrentPixelPtr++) = centerPixel + mySign*((((mySign*currentPixelDeltaSum + ((currentPixelSumWeights+mySignIfNeg) >> 1))*divToMulOneOverN[currentPixelSumWeights]) >> (BITS_PER_DIV_LUT_ENTRY + divToMulShift[currentPixelSumWeights])));
-  
+
   for (Int i = 1; i < (uiWidth-1); i++)
   {
     // B pixel. uses filter type xxx
@@ -257,34 +274,34 @@ void BilateralFilter::smoothBlockBilateralFilter(unsigned uiWidth, unsigned uiHe
     // Information reused from previous pixel
     // Storing information to next row
     // Storing information to next pixel
-    
+
     centerPixel = rightPixel;
     rightPixel = *(blockRightPixelPtr++);
     dIR = rightPixel - centerPixel;
     dIB = *(blockNextLinePixelPtr++) - centerPixel;
-    
+
     rightWeight  = lookupTablePtr[std::min(theMaxPos, abs(dIR))];
     bottomWeight = lookupTablePtr[std::min(theMaxPos, abs(dIB))];
-    
+
     rightWeightTimesdIR = rightWeight*dIR;
     bottomWeightTimesdIB = bottomWeight*dIB;
-    
+
     currentPixelSumWeights = centerWeight + rightPixelSumWeights + rightWeight + bottomWeight;
     currentPixelDeltaSum = rightWeightTimesdIR + bottomWeightTimesdIB - rightPixelDeltaSum;
-    
+
     rightPixelSumWeights = rightWeight; //next pixel to the right
     rightPixelDeltaSum = rightWeightTimesdIR; //next pixel to the right
-    
+
     *(sumWeightsPtr++) = bottomWeight; //next pixel to the bottom
     *(sumDeltaPtr++) = bottomWeightTimesdIB; //next pixel to the bottom
-    
+
     mySignIfNeg = SIGN_IF_NEG(currentPixelDeltaSum);
     mySign = 1 | mySignIfNeg;
 
     *(blockCurrentPixelPtr++) = centerPixel + mySign*((((mySign*currentPixelDeltaSum + ((currentPixelSumWeights+mySignIfNeg) >> 1))*divToMulOneOverN[currentPixelSumWeights]) >> (BITS_PER_DIV_LUT_ENTRY + divToMulShift[currentPixelSumWeights])));
-    
+
   }
-  
+
   // C pixel. uses filter type xx
   //                            x
   //
@@ -292,30 +309,30 @@ void BilateralFilter::smoothBlockBilateralFilter(unsigned uiWidth, unsigned uiHe
   // Information reused from previous pixel
   // Storing information to next row
   // No information to store to next pixel
-  
+
   centerPixel = rightPixel;
   blockRightPixelPtr++;
   dIB = *(blockNextLinePixelPtr++) - centerPixel;
-  
+
   bottomWeight = lookupTablePtr[std::min(theMaxPos, abs(dIB))];
   bottomWeightTimesdIB = bottomWeight*dIB;
-  
+
   currentPixelSumWeights = centerWeight + rightPixelSumWeights + bottomWeight;
   currentPixelDeltaSum = bottomWeightTimesdIB - rightPixelDeltaSum;
-  
+
   *(sumWeightsPtr) = bottomWeight; //next pixel to the bottom
   *(sumDeltaPtr++) = bottomWeightTimesdIB; //next pixel to the bottom
-  
+
   mySignIfNeg = SIGN_IF_NEG(currentPixelDeltaSum);
   mySign = 1 | mySignIfNeg;
 
   *(blockCurrentPixelPtr++) = centerPixel + mySign*((((mySign*currentPixelDeltaSum + ((currentPixelSumWeights+mySignIfNeg) >> 1))*divToMulOneOverN[currentPixelSumWeights]) >> (BITS_PER_DIV_LUT_ENTRY + divToMulShift[currentPixelSumWeights])));
-  
+
   for (Int j = 1; j < (uiHeight-1); j++)
   {
     sumWeightsPtr = sumWeights;
     sumDeltaPtr = sumDelta;
-    
+
     //                           x
     // D pixel. uses filter type xx
     //                           x
@@ -324,32 +341,32 @@ void BilateralFilter::smoothBlockBilateralFilter(unsigned uiWidth, unsigned uiHe
     // No information from previous pixel
     // Storing information to next row
     // Storing information to next pixel
-    
+
     centerPixel = *(blockCurrentPixelPtr);
     rightPixel = *(blockRightPixelPtr++);
     dIR = rightPixel - centerPixel;
     dIB = *(blockNextLinePixelPtr++) - centerPixel;
-    
+
     rightWeight = lookupTablePtr[std::min(theMaxPos, abs(dIR))];
     bottomWeight = lookupTablePtr[std::min(theMaxPos, abs(dIB))];
-    
+
     rightWeightTimesdIR = rightWeight*dIR;
     bottomWeightTimesdIB = bottomWeight*dIB;
-    
+
     currentPixelSumWeights = centerWeight + *(sumWeightsPtr) + rightWeight + bottomWeight;
     currentPixelDeltaSum = rightWeightTimesdIR + bottomWeightTimesdIB - *(sumDeltaPtr);
-    
+
     rightPixelSumWeights = rightWeight; //next pixel to the right
     rightPixelDeltaSum = rightWeightTimesdIR;
-    
+
     *(sumWeightsPtr++) = bottomWeight; //next pixel to the bottom
     *(sumDeltaPtr++) = bottomWeightTimesdIB; //next pixel to the bottom
-    
+
     mySignIfNeg = SIGN_IF_NEG(currentPixelDeltaSum);
     mySign = 1 | mySignIfNeg;
 
     *(blockCurrentPixelPtr++) = centerPixel + mySign*((((mySign*currentPixelDeltaSum + ((currentPixelSumWeights+mySignIfNeg) >> 1))*divToMulOneOverN[currentPixelSumWeights]) >> (BITS_PER_DIV_LUT_ENTRY + divToMulShift[currentPixelSumWeights])));
-    
+
     for (Int i = 1; i < (uiWidth-1); i++)
     {
       //                            x
@@ -360,33 +377,33 @@ void BilateralFilter::smoothBlockBilateralFilter(unsigned uiWidth, unsigned uiHe
       // Uses information from previous pixel
       // Storing information to next row
       // No information to store to next pixel
-      
+
       centerPixel = rightPixel;
       rightPixel = *(blockRightPixelPtr++);
       dIR = rightPixel - centerPixel;
       dIB = *(blockNextLinePixelPtr++) - centerPixel;
-      
+
       rightWeight = lookupTablePtr[std::min(theMaxPos, abs(dIR))];
       bottomWeight = lookupTablePtr[std::min(theMaxPos, abs(dIB))];
-      
+
       rightWeightTimesdIR = rightWeight*dIR;
       bottomWeightTimesdIB = bottomWeight*dIB;
-      
+
       currentPixelSumWeights = centerWeight + *(sumWeightsPtr) + rightPixelSumWeights + rightWeight + bottomWeight;
       currentPixelDeltaSum = rightWeightTimesdIR + bottomWeightTimesdIB - rightPixelDeltaSum - *(sumDeltaPtr);
-      
+
       rightPixelSumWeights = rightWeight; //next pixel to the right
       rightPixelDeltaSum = rightWeightTimesdIR;
-      
+
       *(sumWeightsPtr++) = bottomWeight; //next pixel to the bottom
       *(sumDeltaPtr++) = bottomWeightTimesdIB; //next pixel to the bottom
-      
+
       mySignIfNeg = SIGN_IF_NEG(currentPixelDeltaSum);
       mySign = 1 | mySignIfNeg;
 
       *(blockCurrentPixelPtr++) = centerPixel + mySign*((((mySign*currentPixelDeltaSum + ((currentPixelSumWeights+mySignIfNeg) >> 1))*divToMulOneOverN[currentPixelSumWeights]) >> (BITS_PER_DIV_LUT_ENTRY + divToMulShift[currentPixelSumWeights])));
     }
-    
+
     //                            x
     // F pixel. uses filter type xx
     //                            x
@@ -395,30 +412,30 @@ void BilateralFilter::smoothBlockBilateralFilter(unsigned uiWidth, unsigned uiHe
     // Uses information from previous pixel
     // Storing information to next row
     // Storing information to next pixel
-    
+
     centerPixel = rightPixel;
     blockRightPixelPtr++;
     dIB = *(blockNextLinePixelPtr++) - centerPixel;
-    
+
     bottomWeight = lookupTablePtr[std::min(theMaxPos, abs(dIB))];
     bottomWeightTimesdIB = bottomWeight*dIB;
-    
+
     currentPixelSumWeights = centerWeight + *(sumWeightsPtr) + rightPixelSumWeights + bottomWeight;
     currentPixelDeltaSum = bottomWeightTimesdIB - rightPixelDeltaSum - *(sumDeltaPtr);
-    
+
     *(sumWeightsPtr) = bottomWeight; //next pixel to the bottom
     *(sumDeltaPtr++) = bottomWeightTimesdIB; //next pixel to the bottom
-    
+
     mySignIfNeg = SIGN_IF_NEG(currentPixelDeltaSum);
     mySign = 1 | mySignIfNeg;
 
     *(blockCurrentPixelPtr++) = centerPixel + mySign*((((mySign*currentPixelDeltaSum + ((currentPixelSumWeights+mySignIfNeg) >> 1))*divToMulOneOverN[currentPixelSumWeights]) >> (BITS_PER_DIV_LUT_ENTRY + divToMulShift[currentPixelSumWeights])));
-    
+
   }
-  
+
   sumWeightsPtr = sumWeights;
   sumDeltaPtr = sumDelta;
-  
+
   //                           x
   // G pixel. uses filter type xx
   //
@@ -426,26 +443,26 @@ void BilateralFilter::smoothBlockBilateralFilter(unsigned uiWidth, unsigned uiHe
   // No information from previous pixel
   // No information to store to next row
   // Storing information to next pixel
-  
-  
+
+
   centerPixel = *(blockCurrentPixelPtr);
   rightPixel = *(blockRightPixelPtr++);
   dIR = rightPixel - centerPixel;
-  
+
   rightWeight = lookupTablePtr[std::min(theMaxPos, abs(dIR))];
   rightWeightTimesdIR = rightWeight*dIR;
-  
+
   currentPixelSumWeights = centerWeight + *(sumWeightsPtr++) + rightWeight;
   currentPixelDeltaSum = rightWeightTimesdIR - *(sumDeltaPtr++);
-  
+
   rightPixelSumWeights = rightWeight; //next pixel to the right
   rightPixelDeltaSum = rightWeightTimesdIR;
-  
+
   mySignIfNeg = SIGN_IF_NEG(currentPixelDeltaSum);
   mySign = 1 | mySignIfNeg;
 
   *(blockCurrentPixelPtr++) = centerPixel + mySign*((((mySign*currentPixelDeltaSum + ((currentPixelSumWeights+mySignIfNeg) >> 1))*divToMulOneOverN[currentPixelSumWeights]) >> (BITS_PER_DIV_LUT_ENTRY + divToMulShift[currentPixelSumWeights])));
-  
+
   for (Int i = 1; i < (uiWidth-1); i++)
   {
     //                            x
@@ -455,27 +472,27 @@ void BilateralFilter::smoothBlockBilateralFilter(unsigned uiWidth, unsigned uiHe
     // Uses information from previous pixel
     // No information to store to next row
     // Storing information to next pixel
-    
+
     centerPixel = rightPixel;
     rightPixel = *(blockRightPixelPtr++);
     dIR = rightPixel - centerPixel;
-    
+
     rightWeight = lookupTablePtr[std::min(theMaxPos, abs(dIR))];
     rightWeightTimesdIR = rightWeight*dIR;
-    
+
     currentPixelSumWeights = centerWeight + *(sumWeightsPtr++) + rightWeight + rightPixelSumWeights;
     currentPixelDeltaSum = rightWeightTimesdIR - rightPixelDeltaSum - *(sumDeltaPtr++);
-    
+
     rightPixelSumWeights = rightWeight; //next pixel to the right
     rightPixelDeltaSum = rightWeightTimesdIR;
-    
+
     mySignIfNeg = SIGN_IF_NEG(currentPixelDeltaSum);
     mySign = 1 | mySignIfNeg;
 
     *(blockCurrentPixelPtr++) = centerPixel + mySign*((((mySign*currentPixelDeltaSum + ((currentPixelSumWeights+mySignIfNeg) >> 1))*divToMulOneOverN[currentPixelSumWeights]) >> (BITS_PER_DIV_LUT_ENTRY + divToMulShift[currentPixelSumWeights])));
-    
+
   }
-  
+
   //                            x
   // I pixel. uses filter type xx
   //
@@ -483,39 +500,39 @@ void BilateralFilter::smoothBlockBilateralFilter(unsigned uiWidth, unsigned uiHe
   // Uses information from previous pixel
   // No information to store to next row
   // No information to store to nex pixel
-  
+
   centerPixel = rightPixel;
-  
+
   currentPixelSumWeights = centerWeight + *(sumWeightsPtr) + rightPixelSumWeights;
   currentPixelDeltaSum = - rightPixelDeltaSum - *(sumDeltaPtr);
-  
+
   mySignIfNeg = SIGN_IF_NEG(currentPixelDeltaSum);
   mySign = 1 | mySignIfNeg;
 
   *(blockCurrentPixelPtr) = centerPixel + mySign*((((mySign*currentPixelDeltaSum + ((currentPixelSumWeights+mySignIfNeg) >> 1))*divToMulOneOverN[currentPixelSumWeights]) >> (BITS_PER_DIV_LUT_ENTRY + divToMulShift[currentPixelSumWeights])));
-  
+
 }
 
 void BilateralFilter::bilateralFilterIntra( PelBuf& recoBuf, int qp)
 {
-  const unsigned uiWidth  = recoBuf.width; 
-  const unsigned uiHeight = recoBuf.height; 
+  const unsigned uiWidth  = recoBuf.width;
+  const unsigned uiHeight = recoBuf.height;
   const unsigned uiStride = recoBuf.stride;
   Pel             *piReco = recoBuf.buf;
- 
+
   if( recoBuf.stride == recoBuf.width )
   {
     smoothBlockBilateralFilter(uiWidth, uiHeight, piReco, 0, qp);
   }
   else
   {
-    for( unsigned j = 0; j < uiHeight; j++)   
+    for( unsigned j = 0; j < uiHeight; j++)
     {
       memcpy(tempblock + j * uiWidth, piReco + j * uiStride, uiWidth * sizeof(Pel));
     }
 
     smoothBlockBilateralFilter(uiWidth, uiHeight, tempblock, 0, qp);
-  
+
     for( unsigned j = 0; j < uiHeight; j++)
     {
       memcpy(piReco + j * uiStride, tempblock + j * uiWidth, uiWidth * sizeof(Pel));
@@ -525,12 +542,12 @@ void BilateralFilter::bilateralFilterIntra( PelBuf& recoBuf, int qp)
 
 void BilateralFilter::bilateralFilterInter( PelBuf& resiBuf, const CPelBuf& predBuf, int qp, const ClpRng& clpRng)
 {
-  const unsigned uiWidth      = predBuf.width; 
-  const unsigned uiHeight     = predBuf.height; 
+  const unsigned uiWidth      = predBuf.width;
+  const unsigned uiHeight     = predBuf.height;
   const unsigned uiPredStride = predBuf.stride;
   const unsigned uiStrideRes  = resiBuf.stride;
-  const Pel *piPred           = predBuf.buf; 
-        Pel *piResi           = resiBuf.buf; 
+  const Pel *piPred           = predBuf.buf;
+        Pel *piResi           = resiBuf.buf;
 
   for( unsigned  uiY = 0; uiY < uiHeight; ++uiY)
   {
@@ -544,8 +561,8 @@ void BilateralFilter::bilateralFilterInter( PelBuf& resiBuf, const CPelBuf& pred
 
   smoothBlockBilateralFilter(uiWidth, uiHeight, tempblock, 1, qp);
 
-  piPred = predBuf.buf; 
-  piResi = resiBuf.buf; 
+  piPred = predBuf.buf;
+  piResi = resiBuf.buf;
 
   // need to be performed if residual  is used
   // Resi' = Reco' - Pred
@@ -560,3 +577,4 @@ void BilateralFilter::bilateralFilterInter( PelBuf& resiBuf, const CPelBuf& pred
   }
 }
 
+#endif

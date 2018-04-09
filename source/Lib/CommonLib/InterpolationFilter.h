@@ -53,10 +53,14 @@
  */
 class InterpolationFilter
 {
+#if JEM_TOOLS
   static const TFilterCoeff m_lumaFilter  [LUMA_INTERPOLATION_FILTER_SUB_SAMPLE_POSITIONS   << VCEG_AZ07_MV_ADD_PRECISION_BIT_FOR_STORE][NTAPS_LUMA  ]; ///< Luma filter taps
   static const TFilterCoeff m_chromaFilter[CHROMA_INTERPOLATION_FILTER_SUB_SAMPLE_POSITIONS << VCEG_AZ07_MV_ADD_PRECISION_BIT_FOR_STORE][NTAPS_CHROMA]; ///< Chroma filter taps
   static const TFilterCoeff m_lumaFilterBilinear[LUMA_INTERPOLATION_FILTER_SUB_SAMPLE_POSITIONS << VCEG_AZ07_MV_ADD_PRECISION_BIT_FOR_STORE][NTAPS_LUMA_FRUC];     ///< Luma filter taps
-
+#else
+  static const TFilterCoeff m_lumaFilter  [LUMA_INTERPOLATION_FILTER_SUB_SAMPLE_POSITIONS][NTAPS_LUMA  ]; ///< Luma filter taps
+  static const TFilterCoeff m_chromaFilter[CHROMA_INTERPOLATION_FILTER_SUB_SAMPLE_POSITIONS][NTAPS_CHROMA]; ///< Chroma filter taps
+#endif
 public:
   template<Bool isFirst, Bool isLast>
   static Void filterCopy( const ClpRng& clpRng, const Pel *src, Int srcStride, Pel *dst, Int dstStride, Int width, Int height );
@@ -83,8 +87,13 @@ public:
   Void _initInterpolationFilterX86();
 #endif
 
+#if JEM_TOOLS
   Void filterHor(const ComponentID compID, Pel const* src, Int srcStride, Pel *dst, Int dstStride, Int width, Int height, Int frac,               Bool isLast, const ChromaFormat fmt, const ClpRng& clpRng, Int nFilterIdx = 0 );
   Void filterVer(const ComponentID compID, Pel const* src, Int srcStride, Pel *dst, Int dstStride, Int width, Int height, Int frac, Bool isFirst, Bool isLast, const ChromaFormat fmt, const ClpRng& clpRng, Int nFilterIdx = 0 );
+#else
+  Void filterHor(const ComponentID compID, Pel const* src, Int srcStride, Pel *dst, Int dstStride, Int width, Int height, Int frac,               Bool isLast, const ChromaFormat fmt, const ClpRng& clpRng );
+  Void filterVer(const ComponentID compID, Pel const* src, Int srcStride, Pel *dst, Int dstStride, Int width, Int height, Int frac, Bool isFirst, Bool isLast, const ChromaFormat fmt, const ClpRng& clpRng );
+#endif
 };
 
 //! \}

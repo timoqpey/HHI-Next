@@ -47,10 +47,23 @@
 namespace CS
 {
   UInt64 getEstBits                   ( const CodingStructure &cs );
+#if JEM_TOOLS
   void   initFrucMvp                  (       CodingStructure &cs );
-  UnitArea getArea                    ( const CodingStructure &cs, const UnitArea &area );
+#endif
+  UnitArea getArea                    ( const CodingStructure &cs, const UnitArea &area, const ChannelType chType );
   bool   isDualITree                  ( const CodingStructure &cs );
 }
+
+#if JEM_TOOLS
+struct CIPFSpec
+{
+  bool  loadCtx;
+  bool  storeCtx;
+  int   ctxId;
+};
+
+CIPFSpec getCIPFSpec( const Slice* slice, const int ctuXPosInCtus, const int ctuYPosInCtus );
+#endif
 
 
 // CU tools
@@ -59,7 +72,6 @@ namespace CU
   bool isIntra                        (const CodingUnit &cu);
   bool isInter                        (const CodingUnit &cu);
   bool isRDPCMEnabled                 (const CodingUnit &cu);
-  UInt getQuadtreeTULog2MinSizeInCU   (const CodingUnit &cu);
   bool isLosslessCoded                (const CodingUnit &cu);
   UInt getIntraSizeIdx                (const CodingUnit &cu);
 
@@ -80,36 +92,54 @@ namespace CU
 
   bool hasNonTsCodedBlock             (const CodingUnit& cu);
   UInt getNumNonZeroCoeffNonTs        (const CodingUnit& cu);
+#if JEM_TOOLS
   bool isLICFlagPresent               (const CodingUnit& cu);
   bool isObmcFlagCoded                (const CodingUnit& cu);
+#endif
 
   PUTraverser traversePUs             (      CodingUnit& cu);
   TUTraverser traverseTUs             (      CodingUnit& cu);
   cPUTraverser traversePUs            (const CodingUnit& cu);
   cTUTraverser traverseTUs            (const CodingUnit& cu);
 
+#if JEM_TOOLS
   bool  hasSubCUNonZeroMVd            (const CodingUnit& cu);
   int   getMaxNeighboriMVCandNum      (const CodingStructure& cs, const Position& pos);
   void  resetMVDandMV2Int             (      CodingUnit& cu, InterPrediction *interPred );
+#endif
+
+
 }
 // PU tools
 namespace PU
 {
+#if JEM_TOOLS
   int  getIntraMPMs                   (const PredictionUnit &pu, unsigned *mpm, const ChannelType &channelType = CHANNEL_TYPE_LUMA, const bool isChromaMDMS = false, const unsigned startIdx = 0 );
   int  getLMSymbolList                (const PredictionUnit &pu, Int *pModeList);
   int  getDMModes                     (const PredictionUnit &pu, unsigned *modeList);
+#else
+  int  getIntraMPMs                   (const PredictionUnit &pu, unsigned *mpm, const ChannelType &channelType = CHANNEL_TYPE_LUMA);
+#endif
   void getIntraChromaCandModes        (const PredictionUnit &pu, unsigned modeList[NUM_CHROMA_MODE]);
   UInt getFinalIntraMode              (const PredictionUnit &pu, const ChannelType &chType);
 
   void getInterMergeCandidates        (const PredictionUnit &pu, MergeCtx& mrgCtx, const int& mrgCandIdx = -1 );
   bool isDiffMER                      (const PredictionUnit &pu, const PredictionUnit &pu2);
+#if JEM_TOOLS
   bool getColocatedMVP                (const PredictionUnit &pu, const RefPicList &eRefPicList, const Position &pos, Mv& rcMv, const int &refIdx, bool* pLICFlag = 0 );
   void fillMvpCand                    (      PredictionUnit &pu, const RefPicList &eRefPicList, const int &refIdx, AMVPInfo &amvpInfo, InterPrediction *interPred = NULL);
   void fillAffineMvpCand              (      PredictionUnit &pu, const RefPicList &eRefPicList, const int &refIdx, AffineAMVPInfo &affiAMVPInfo);
   bool addMVPCandUnscaled             (const PredictionUnit &pu, const RefPicList &eRefPicList, const int &iRefIdx, const Position &pos, const MvpDir &eDir, AMVPInfo &amvpInfo, bool affine = false);
   bool addMVPCandWithScaling          (const PredictionUnit &pu, const RefPicList &eRefPicList, const int &iRefIdx, const Position &pos, const MvpDir &eDir, AMVPInfo &amvpInfo, bool affine = false);
+#else
+  void fillMvpCand                    (      PredictionUnit &pu, const RefPicList &eRefPicList, const int &refIdx, AMVPInfo &amvpInfo);
+  bool addMVPCandUnscaled             (const PredictionUnit &pu, const RefPicList &eRefPicList, const int &iRefIdx, const Position &pos, const MvpDir &eDir, AMVPInfo &amvpInfo);
+  bool addMVPCandWithScaling          (const PredictionUnit &pu, const RefPicList &eRefPicList, const int &iRefIdx, const Position &pos, const MvpDir &eDir, AMVPInfo &amvpInfo);
+  bool getColocatedMVP                (const PredictionUnit &pu, const RefPicList &eRefPicList, const Position &pos, Mv& rcMv, const int &refIdx );
+#endif
   bool isBipredRestriction            (const PredictionUnit &pu);
   void spanMotionInfo                 (      PredictionUnit &pu, const MergeCtx &mrgCtx = MergeCtx() );
+#if JEM_TOOLS
   void spanLICFlags                   (      PredictionUnit &pu, const bool LICFlag );
 
   bool getInterMergeSubPuMvpCand      (const PredictionUnit &pu, MergeCtx &mrgCtx, bool& LICFlag, const int count );
@@ -121,16 +151,21 @@ namespace PU
   void setAllAffineMv                 (      PredictionUnit &pu, Mv affLT, Mv affRT, Mv affLB, RefPicList eRefList );
   void setAllAffineMvd                (      MotionBuf mb, const Mv& affLT, const Mv& affRT, RefPicList eRefList, Bool useQTBT );
   bool isBIOLDB                       (const PredictionUnit &pu);
+#endif
   bool isBiPredFromDifferentDir       (const PredictionUnit &pu);
   void restrictBiPredMergeCands       (const PredictionUnit &pu, MergeCtx& mrgCtx);
+#if JEM_TOOLS
   bool getNeighborMotion              (      PredictionUnit &pu, MotionInfo& mi, Position off, Int iDir, Bool bSubPu );
   bool getMvPair                      (const PredictionUnit &pu, RefPicList eCurRefPicList, const MvField & rCurMvField, MvField &rMvPair);
   bool isSameMVField                  (const PredictionUnit &pu, RefPicList eListA, MvField &rMVFieldA, RefPicList eListB, MvField &rMVFieldB);
   Mv   scaleMv                        (const Mv &rColMV, Int iCurrPOC, Int iCurrRefPOC, Int iColPOC, Int iColRefPOC, Slice *slice);
+#endif
+#if JEM_TOOLS
   bool isLMCMode                      (                          unsigned mode);
   bool isMMLMEnabled                  (const PredictionUnit &pu);
   bool isMFLMEnabled                  (const PredictionUnit &pu);
   bool isLMCModeEnabled               (const PredictionUnit &pu, unsigned mode);
+#endif
   bool isChromaIntraModeCrossCheckMode(const PredictionUnit &pu);
 }
 
@@ -141,40 +176,50 @@ namespace TU
   bool useDST                         (const TransformUnit &tu, const ComponentID &compID);
   bool isNonTransformedResidualRotated(const TransformUnit &tu, const ComponentID &compID);
   bool getCbf                         (const TransformUnit &tu, const ComponentID &compID);
-  bool getCbfAtDepth                  (const TransformUnit &tu, const ComponentID &compID, const unsigned &depth);
-  void setCbfAtDepth                  (      TransformUnit &tu, const ComponentID &compID, const unsigned &depth, const bool &cbf);
+  void setCbf                         (      TransformUnit &tu, const ComponentID &compID, const bool &cbf);
   bool hasTransformSkipFlag           (const CodingStructure& cs, const CompArea& area);
   UInt getGolombRiceStatisticsIndex   (const TransformUnit &tu, const ComponentID &compID);
   UInt getCoefScanIdx                 (const TransformUnit &tu, const ComponentID &compID);
-  bool isProcessingAllQuadrants       (const UnitArea      &tuArea);
   bool hasCrossCompPredInfo           (const TransformUnit &tu, const ComponentID &compID);
-  bool needsSqrt2Scale                (const Size& size);
-}
 
-// Other tools
+  bool needsSqrt2Scale                ( const Size& size );
+  int  getBlockSizeTrafoScaleForQuant         ( const Size& size );
+  int  getBlockSizeTrafoScaleForDeQuant       ( const Size& size );
+  bool needsBlockSizeTrafoScale       ( const Size& size );
+}
 
 UInt getCtuAddr        (const Position& pos, const PreCalcValues &pcv);
 
 template<typename T, size_t N>
-UInt updateCandList( T uiMode, Double uiCost, static_vector<T, N>& candModeList, static_vector<Double, N>& candCostList, size_t uiFastCandNum = N )
+UInt updateCandList( T uiMode, Double uiCost, static_vector<T, N>& candModeList, static_vector<double, N>& candCostList, size_t uiFastCandNum = N )
 {
-  UInt i;
-  UInt shift = 0;
+  CHECK( std::min( uiFastCandNum, candModeList.size() ) != std::min( uiFastCandNum, candCostList.size() ), "Sizes do not match!" );
+  CHECK( uiFastCandNum > candModeList.capacity(), "The vector is to small to hold all the candidates!" );
 
-  while( shift < uiFastCandNum && uiCost < candCostList[uiFastCandNum - 1 - shift] )
+  size_t i;
+  size_t shift = 0;
+  size_t currSize = std::min( uiFastCandNum, candCostList.size() );
+
+  while( shift < uiFastCandNum && shift < currSize && uiCost < candCostList[currSize - 1 - shift] )
   {
     shift++;
   }
 
-  if( shift != 0 )
+  if( candModeList.size() >= uiFastCandNum && shift != 0 )
   {
     for( i = 1; i < shift; i++ )
     {
-      candModeList[ uiFastCandNum-i ] = candModeList[ uiFastCandNum-1-i ];
-      candCostList[ uiFastCandNum-i ] = candCostList[ uiFastCandNum-1-i ];
+      candModeList[currSize - i] = candModeList[currSize - 1 - i];
+      candCostList[currSize - i] = candCostList[currSize - 1 - i];
     }
-    candModeList[ uiFastCandNum-shift ] = uiMode;
-    candCostList[ uiFastCandNum-shift ] = uiCost;
+    candModeList[currSize - shift] = uiMode;
+    candCostList[currSize - shift] = uiCost;
+    return 1;
+  }
+  else if( currSize < uiFastCandNum )
+  {
+    candModeList.insert( candModeList.end() - shift, uiMode );
+    candCostList.insert( candCostList.end() - shift, uiCost );
     return 1;
   }
 
@@ -182,4 +227,8 @@ UInt updateCandList( T uiMode, Double uiCost, static_vector<T, N>& candModeList,
 }
 
 
+#endif
+
+#if MCTS_ENC_CHECK
+Void getTilePosition( const PredictionUnit& pu, UInt &tileXPosInCtus, UInt &tileYPosInCtus, UInt &tileWidthtInCtus, UInt &tileHeightInCtus );
 #endif

@@ -279,33 +279,47 @@ struct CodingUnit : public UnitArea
 {
   CodingStructure *cs;
   Slice *slice;
+  ChannelType    chType;
 
   PredMode       predMode;
   PartSize       partSize;
-  UChar          depth;
-  UChar          qtDepth;
-  UChar          btDepth;
+
+  UChar          depth;   // number of all splits, applied with generalized splits
+  UChar          qtDepth; // number of applied quad-splits, before switching to the multi-type-tree (mtt)
+  // a triple split would increase the mtDepth by 1, but the qtDepth by 2 in the first and last part and by 1 in the middle part (because of the 1-2-1 split proportions)
+  UChar          btDepth; // number of applied binary splits, after switching to the mtt (or it's equivalent)
+  UChar          mtDepth; // the actual number of splits after switching to mtt (equals btDepth if only binary splits are allowed)
   SChar          chromaQpAdj;
   SChar          qp;
   SplitSeries    splitSeries;
   Bool           skip;
+#if JEM_TOOLS
   Bool           affine;
+#endif
   Bool           transQuantBypass;
+#if JEM_TOOLS
   Bool           pdpc;
+#endif
   Bool           ipcm;
+#if JEM_TOOLS
   UChar          imv;
+#endif
   Bool           rootCbf;
   UInt           tileIdx;
+#if JEM_TOOLS
   UInt           nsstIdx;
   UChar          emtFlag;
+#endif
+#if JEM_TOOLS
   Bool           LICFlag;
   Bool           obmcFlag;
+#endif
 
   // needed for fast imv mode decisions
   SChar          imvNumCand;
 
 
-  CodingUnit() { }
+  CodingUnit() : chType( CH_L ) { }
   CodingUnit(const UnitArea &unit);
   CodingUnit(const ChromaFormat _chromaFormat, const Area &area);
 
@@ -321,6 +335,11 @@ struct CodingUnit : public UnitArea
 
   TransformUnit *firstTU;
   TransformUnit *lastTU;
+#if HHI_SPLIT_PARALLELISM || HHI_WPP_PARALLELISM
+
+  int64_t cacheId;
+  bool    cacheUsed;
+#endif
 };
 
 // ---------------------------------------------------------------------------
@@ -343,17 +362,20 @@ struct InterPredictionData
   Mv        mv      [NUM_REF_PIC_LIST_01];
   Short     refIdx  [NUM_REF_PIC_LIST_01];
   MergeType mergeType;
+#if JEM_TOOLS
   UChar     frucMrgMode;
   Bool      mvRefine;
+#endif
 };
 
 struct PredictionUnit : public UnitArea, public IntraPredictionData, public InterPredictionData
 {
   CodingUnit      *cu;
   CodingStructure *cs;
+  ChannelType      chType;
 
   // constructors
-  PredictionUnit() { }
+  PredictionUnit(): chType( CH_L ) { }
   PredictionUnit(const UnitArea &unit);
   PredictionUnit(const ChromaFormat _chromaFormat, const Area &area);
 
@@ -373,9 +395,16 @@ struct PredictionUnit : public UnitArea, public IntraPredictionData, public Inte
   MotionBuf         getMotionBuf();
   CMotionBuf        getMotionBuf() const;
 
+#if JEM_TOOLS
   const MotionInfo& getMotionInfoFRUC() const;
   const MotionInfo& getMotionInfoFRUC( const Position& pos ) const;
   MotionBuf         getMotionBufFRUC();
+#endif
+#if HHI_SPLIT_PARALLELISM || HHI_WPP_PARALLELISM
+
+  int64_t cacheId;
+  bool    cacheUsed;
+#endif
 };
 
 // ---------------------------------------------------------------------------
@@ -386,15 +415,17 @@ struct TransformUnit : public UnitArea
 {
   CodingUnit      *cu;
   CodingStructure *cs;
+  ChannelType      chType;
 
-  UChar        depth;
+#if JEM_TOOLS
   UChar        emtIdx;
+#endif
   UChar        cbf          [ MAX_NUM_TBLOCKS ];
   RDPCMMode    rdpcm        [ MAX_NUM_TBLOCKS ];
   Bool         transformSkip[ MAX_NUM_TBLOCKS ];
   SChar        compAlpha    [ MAX_NUM_TBLOCKS ];
 
-  TransformUnit() { }
+  TransformUnit() : chType( CH_L ) { }
   TransformUnit(const UnitArea& unit);
   TransformUnit(const ChromaFormat _chromaFormat, const Area &area);
 
@@ -413,6 +444,11 @@ struct TransformUnit : public UnitArea
          PelBuf   getPcmbuf(const ComponentID id);
   const CPelBuf   getPcmbuf(const ComponentID id) const;
 
+#if HHI_SPLIT_PARALLELISM || HHI_WPP_PARALLELISM
+  int64_t cacheId;
+  bool    cacheUsed;
+
+#endif
 private:
   TCoeff *m_coeffs[ MAX_NUM_TBLOCKS ];
   Pel    *m_pcmbuf[ MAX_NUM_TBLOCKS ];

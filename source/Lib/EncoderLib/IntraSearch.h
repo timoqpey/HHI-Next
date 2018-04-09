@@ -48,15 +48,18 @@
 #include "CommonLib/TrQuant.h"
 #include "CommonLib/Unit.h"
 #include "CommonLib/RdCost.h"
+#if JEM_TOOLS
+#include "CommonLib/BilateralFilter.h"
+#endif
 
 //! \ingroup EncoderLib
 //! \{
 
-class EncModeCtrl;
-
 // ====================================================================================================================
 // Class definition
 // ====================================================================================================================
+
+class EncModeCtrl;
 
 /// encoder search class
 class IntraSearch : public IntraPrediction, CrossComponentPrediction
@@ -75,8 +78,25 @@ private:
 
   CodingStructure **m_pSaveCS;
 
+#if JEM_TOOLS
   Pel             **m_pLMMFPredSaved;
 
+#endif
+#if JEM_TOOLS
+  //cost variables for the EMT algorithm and new modes list
+  Double m_bestModeCostStore[4];                                    // RD cost of the best mode for each PU using DCT2
+  Double m_modeCostStore    [4][NUM_LUMA_MODE];                         // RD cost of each mode for each PU using DCT2
+  UInt   m_savedRdModeList  [4][NUM_LUMA_MODE], m_savedNumRdModes[4];
+
+#endif
+#if JEM_TOOLS
+  static_vector<UInt,   FAST_UDI_MAX_RDMODE_NUM> m_uiSavedRdModeListNSST;
+  UInt                                           m_uiSavedNumRdModesNSST;
+  static_vector<UInt,   FAST_UDI_MAX_RDMODE_NUM> m_uiSavedHadModeListNSST;
+  static_vector<Double, FAST_UDI_MAX_RDMODE_NUM> m_dSavedModeCostNSST;
+  static_vector<Double, FAST_UDI_MAX_RDMODE_NUM> m_dSavedHadListNSST;
+
+#endif
 protected:
   // interface to option
   EncCfg*         m_pcEncCfg;
@@ -85,6 +105,11 @@ protected:
   TrQuant*        m_pcTrQuant;
   RdCost*         m_pcRdCost;
 
+#if JEM_TOOLS
+  BilateralFilter*
+                  m_bilateralFilter;
+
+#endif
   // RD computation
   CABACWriter*    m_CABACEstimator;
   CtxCache*       m_CtxCache;
@@ -96,10 +121,13 @@ public:
   IntraSearch();
   ~IntraSearch();
 
-  Void init                       (
-                                    EncCfg*        pcEncCfg,
+  Void init                       ( EncCfg*        pcEncCfg,
                                     TrQuant*       pcTrQuant,
                                     RdCost*        pcRdCost,
+#if JEM_TOOLS
+                                    BilateralFilter*
+                                                   bilateralFilter,
+#endif
                                     CABACWriter*   CABACEstimator,
                                     CtxCache*      ctxCache,
                                     const UInt     maxCUWidth,
@@ -117,10 +145,9 @@ public:
 
 public:
 
-  Void estIntraPredLumaQT         (CodingUnit &cu, Partitioner& pm);
+  Void estIntraPredLumaQT         ( CodingUnit &cu, Partitioner& pm );
   Void estIntraPredChromaQT       (CodingUnit &cu, Partitioner& pm);
-
-  Void IPCMSearch                 (CodingStructure &cs);
+  Void IPCMSearch                 (CodingStructure &cs, Partitioner& partitioner);
 
 protected:
 
@@ -128,7 +155,7 @@ protected:
   // T & Q & Q-1 & T-1
   // -------------------------------------------------------------------------------------------------------------------
 
-  Void xEncPCM                    (CodingStructure &cs, const ComponentID &compID);
+  Void xEncPCM                    (CodingStructure &cs, Partitioner& partitioner, const ComponentID &compID);
 
   // -------------------------------------------------------------------------------------------------------------------
   // Intra search
@@ -145,14 +172,13 @@ protected:
 
   Void xIntraCodingTUBlock        (TransformUnit &tu, const ComponentID &compID, const Bool &checkCrossCPrediction, Distortion& ruiDist, const Int &default0Save1Load2 = 0, UInt* numSig = nullptr );
 
-  ChromaCbfs
-       xRecurIntraChromaCodingQT  (CodingStructure &cs, Partitioner& pm);
-#if HHI_RQT_INTRA_SPEEDUP
-  Void xRecurIntraCodingLumaQT    (CodingStructure &cs, Partitioner& pm, const Bool &checkFirst, int savedEmtIndex = -1);
-#else
-  Void xRecurIntraCodingLumaQT    (CodingStructure &cs, Partitioner& pm);
-#endif
+  ChromaCbfs xRecurIntraChromaCodingQT  (CodingStructure &cs, Partitioner& pm);
 
+  Void xRecurIntraCodingLumaQT    ( CodingStructure &cs, Partitioner& pm );
+
+
+  void encPredIntraDPCM( const ComponentID &compID, PelBuf &pOrg, PelBuf &pDst, const UInt &uiDirMode );
+  static bool useDPCMForFirstPassIntraEstimation( const PredictionUnit &pu, const UInt &uiDirMode );
 };// END CLASS DEFINITION EncSearch
 
 //! \}

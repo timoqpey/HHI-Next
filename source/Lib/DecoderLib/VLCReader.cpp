@@ -258,7 +258,9 @@ Void FDReader::parseFillerData(InputBitstream* bs, UInt &fdSize)
 // ====================================================================================================================
 
 HLSyntaxReader::HLSyntaxReader()
-  : m_CABACDecoder(0)
+#if JEM_TOOLS
+  : m_CABACDataStore(0)
+#endif
 {
 }
 
@@ -442,7 +444,10 @@ Void HLSyntaxReader::parsePPS(PPS* pcPPS)
 
   READ_FLAG( uiCode, "transquant_bypass_enabled_flag");
   pcPPS->setTransquantBypassEnabledFlag(uiCode ? true : false);
-  READ_FLAG( uiCode, "tiles_enabled_flag"               );    pcPPS->setTilesEnabledFlag            ( uiCode == 1 );
+  READ_FLAG( uiCode, "tiles_enabled_flag" );    pcPPS->setTilesEnabledFlag( uiCode == 1 );
+#if HHI_MCTS_FLAG
+  READ_FLAG( uiCode, "mcts_one_region_per_tile_flag" );
+#endif
   READ_FLAG( uiCode, "entropy_coding_sync_enabled_flag" );    pcPPS->setEntropyCodingSyncEnabledFlag( uiCode == 1 );
 
   if( pcPPS->getTilesEnabledFlag() )
@@ -774,24 +779,38 @@ Void HLSyntaxReader::parseHrdParameters(HRD *hrd, Bool commonInfPresentFlag, UIn
 }
 
 
-void HLSyntaxReader::parseSPSNext( SPSNext& spsNext )
+void HLSyntaxReader::parseSPSNext( SPSNext& spsNext, const bool usePCM )
 {
   unsigned  symbol = 0;
 
   // tool enabling flags
   READ_FLAG( symbol,    "qtbt_flag" );                              spsNext.setUseQTBT                ( symbol != 0 );
+  READ_FLAG( symbol,    "gen_bin_split_enabled_flag" );             spsNext.setUseGenBinSplit         ( symbol != 0 );
+#if JEM_TOOLS
   READ_FLAG( symbol,    "nsst_enabled_flag" );                      spsNext.setUseNSST                ( symbol != 0 );
   READ_FLAG( symbol,    "intra_4tap_flag" );                        spsNext.setUseIntra4Tap           ( symbol != 0 );
   READ_FLAG( symbol,    "intra_65ang_flag" );                       spsNext.setUseIntra65Ang          ( symbol != 0 );
+#endif
   READ_FLAG( symbol,    "large_ctu_flag" );                         spsNext.setUseLargeCTU            ( symbol != 0 );
+#if JEM_TOOLS
   READ_FLAG( symbol,    "intra_boundary_filter_enabled_flag" );     spsNext.setUseIntraBoundaryFilter ( symbol != 0 );
   READ_FLAG( symbol,    "subpu_tmvp_flag" );                        spsNext.setUseSubPuMvp            ( symbol != 0 );
+#endif
+#if JEM_TOOLS
   READ_FLAG( symbol,    "modified_cabac_engine_flag" );             spsNext.setCABACEngineMode        ( symbol );
+#endif
+#if JEM_TOOLS
   READ_FLAG( symbol,    "imv_enable_flag" );                        spsNext.setUseIMV                 ( symbol != 0 );
-  READ_FLAG( symbol,    "alternative_residual_compression_flag" );  spsNext.setUseAltResiComp         ( symbol != 0 );
+#endif
+#if JEM_TOOLS
+  READ_FLAG( symbol,    "alternative_residual_compression_flag" );  spsNext.setUseAltResiComp         ( symbol != 0 ); spsNext.setAltResiCompId( symbol );
+#endif
+#if JEM_TOOLS
   READ_FLAG( symbol,    "high_precision_motion_vectors" );          spsNext.setUseHighPrecMv          ( symbol != 0 );
   READ_FLAG( symbol,    "bio_enable_flag" );                        spsNext.setUseBIO                 ( symbol != 0 );
+#endif
   READ_FLAG( symbol,    "disable_motion_compression_flag" );        spsNext.setDisableMotCompress     ( symbol != 0 );
+#if JEM_TOOLS
   READ_FLAG( symbol,    "lic_enabled_flag" );                       spsNext.setLICMode                ( symbol );
   READ_FLAG( symbol,    "intra_pdpc_enable_flag" );                 spsNext.setUseIntraPDPC           ( symbol != 0 );
   READ_FLAG( symbol,    "alf_enabled_flag" );                       spsNext.setALFEnabled             ( symbol );
@@ -802,19 +821,27 @@ void HLSyntaxReader::parseSPSNext( SPSNext& spsNext )
   READ_FLAG( symbol,    "fruc_merge_flag" );                        spsNext.setUseFRUCMrgMode         ( symbol != 0 );
   READ_FLAG( symbol,    "affine_flag" );                            spsNext.setUseAffine              ( symbol != 0 );
   READ_FLAG( symbol,    "adaptive_clipping_flag" );                 spsNext.setUseAClip               ( symbol != 0 );
-  READ_FLAG( symbol,    "cipf_flag" );                              spsNext.setUseCIPF                ( symbol != 0 );
+#endif
+#if JEM_TOOLS
+  READ_FLAG( symbol,    "cipf_enabled_flag" );                      spsNext.setCIPFMode               ( symbol );
+#endif
+#if JEM_TOOLS
   READ_FLAG( symbol,    "bilateral_filter_flag" );                  spsNext.setUseBIF                 ( symbol != 0 );
   READ_FLAG( symbol,    "dmvr_flag" );                              spsNext.setUseDMVR                ( symbol != 0 );
   READ_FLAG( symbol,    "mdms_flag" );                              spsNext.setUseMDMS                ( symbol != 0 );
+#endif
 
   for( int k = 0; k < SPSNext::NumReservedFlags; k++ )
   {
     READ_FLAG( symbol,  "reserved_flag" );                          if( symbol != 0 ) EXIT("Incompatible version: SPSNext reserved flag not equal to zero (bitstream was probably created with newer software version)" );
   }
-
+  READ_FLAG( symbol,  "mtt_enabled_flag" );                       spsNext.setMTTMode                ( symbol );
+#if HHI_WPP_PARALLELISM
+  READ_FLAG( symbol,  "next_dqp_enabled_flag" );                  spsNext.setUseNextDQP             ( symbol != 0 );
+#endif
 
   // additional parameters
-  if( spsNext.getUseQTBT() )
+  if( spsNext.getUseGenBinSplit() || spsNext.getUseQTBT() )
   {
     unsigned  minQT [3] = { 0, 0, 0 };
     unsigned  maxBTD[3] = { 0, 0, 0 };
@@ -826,8 +853,8 @@ void HLSyntaxReader::parseSPSNext( SPSNext& spsNext )
                                                                     spsNext.getSPS().setMaxCUHeight   ( spsNext.getCTUSize() ); // overwrite original value
     READ_UVLC( symbol,  "log2_minQT_ISlice_minus2" );               minQT [0] = 1 << ( symbol + MIN_CU_LOG2 );
     READ_UVLC( symbol,  "log2_minQT_PBSlice_minus2" );              minQT [1] = 1 << ( symbol + MIN_CU_LOG2 );
-    READ_UVLC( symbol,  "max_bt_depth_minus2" );                    maxBTD[0] = symbol;
-    READ_UVLC( symbol,  "max_bt_depth_i_slice_minus2" );            maxBTD[1] = symbol;
+    READ_UVLC( symbol,  "max_bt_depth" );                           maxBTD[0] = symbol;
+    READ_UVLC( symbol,  "max_bt_depth_i_slice" );                   maxBTD[1] = symbol;
     if( spsNext.getUseDualITree() )
     {
       READ_UVLC( symbol, "log2_minQT_ISliceChroma_minus2" );        minQT [2] = 1 << ( symbol + MIN_CU_LOG2 );
@@ -838,16 +865,21 @@ void HLSyntaxReader::parseSPSNext( SPSNext& spsNext )
     spsNext.setMaxBTDepth( maxBTD[0], maxBTD[1], maxBTD[2] );
   }
 
+#if JEM_TOOLS
   if( spsNext.getUseSubPuMvp() )
   {
     READ_CODE( 3, symbol, "log2_sub_pu_tmvp_size_minus2" );         spsNext.setSubPuMvpLog2Size( symbol + MIN_CU_LOG2 );
   }
+#endif
 
+#if JEM_TOOLS
   if( spsNext.getModifiedCABACEngine() )
   {
     READ_UVLC( symbol,  "cabac_engine_mode_minus1" );               spsNext.setCABACEngineMode( symbol + 1 );
   }
+#endif
 
+#if JEM_TOOLS
   if( spsNext.getUseIMV() )
   {
     READ_UVLC( symbol, "imv_mode_minus1" );                         spsNext.setImvMode( ImvMode( symbol + 1 ) );
@@ -857,12 +889,14 @@ void HLSyntaxReader::parseSPSNext( SPSNext& spsNext )
   {
     READ_UVLC( symbol,  "lic_mode_minus1" );                        spsNext.setLICMode( symbol + 1 );
   }
-
-  if( spsNext.getUseAltResiComp() )
+#endif
+  if( spsNext.getMTTEnabled() )
   {
-    READ_UVLC( symbol,  "alt_resi_comp_minus1" );                   spsNext.setAltResiCompId( symbol + 1 );
+    READ_UVLC( symbol,  "mtt_mode_minus1" );                        spsNext.setMTTMode( symbol + 1 );
   }
 
+
+#if JEM_TOOLS
   if( spsNext.getUseOBMC() )
   {
     READ_UVLC( symbol,  "obmc_blk_size" );                          spsNext.setOBMCBlkSize( symbol );
@@ -875,7 +909,6 @@ void HLSyntaxReader::parseSPSNext( SPSNext& spsNext )
     READ_UVLC( symbol,  "fruc_refine_range_in_pixel" );             spsNext.setFRUCRefineRange( symbol << (2 + VCEG_AZ07_MV_ADD_PRECISION_BIT_FOR_STORE) );
     READ_UVLC( symbol,  "fruc_small_blk_refine_depth" );            spsNext.setFRUCSmallBlkRefineDepth( symbol );
   }
-
   if( spsNext.getUseAClip() )
   {
     READ_CODE( 2, symbol, "aclip_quant" );                          spsNext.setAClipQuant( symbol * 2 );
@@ -900,7 +933,35 @@ void HLSyntaxReader::parseSPSNext( SPSNext& spsNext )
     CHECK( true == spsNext.getGALFEnabled(),  "currently no support of ALF=2 with GALF disabled" );
 #endif
   }
+#endif
+  if( spsNext.getUseGenBinSplit() )
+  {
+    READ_FLAG( symbol,  "gbs_allow_fourths_split" );                spsNext.setGbsAllowFourths    ( symbol != 0 );
+    READ_FLAG( symbol,  "gbs_allow_eights_split" );                 spsNext.setGbsAllowEights     ( symbol != 0 );
+    READ_FLAG( symbol,  "gbs_allow_non_log2_halving" );             spsNext.setGbsNonLog2Halving  ( symbol != 0 );
+    READ_FLAG( symbol,  "gbs_allow_non_log2_cus" );                 spsNext.setGbsNonLog2CUs      ( symbol != 0 );
+    READ_FLAG( symbol,  "gbs_force_split_to_log2" );                spsNext.setGbsForceSplitToLog2( symbol != 0 );
 
+
+    if( spsNext.getGbsAllowFourths() || spsNext.getGbsAllowEights() )
+    {
+      READ_UVLC( symbol, "log2_maxAsymSize_ISlice_minus2" );        unsigned maxAsymSizeI = 1 << ( symbol + MIN_CU_LOG2 );
+      READ_UVLC( symbol, "log2_maxAsymSize_PBSlice_minus2" );       unsigned maxAsymSize  = 1 << ( symbol + MIN_CU_LOG2 );
+      unsigned maxAsymSizeIChroma = 0;
+      if( spsNext.getUseDualITree() )
+      {
+        READ_UVLC( symbol, "log2_maxAsymSize_ISliceChroma_minus2" );         maxAsymSizeIChroma = 1 << ( symbol + MIN_CU_LOG2 );
+      }
+
+      spsNext.setMaxAsymTSize( maxAsymSize, maxAsymSizeI, maxAsymSizeIChroma );
+    }
+  }
+#if JEM_TOOLS
+  if( spsNext.getCIPFMode() )
+  {
+    READ_FLAG( symbol,  "cipf_mode_minus1_flag" );                  spsNext.setCIPFMode( symbol + 1 );
+  }
+#endif
   // ADD_NEW_TOOL : (sps extension parser) read tool enabling flags and associated parameters here
 }
 
@@ -929,14 +990,11 @@ Void HLSyntaxReader::parseSPS(SPS* pcSPS)
 
   READ_UVLC(     uiCode, "chroma_format_idc" );                  pcSPS->setChromaFormatIdc( ChromaFormat(uiCode) );
   CHECK(uiCode > 3, "Invalid chroma format signalled");
-#if ENABLE_CHROMA_422
-#else
   if( pcSPS->getChromaFormatIdc() == CHROMA_422 )
   {
     EXIT( "Error:  4:2:2 chroma sampling format not supported with current compiler setting."
           "\n        Set compiler flag \"ENABLE_CHROMA_422\" equal to 1 for enabling 4:2:2.\n" );
   }
-#endif
 
   if( pcSPS->getChromaFormatIdc() == CHROMA_444 )
   {
@@ -1016,7 +1074,7 @@ Void HLSyntaxReader::parseSPS(SPS* pcSPS)
   READ_UVLC( uiCode, "max_transform_hierarchy_depth_intra" );    pcSPS->setQuadtreeTUMaxDepthIntra( uiCode+1 );
 
   Int addCuDepth = std::max (0, log2MinCUSize - (Int)pcSPS->getQuadtreeTULog2MinSize() );
-  pcSPS->setMaxCodingDepth( maxCUDepthDelta + addCuDepth  + getMaxCUDepthOffset(pcSPS->getChromaFormatIdc(), pcSPS->getQuadtreeTULog2MinSize()) );
+  pcSPS->setMaxCodingDepth( maxCUDepthDelta + addCuDepth );
 
   READ_FLAG( uiCode, "scaling_list_enabled_flag" );                 pcSPS->setScalingListFlag ( uiCode );
   if(pcSPS->getScalingListFlag())
@@ -1126,7 +1184,7 @@ Void HLSyntaxReader::parseSPS(SPS* pcSPS)
         case SPS_EXT__NEXT:
         {
           CHECK( !pcSPS->getSpsNext().nextToolsEnabled(), "Got SPS Next extension in non NEXT profile" );
-          parseSPSNext( pcSPS->getSpsNext() );
+          parseSPSNext( pcSPS->getSpsNext(), pcSPS->getUsePCM() );
           break;
         }
         default:
@@ -1664,12 +1722,14 @@ Void HLSyntaxReader::parseSliceHeader (Slice* pcSlice, ParameterSetManager *para
       parsePredWeightTable(pcSlice, sps);
       pcSlice->initWpScaling(sps);
     }
+#if JEM_TOOLS
     if( sps->getSpsNext().getLICMode() && !pcSlice->isIntra() )
     {
       READ_FLAG( uiCode, "slice_lic_enable_flag" );
       pcSlice->setUseLIC( uiCode != 0 );
     }
-    if( sps->getSpsNext().getUseQTBT() )
+#endif
+    if( sps->getSpsNext().getUseGenBinSplit() || sps->getSpsNext().getUseQTBT())
     {
       if (!pcSlice->isIntra())
       {
@@ -1684,8 +1744,13 @@ Void HLSyntaxReader::parseSliceHeader (Slice* pcSlice, ParameterSetManager *para
     }
     if (!pcSlice->isIntra())
     {
+#if JEM_TOOLS
       READ_UVLC( uiCode, sps->getSpsNext().getUseSubPuMvp() ? "seven_minus_max_num_merge_cand" : "five_minus_max_num_merge_cand");
       pcSlice->setMaxNumMergeCand(MRG_MAX_NUM_CANDS - uiCode - ( sps->getSpsNext().getUseSubPuMvp() ? 0 : 2 ) );
+#else
+      READ_UVLC( uiCode, "five_minus_max_num_merge_cand");
+      pcSlice->setMaxNumMergeCand(MRG_MAX_NUM_CANDS - uiCode - 2 );
+#endif
     }
 
     READ_SVLC( iCode, "slice_qp_delta" );
@@ -1776,32 +1841,12 @@ Void HLSyntaxReader::parseSliceHeader (Slice* pcSlice, ParameterSetManager *para
       uiCode = pps->getLoopFilterAcrossSlicesEnabledFlag()?1:0;
     }
     pcSlice->setLFCrossSliceBoundaryFlag( (uiCode==1)?true:false);
-
   }
-
-  std::vector<UInt> entryPointOffset;
-  if( pps->getTilesEnabledFlag() || pps->getEntropyCodingSyncEnabledFlag() )
-  {
-    UInt numEntryPointOffsets;
-    UInt offsetLenMinus1;
-    READ_UVLC(numEntryPointOffsets, "num_entry_point_offsets");
-    if (numEntryPointOffsets>0)
-    {
-      READ_UVLC(offsetLenMinus1, "offset_len_minus1");
-      entryPointOffset.resize(numEntryPointOffsets);
-      for (UInt idx=0; idx<numEntryPointOffsets; idx++)
-      {
-        READ_CODE(offsetLenMinus1+1, uiCode, "entry_point_offset_minus1");
-        entryPointOffset[ idx ] = uiCode + 1;
-      }
-    }
-  }
-
 
   if( firstSliceSegmentInPic )
   {
     pcSlice->setDefaultClpRng( *sps );
-
+#if JEM_TOOLS
     if( sps->getSpsNext().getUseAClip())
     {
       // default
@@ -1835,7 +1880,8 @@ Void HLSyntaxReader::parseSliceHeader (Slice* pcSlice, ParameterSetManager *para
         }
       }
     }
-}
+#endif
+  }
 
   if(pps->getSliceHeaderExtensionPresentFlag())
   {
@@ -1847,7 +1893,27 @@ Void HLSyntaxReader::parseSliceHeader (Slice* pcSlice, ParameterSetManager *para
     }
   }
 
+#if JEM_TOOLS
   xParseCABACWSizes( pcSlice, sps );
+#endif
+
+  std::vector<UInt> entryPointOffset;
+  if( pps->getTilesEnabledFlag() || pps->getEntropyCodingSyncEnabledFlag() )
+  {
+    UInt numEntryPointOffsets;
+    UInt offsetLenMinus1;
+    READ_UVLC( numEntryPointOffsets, "num_entry_point_offsets" );
+    if( numEntryPointOffsets > 0 )
+    {
+      READ_UVLC( offsetLenMinus1, "offset_len_minus1" );
+      entryPointOffset.resize( numEntryPointOffsets );
+      for( UInt idx = 0; idx < numEntryPointOffsets; idx++ )
+      {
+        READ_CODE( offsetLenMinus1 + 1, uiCode, "entry_point_offset_minus1" );
+        entryPointOffset[idx] = uiCode + 1;
+      }
+    }
+  }
 
 #if RExt__DECODER_DEBUG_BIT_STATISTICS
   CodingStatistics::IncrementStatisticEP(STATS__BYTE_ALIGNMENT_BITS,m_pcBitstream->readByteAlignment(),0);
@@ -1891,11 +1957,11 @@ Void HLSyntaxReader::parseSliceHeader (Slice* pcSlice, ParameterSetManager *para
       pcSlice->addSubstreamSize(entryPointOffset [ idx ] );
     }
   }
-
   return;
 }
 
 
+#if JEM_TOOLS
 void HLSyntaxReader::xParseCABACWSizes( Slice* pcSlice, const SPS* sps )
 {
   pcSlice->setCabacWinUpdateMode( 0 );
@@ -1906,7 +1972,7 @@ void HLSyntaxReader::xParseCABACWSizes( Slice* pcSlice, const SPS* sps )
     return;
   }
 
-  m_CABACDecoder->checkInit( sps );
+  m_CABACDataStore->checkInit( sps );
 
   unsigned  updateFlag  = 0;
   READ_FLAG( updateFlag, "cabac_newWindow_flag" );
@@ -1924,7 +1990,7 @@ void HLSyntaxReader::xParseCABACWSizes( Slice* pcSlice, const SPS* sps )
   }
 
   //----- read window sizes as run-level ----
-  std::vector<uint8_t>& readBuffer  = m_CABACDecoder->getWSizeReadBuffer();
+  std::vector<uint8_t>& readBuffer  = m_CABACDataStore->getWSizeReadBuffer();
   {
     const std::size_t numCtx  = readBuffer.size();
     unsigned          run     = 0;
@@ -1954,7 +2020,7 @@ void HLSyntaxReader::xParseCABACWSizes( Slice* pcSlice, const SPS* sps )
     }
   }
 }
-
+#endif
 
 Void HLSyntaxReader::parsePTL( PTL *rpcPTL, Bool profilePresentFlag, Int maxNumSubLayersMinus1 )
 {

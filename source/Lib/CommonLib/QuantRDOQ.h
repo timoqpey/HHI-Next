@@ -57,7 +57,7 @@
 class QuantRDOQ : public Quant
 {
 public:
-  QuantRDOQ();
+  QuantRDOQ( const Quant* other );
   ~QuantRDOQ();
 
 public:
@@ -70,13 +70,12 @@ public:
 private:
   Double* xGetErrScaleCoeff              ( UInt list, UInt sizeX, UInt sizeY, Int qp ) { return m_errScale             [sizeX][sizeY][list][qp]; };  //!< get Error Scale Coefficent
   Double& xGetErrScaleCoeffNoScalingList ( UInt list, UInt sizeX, UInt sizeY, Int qp ) { return m_errScaleNoScalingList[sizeX][sizeY][list][qp]; };  //!< get Error Scale Coefficent
-  Void    xInitScalingList               ();
+  Void    xInitScalingList               ( const QuantRDOQ* other );
   Void    xDestroyScalingList            ();
   Void    xSetErrScaleCoeff              ( UInt list, UInt sizeX, UInt sizeY, Int qp, const Int maxLog2TrDynamicRange[MAX_NUM_CHANNEL_TYPE], const BitDepths &bitDepths );
 
   // RDOQ functions
   Void xRateDistOptQuant(TransformUnit &tu, const ComponentID &compID, const CCoeffBuf &pSrc, TCoeff &uiAbsSum, const QpParam &cQP, const Ctx &ctx);
-
 
   inline UInt xGetCodedLevel  ( Double&             rd64CodedCost,
                                 Double&             rd64CodedCost0,
@@ -86,7 +85,9 @@ private:
                                 const BinFracBits*  fracBitsSig,
                                 const BinFracBits&  fracBitsOne,
                                 const BinFracBits&  fracBitsAbs,
+#if JEM_TOOLS
                                 const bool          useAltRC,
+#endif
                                 UShort              ui16AbsGoRice,
                                 UInt                c1Idx,
                                 UInt                c2Idx,
@@ -99,14 +100,15 @@ private:
   inline Int xGetICRate  ( const UInt         uiAbsLevel,
                            const BinFracBits& fracBitsOne,
                            const BinFracBits& fracBitsAbs,
+#if JEM_TOOLS
                            const bool         useAltRC,
+#endif
                            const UShort       ui16AbsGoRice,
                            const UInt         c1Idx,
                            const UInt         c2Idx,
                            const Bool         useLimitedPrefixLength,
                            const Int          maxLog2TrDynamicRange
-                          ) const;
-
+                         ) const;
   inline Double xGetRateLast         ( const int* lastBitsX, const int* lastBitsY,
                                        unsigned        PosX, unsigned   PosY                              ) const;
 
@@ -120,6 +122,8 @@ private:
   Double xCalcErrScaleCoeffNoScalingList( SizeType width, SizeType height, Int qp, const Int maxLog2TrDynamicRange, const Int channelBitDepth );
 
 private:
+  Bool    m_isErrScaleListOwner;
+
   Double *m_errScale             [SCALING_LIST_SIZE_NUM][SCALING_LIST_SIZE_NUM][SCALING_LIST_NUM][SCALING_LIST_REM_NUM]; ///< array of quantization matrix coefficient 4x4
   Double  m_errScaleNoScalingList[SCALING_LIST_SIZE_NUM][SCALING_LIST_SIZE_NUM][SCALING_LIST_NUM][SCALING_LIST_REM_NUM]; ///< array of quantization matrix coefficient 4x4
 

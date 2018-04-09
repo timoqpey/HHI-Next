@@ -48,6 +48,9 @@
 #include "CommonLib/InterPrediction.h"
 #include "CommonLib/IntraPrediction.h"
 #include "CommonLib/Unit.h"
+#if JEM_TOOLS
+#include "CommonLib/BilateralFilter.h"
+#endif
 
 //! \ingroup DecoderLib
 //! \{
@@ -89,9 +92,14 @@ private:
   TrQuant*          m_pcTrQuant;
   IntraPrediction*  m_pcIntraPred;
   InterPrediction*  m_pcInterPred;
+#if JEM_TOOLS
+  BilateralFilter   m_bilateralFilter;
+#endif
 
+#if JEM_TOOLS
   MotionInfo        m_SubPuMiBuf   [( MAX_CU_SIZE * MAX_CU_SIZE ) >> ( MIN_CU_LOG2 << 1 )];
   MotionInfo        m_SubPuExtMiBuf[( MAX_CU_SIZE * MAX_CU_SIZE ) >> ( MIN_CU_LOG2 << 1 )];
+#endif
 };
 
 //! \}

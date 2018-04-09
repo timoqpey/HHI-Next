@@ -56,6 +56,7 @@ struct AMVPInfo
   unsigned numCand;                       ///< number of motion vector predictor candidates
 };
 
+#if JEM_TOOLS
 struct AffineAMVPInfo
 {
   Mv       mvCandLT[ AMVP_MAX_NUM_CANDS_MEM ];  ///< array of affine motion vector predictor candidates for left-top corner
@@ -63,6 +64,7 @@ struct AffineAMVPInfo
   Mv       mvCandLB[ AMVP_MAX_NUM_CANDS_MEM ];  ///< array of affine motion vector predictor candidates for left-bottom corner
   unsigned numCand;                       ///< number of motion vector predictor candidates
 };
+#endif
 
 // ====================================================================================================================
 // Class definition
@@ -101,7 +103,9 @@ struct MvField
 struct MotionInfo
 {
   bool     isInter;
+#if JEM_TOOLS
   bool     usesLIC;
+#endif
   char     interDir;
   UShort   sliceIdx;
 
@@ -109,9 +113,15 @@ struct MotionInfo
   Mv      mvdAffi[ NUM_REF_PIC_LIST_01 ];
   Short   refIdx [ NUM_REF_PIC_LIST_01 ];
 
+#if JEM_TOOLS
   MotionInfo()        : isInter(  false ), usesLIC( false ), interDir( 0 ), sliceIdx( 0 ), refIdx{ NOT_VALID, NOT_VALID } { }
   // ensure that MotionInfo(0) produces '\x000....' bit pattern - needed to work with AreaBuf - don't use this constructor for anything else
   MotionInfo( int i ) : isInter( i != 0 ), usesLIC( false ), interDir( 0 ), sliceIdx( 0 ), refIdx{         0,         0 } { CHECKD( i != 0, "The argument for this constructor has to be '0'" ); }
+#else
+  MotionInfo()        : isInter(  false ), interDir( 0 ), sliceIdx( 0 ), refIdx{ NOT_VALID, NOT_VALID } { }
+  // ensure that MotionInfo(0) produces '\x000....' bit pattern - needed to work with AreaBuf - don't use this constructor for anything else
+  MotionInfo( int i ) : isInter( i != 0 ), interDir( 0 ), sliceIdx( 0 ), refIdx{         0,         0 } { CHECKD( i != 0, "The argument for this constructor has to be '0'" ); }
+#endif
 
   bool operator==( const MotionInfo& mi ) const
   {
@@ -119,7 +129,9 @@ struct MotionInfo
     if( isInter )
     {
       if( sliceIdx != mi.sliceIdx ) return false;
+#if JEM_TOOLS
       if( usesLIC  != mi.usesLIC  ) return false;
+#endif
       if( interDir != mi.interDir ) return false;
 
       if( interDir != 2 )

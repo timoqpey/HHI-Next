@@ -137,7 +137,7 @@ Void  WeightPrediction::getWpScaling(const Slice                *pcSlice,
     }
   }
   else
-  { 
+  {
     // UniPred
     WPScalingParam *const pwp = (iRefIdx0 >= 0) ? wp0 : wp1;
 
@@ -241,7 +241,7 @@ Void  WeightPrediction::addWeightUni(const CPelUnitBuf          &pcYuvSrc0,
     const UInt iDstStride   = rpcYuvDst.bufs[compID].stride;
     const Int  iHeight      = rpcYuvDst.bufs[compID].height;
     const Int  iWidth       = rpcYuvDst.bufs[compID].width;
-    
+
     if (w0 != 1 << wp0[compID].shift)
     {
       const Int  round = (shift > 0) ? (1 << (shift - 1)) : 0;

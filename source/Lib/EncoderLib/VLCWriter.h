@@ -109,21 +109,23 @@ public:
   HLSWriter() {}
   virtual ~HLSWriter() {}
 
-  void  init( CABACEncoder& cabacEncoder ) { m_CABACEncoder = &cabacEncoder; }
-
+#if JEM_TOOLS
+  void  init( CABACDataStore& cabacDataStore ) { m_CABACDataStore = &cabacDataStore; }
+#endif
 private:
   Void xCodeShortTermRefPicSet  ( const ReferencePictureSet* pcRPS, Bool calledFromSliceHeader, Int idx );
   Bool xFindMatchingLTRP        ( Slice* pcSlice, UInt *ltrpsIndex, Int ltrpPOC, Bool usedFlag );
   Void xCodePredWeightTable     ( Slice* pcSlice );
   Void xCodeScalingList         ( const ScalingList* scalingList, UInt sizeId, UInt listId);
+#if JEM_TOOLS
   void xCodeCABACWSizes         ( Slice* pcSlice );
-
+#endif
 public:
   Void  setBitstream            ( OutputBitstream* p )  { m_pcBitIf = p;  }
   UInt  getNumberOfWrittenBits  ()                      { return m_pcBitIf->getNumberOfWrittenBits();  }
   Void  codeVPS                 ( const VPS* pcVPS );
   Void  codeVUI                 ( const VUI *pcVUI, const SPS* pcSPS );
-  Void  codeSPSNext             ( const SPSNext& spsNext );
+  Void  codeSPSNext             ( const SPSNext& spsNext, const bool usePCM );
   Void  codeSPS                 ( const SPS* pcSPS );
   Void  codePPS                 ( const PPS* pcPPS );
   Void  codeSliceHeader         ( Slice* pcSlice );
@@ -133,8 +135,10 @@ public:
   Void  codeTilesWPPEntryPoint  ( Slice* pSlice );
   Void  codeScalingList         ( const ScalingList &scalingList );
 
+#if JEM_TOOLS
 private:
-  CABACEncoder* m_CABACEncoder;
+  CABACDataStore* m_CABACDataStore;
+#endif
 };
 
 //! \}

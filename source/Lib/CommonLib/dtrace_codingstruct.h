@@ -91,39 +91,62 @@ inline void dtraceModeCost(CodingStructure &cs, double lambda)
   }
 
   bool isIntra = CU::isIntra( *cs.cus.front() );
-  bool is65Ang = cs.sps->getSpsNext().getUseIntra65Ang();
   int intraModeL = isIntra ? cs.pus.front()->intraDir[0] : 0;
-  if( isIntra && !is65Ang ) intraModeL = g_intraMode65to33AngMapping[intraModeL];
   int intraModeC = isIntra ? cs.pus.front()->intraDir[1] : 0;
+#if JEM_TOOLS
+  bool is65Ang = cs.sps->getSpsNext().getUseIntra65Ang();
+  if( isIntra && !is65Ang ) intraModeL = g_intraMode65to33AngMapping[intraModeL];
   if( isIntra && intraModeC == DM_CHROMA_IDX ) intraModeC = is65Ang ? 68 : 36;
   else if( isIntra && !is65Ang ) intraModeC = g_intraMode65to33AngMapping[intraModeC];
-
+#else
+  if( isIntra ) intraModeL = g_intraMode65to33AngMapping[intraModeL];
+  if( isIntra && intraModeC == DM_CHROMA_IDX ) intraModeC = 36;
+  else if( isIntra ) intraModeC = g_intraMode65to33AngMapping[intraModeC];
+#endif
+#if JEM_TOOLS
   DTRACE( g_trace_ctx, D_MODE_COST, "ModeCost: %6lld %3d @(%4d,%4d) [%2dx%2d] %d (qp%d,pm%d,ptSize%d,skip%d,mrg%d,fruc%d,obmc%d,ic%d,imv%d,affn%d,%d,%d) tempCS = %lld (%d,%d)\n",
-          DTRACE_GET_COUNTER( g_trace_ctx, D_MODE_COST ),
-          cs.slice->getPOC(),
-          cs.area.Y().x, cs.area.Y().y,
-          cs.area.Y().width, cs.area.Y().height,
-          cs.cus[0]->qtDepth,
-          cs.cus[0]->qp,
-          cs.cus[0]->predMode,
-          cs.cus[0]->partSize,
-          cs.cus[0]->skip,
-          cs.pus[0]->mergeFlag,
-          cs.pus[0]->frucMrgMode,
-          cs.cus[0]->obmcFlag,
-          cs.cus[0]->LICFlag,
-          cs.cus[0]->imv,
-          cs.cus[0]->affine,
+    DTRACE_GET_COUNTER( g_trace_ctx, D_MODE_COST ),
+    cs.slice->getPOC(),
+    cs.area.Y().x, cs.area.Y().y,
+    cs.area.Y().width, cs.area.Y().height,
+    cs.cus[0]->qtDepth,
+    cs.cus[0]->qp,
+    cs.cus[0]->predMode,
+    cs.cus[0]->partSize,
+    cs.cus[0]->skip,
+    cs.pus[0]->mergeFlag,
+    cs.pus[0]->frucMrgMode,
+    cs.cus[0]->obmcFlag,
+    cs.cus[0]->LICFlag,
+    cs.cus[0]->imv,
+    cs.cus[0]->affine,
+    intraModeL, intraModeC,
+    tempCost, tempBits, tempDist );
+#else
+  DTRACE( g_trace_ctx, D_MODE_COST, "ModeCost: %6lld %3d @(%4d,%4d) [%2dx%2d] %d (qp%d,pm%d,ptSize%d,skip%d,mrg%d,fruc%d,obmc%d,ic%d,imv%d,affn%d,%d,%d) tempCS = %lld (%d,%d)\n",
+    DTRACE_GET_COUNTER( g_trace_ctx, D_MODE_COST ),
+    cs.slice->getPOC(),
+    cs.area.Y().x, cs.area.Y().y,
+    cs.area.Y().width, cs.area.Y().height,
+    cs.cus[0]->qtDepth,
+    cs.cus[0]->qp,
+    cs.cus[0]->predMode,
+    cs.cus[0]->partSize,
+    cs.cus[0]->skip,
+    cs.pus[0]->mergeFlag,
+    0, 0, 0, 0, 0,
           intraModeL, intraModeC,
           tempCost, tempBits, tempDist );
+#endif
 }
 
 inline void dtraceBestMode(CodingStructure *&tempCS, CodingStructure *&bestCS, double lambda)
 {
   Bool bSplitCS = tempCS->cus.size() > 1 || bestCS->cus.size() > 1;
+  ChannelType chType = tempCS->cus.back()->chType;
 
   // if the last CU does not align with the CS, we probably are at the edge
-  bSplitCS |= tempCS->cus.back()->blocks[tempCS->chType].bottomRight() != tempCS->area.blocks[tempCS->chType].bottomRight();
+  bSplitCS |= tempCS->cus.back()->blocks[chType].bottomRight() != tempCS->area.blocks[chType].bottomRight();
 
   Distortion tempDist = tempCS->dist;
 
@@ -147,12 +170,18 @@ inline void dtraceBestMode(CodingStructure *&tempCS, CodingStructure *&bestCS, d
   }
 
   bool isIntra = CU::isIntra( *tempCS->cus[0] );
-  bool is65Ang = tempCS->sps->getSpsNext().getUseIntra65Ang();
   int intraModeL = isIntra ? tempCS->pus[0]->intraDir[0] : 0;
-  if( isIntra && !is65Ang ) intraModeL = g_intraMode65to33AngMapping[intraModeL];
   int intraModeC = isIntra ? tempCS->pus[0]->intraDir[1] : 0;
+#if JEM_TOOLS
+  bool is65Ang = tempCS->sps->getSpsNext().getUseIntra65Ang();
+  if( isIntra && !is65Ang ) intraModeL = g_intraMode65to33AngMapping[intraModeL];
   if( isIntra && !is65Ang && intraModeC == DM_CHROMA_IDX ) intraModeC = 36;
   else if( isIntra && !is65Ang ) intraModeC = g_intraMode65to33AngMapping[intraModeC];
+#else
+  if( isIntra ) intraModeL = g_intraMode65to33AngMapping[intraModeL];
+  if( isIntra && intraModeC == DM_CHROMA_IDX ) intraModeC = 36;
+  else if( isIntra ) intraModeC = g_intraMode65to33AngMapping[intraModeC];
+#endif
 
   if(!bSplitCS)
   {

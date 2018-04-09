@@ -49,6 +49,65 @@
 
 #include <deque>
 
+#if HHI_WPP_PARALLELISM || HHI_SPLIT_PARALLELISM
+#if HHI_WPP_PARALLELISM
+#include <mutex>
+class SyncObj;
+#endif
+
+#define CURR_THREAD_ID -1
+
+class Scheduler
+{
+public:
+  Scheduler();
+  ~Scheduler();
+
+#if HHI_SPLIT_PARALLELISM
+  unsigned getSplitDataId( int jobId = CURR_THREAD_ID ) const;
+  unsigned getSplitPicId ( int tId   = CURR_THREAD_ID ) const;
+  unsigned getSplitJobId () const;
+  void     setSplitJobId ( const int jobId );
+  void     startParallel ();
+  void     finishParallel();
+  void     setSplitThreadId( const int tId = CURR_THREAD_ID );
+  unsigned getNumSplitThreads() const { return m_numSplitThreads; };
+#endif
+#if HHI_WPP_PARALLELISM
+  unsigned getWppDataId  ( int lId = CURR_THREAD_ID ) const;
+  unsigned getWppThreadId() const;
+  void     setWppThreadId( const int tId = CURR_THREAD_ID );
+#endif
+  unsigned getDataId     () const;
+  bool init              ( const int ctuYsize, const int ctuXsize, const int numWppThreadsRunning, const int numWppExtraLines, const int numSplitThreads );
+  int  getNumPicInstances() const;
+#if HHI_WPP_PARALLELISM
+  void setReady          ( const int ctuPosX, const int ctuPosY );
+  void wait              ( const int ctuPosX, const int ctuPosY );
+
+private:
+  bool getNextCtu( Position& pos, int ctuLine, int offset );
+
+private:
+  int m_firstNonFinishedLine;
+  int m_numWppThreads;
+  int m_numWppThreadsRunning;
+  int m_numWppDataInstances;
+  int m_ctuYsize;
+  int m_ctuXsize;
+
+  std::vector<int>         m_LineDone;
+  std::vector<bool>        m_LineProc;
+  std::mutex               m_mutex;
+  std::vector<SyncObj*>    m_SyncObjs;
+#endif
+#if HHI_SPLIT_PARALLELISM
+
+  int   m_numSplitThreads;
+  bool  m_hasParallelBuffer;
+#endif
+};
+#endif
 
 class SEI;
 class AQpLayer;
@@ -108,15 +167,18 @@ struct TileMap
   UInt calculateNextCtuRSAddr( const UInt currCtuRsAddr ) const;
 };
 
+#if HHI_SPLIT_PARALLELISM
+#define M_BUFS(JID,PID) m_bufs[JID][PID]
+#else
+#define M_BUFS(JID,PID) m_bufs[PID]
+#endif
 
 struct Picture : public UnitArea
 {
   UInt margin;
-
   Picture();
 
   Void create(const ChromaFormat &_chromaFormat, const Size &size, const unsigned _maxCUSize, const unsigned margin, const bool bDecoder);
-
   Void destroy();
 
   Void createTempBuffers( const unsigned _maxCUSize );
@@ -139,6 +201,8 @@ struct Picture : public UnitArea
          PelUnitBuf getResiBuf(const UnitArea &unit);
   const CPelUnitBuf getResiBuf(const UnitArea &unit) const;
 
+         PelBuf     getRecoBuf(const ComponentID compID);
+  const CPelBuf     getRecoBuf(const ComponentID compID) const;
          PelBuf     getRecoBuf(const CompArea &blk);
   const CPelBuf     getRecoBuf(const CompArea &blk) const;
          PelUnitBuf getRecoBuf(const UnitArea &unit);
@@ -146,19 +210,18 @@ struct Picture : public UnitArea
          PelUnitBuf getRecoBuf();
   const CPelUnitBuf getRecoBuf() const;
 
-         PelBuf     getBuf(const CompArea &blk,  const PictureType &type);
-  const CPelBuf     getBuf(const CompArea &blk,  const PictureType &type) const;
-         PelUnitBuf getBuf(const UnitArea &unit, const PictureType &type);
-  const CPelUnitBuf getBuf(const UnitArea &unit, const PictureType &type) const;
+         PelBuf     getBuf(const ComponentID compID, const PictureType &type);
+  const CPelBuf     getBuf(const ComponentID compID, const PictureType &type) const;
+         PelBuf     getBuf(const CompArea &blk,      const PictureType &type);
+  const CPelBuf     getBuf(const CompArea &blk,      const PictureType &type) const;
+         PelUnitBuf getBuf(const UnitArea &unit,     const PictureType &type);
+  const CPelUnitBuf getBuf(const UnitArea &unit,     const PictureType &type) const;
 
   void extendPicBorder();
   void finalInit( const SPS& sps, const PPS& pps );
 
   int  getPOC()                               const { return poc; }
   Void setBorderExtension( bool bFlag)              { m_bIsBorderExtended = bFlag;}
-
-  Void setPrevQP(Int qp, const ChannelType chType)  { m_prevQP[chType] = qp; }
-  Int& getPrevQP(const ChannelType chType)          { return m_prevQP[chType]; }
 
 public:
   bool m_bIsBorderExtended;
@@ -175,7 +238,15 @@ public:
   UInt layer;
   UInt depth;
 
+#if HHI_SPLIT_PARALLELISM
+#if HHI_WPP_PARALLELISM
+  PelStorage m_bufs[( HHI_SPLIT_MAX_NUM_JOBS * HHI_WPP_MAX_NUM_THREADS )][NUM_PIC_TYPES];
+#else
+  PelStorage m_bufs[HHI_SPLIT_MAX_NUM_JOBS][NUM_PIC_TYPES];
+#endif
+#else
   PelStorage m_bufs[NUM_PIC_TYPES];
+#endif
 
   CodingStructure*   cs;
   std::deque<Slice*> slices;
@@ -192,13 +263,39 @@ public:
 private:
   UnitArea m_ctuArea;
 #endif
+
+#if HHI_SPLIT_PARALLELISM
+public:
+  void finishParallelPart   ( const UnitArea& ctuArea );
+#if HHI_WPP_PARALLELISM
+  void finishCtuPart        ( const UnitArea& ctuArea );
+#endif
+#endif
+#if HHI_WPP_PARALLELISM || HHI_SPLIT_PARALLELISM
+public:
+  Scheduler                  scheduler;
+#endif
+
+public:
+  SAOBlkParam    *getSAO(int id = 0)                        { return &m_sao[id][0]; };
+  void            resizeSAO(unsigned numEntries, int dstid) { m_sao[dstid].resize(numEntries); }
+  void            copySAO(const Picture& src, int dstid)    { std::copy(src.m_sao[0].begin(), src.m_sao[0].end(), m_sao[dstid].begin()); }
+#if JEM_TOOLS
+
+  ALFParam&       getALFParam()                   { return m_alfParam; }
+#endif
+
+  std::vector<double>     m_uEnerHpCtu;                         ///< CTU-wise L2 or squared L1 norm of high-passed luma input
+  std::vector<Pel>        m_iOffsetCtu;                         ///< CTU-wise DC offset (later QP index offset) of luma input
+
+  std::vector<SAOBlkParam> m_sao[2];
+#if JEM_TOOLS
+  ALFParam m_alfParam;
+#endif
 };
 
-class SEIDecodedPictureHash;
-int calcAndPrintHashStatus(const CPelUnitBuf& pic, const SEIDecodedPictureHash* pictureHashSEI, const BitDepths &bitDepths, const MsgLevel msgl);
+int calcAndPrintHashStatus(const CPelUnitBuf& pic, const class SEIDecodedPictureHash* pictureHashSEI, const BitDepths &bitDepths, const MsgLevel msgl);
 
-void smoothResidual( PelBuf& resBuf, const CPelBuf& orgBuf, const ClpRng& clpRng );
-void smoothResidual( PelUnitBuf& resBuf, const CPelUnitBuf& orgBuf, const ClpRngs& clpRngs);
 
 typedef std::list<Picture*> PicList;
 

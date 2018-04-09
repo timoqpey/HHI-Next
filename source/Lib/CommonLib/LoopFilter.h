@@ -75,13 +75,13 @@ private:
                                     const Area&           area,
                                     const bool            bValue,
                                     const bool            EdgeIdx = false );
-
+#if JEM_TOOLS
   Void xSetEdgefilterMultipleSubPu( const CodingUnit&    cu,
                                           DeblockEdgeDir edgeDir,
-                                    const Area&          area,                                   
+                                    const Area&          area,
                                     const Position       subPuPos,
                                           Bool           bValue );
-
+#endif
 
   void xEdgeFilterLuma            ( const CodingUnit& cu, const DeblockEdgeDir edgeDir, const int iEdge );
   void xEdgeFilterChroma          ( const CodingUnit& cu, const DeblockEdgeDir edgeDir, const int iEdge );
@@ -105,7 +105,8 @@ public:
   void  destroy                   ();
 
   /// picture-level deblocking filter
-  void loopFilterPic              ( CodingStructure& cs );
+  void loopFilterPic              ( CodingStructure& cs
+                                    );
 
   static int getBeta              ( const int qp )
   {

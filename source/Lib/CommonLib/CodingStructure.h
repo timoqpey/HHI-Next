@@ -78,23 +78,19 @@ public:
 
   UnitScale        unitScale[MAX_NUM_COMPONENT];
 
-  ChannelType chType;
+  int         baseQP;
   int         prevQP[MAX_NUM_CHANNEL_TYPE];
-  int         chromaQpAdj;
   int         currQP[MAX_NUM_CHANNEL_TYPE];
+  int         chromaQpAdj;
   bool        isLossless;
-
   const SPS *sps;
   const PPS *pps;
   const VPS *vps;
   const PreCalcValues* pcv;
 
-  CodingStructure();
   CodingStructure(CUCache&, PUCache&, TUCache&);
-
-  void create(const UnitArea &_unit, const bool isTopLayer = false);
-  void create(const ChromaFormat &_chromaFormat, const Area& _area, const bool isTopLayer = false);
-
+  void create( const UnitArea &_unit, const bool isTopLayer );
+  void create( const ChromaFormat &_chromaFormat, const Area& _area, const bool isTopLayer );
   void destroy();
   void releaseIntermediateData();
 
@@ -102,47 +98,49 @@ public:
   void createCoeffs();
   void destroyCoeffs();
 
+  void allocateVectorsAtPicLevel();
+
   // ---------------------------------------------------------------------------
   // global accessors
   // ---------------------------------------------------------------------------
 
-  bool isDecomp (const Position &pos, const ChannelType _chType = MAX_NUM_CHANNEL_TYPE) const;
-  bool isDecomp (const Position &pos, const ChannelType _chType = MAX_NUM_CHANNEL_TYPE);
+  bool isDecomp (const Position &pos, const ChannelType _chType) const;
+  bool isDecomp (const Position &pos, const ChannelType _chType);
   void setDecomp(const CompArea &area, const bool _isCoded = true);
   void setDecomp(const UnitArea &area, const bool _isCoded = true);
 
-  const CodingUnit     *getCU(const Position &pos, const ChannelType _chType = MAX_NUM_CHANNEL_TYPE) const;
-  const PredictionUnit *getPU(const Position &pos, const ChannelType _chType = MAX_NUM_CHANNEL_TYPE) const;
-  const TransformUnit  *getTU(const Position &pos, const ChannelType _chType = MAX_NUM_CHANNEL_TYPE) const;
+  const CodingUnit     *getCU(const Position &pos, const ChannelType _chType) const;
+  const PredictionUnit *getPU(const Position &pos, const ChannelType _chType) const;
+  const TransformUnit  *getTU(const Position &pos, const ChannelType _chType) const;
 
-  CodingUnit     *getCU(const Position &pos, const ChannelType _chType = MAX_NUM_CHANNEL_TYPE);
-  PredictionUnit *getPU(const Position &pos, const ChannelType _chType = MAX_NUM_CHANNEL_TYPE);
-  TransformUnit  *getTU(const Position &pos, const ChannelType _chType = MAX_NUM_CHANNEL_TYPE);
-  SAOBlkParam    *getSAO()                        { return &m_sao[0]; };
-  void            addSAO(unsigned numEntries)     { m_sao.resize(numEntries); }
+  CodingUnit     *getCU(const Position &pos, const ChannelType _chType);
+  PredictionUnit *getPU(const Position &pos, const ChannelType _chType);
+  TransformUnit  *getTU(const Position &pos, const ChannelType _chType);
 
-  ALFParam&       getALFParam()                   { return m_alfParam; }
+  const CodingUnit     *getCU(const ChannelType &_chType) const { return getCU(area.blocks[_chType].pos(), _chType); }
+  const PredictionUnit *getPU(const ChannelType &_chType) const { return getPU(area.blocks[_chType].pos(), _chType); }
+  const TransformUnit  *getTU(const ChannelType &_chType) const { return getTU(area.blocks[_chType].pos(), _chType); }
 
-  CodingUnit     *getCU(const ChannelType &_chType = MAX_NUM_CHANNEL_TYPE) { return getCU(area.blocks[_chType != MAX_NUM_CHANNEL_TYPE ? _chType : chType].pos(), _chType); }
-  PredictionUnit *getPU(const ChannelType &_chType = MAX_NUM_CHANNEL_TYPE) { return getPU(area.blocks[_chType != MAX_NUM_CHANNEL_TYPE ? _chType : chType].pos(), _chType); }
-  TransformUnit  *getTU(const ChannelType &_chType = MAX_NUM_CHANNEL_TYPE) { return getTU(area.blocks[_chType != MAX_NUM_CHANNEL_TYPE ? _chType : chType].pos(), _chType); }
+  CodingUnit     *getCU(const ChannelType &_chType ) { return getCU(area.blocks[_chType].pos(), _chType); }
+  PredictionUnit *getPU(const ChannelType &_chType ) { return getPU(area.blocks[_chType].pos(), _chType); }
+  TransformUnit  *getTU(const ChannelType &_chType ) { return getTU(area.blocks[_chType].pos(), _chType); }
 
-  const CodingUnit     *getCURestricted(const Position &pos, const CodingUnit& curCu,                               const ChannelType _chType = MAX_NUM_CHANNEL_TYPE) const;
-  const CodingUnit     *getCURestricted(const Position &pos, const unsigned curSliceIdx, const unsigned curTileIdx, const ChannelType _chType = MAX_NUM_CHANNEL_TYPE) const;
-  const PredictionUnit *getPURestricted(const Position &pos, const PredictionUnit& curPu,                           const ChannelType _chType = MAX_NUM_CHANNEL_TYPE) const;
-  const TransformUnit  *getTURestricted(const Position &pos, const TransformUnit& curTu,                            const ChannelType _chType = MAX_NUM_CHANNEL_TYPE) const;
+  const CodingUnit     *getCURestricted(const Position &pos, const unsigned curSliceIdx, const unsigned curTileIdx, const ChannelType _chType) const;
+  const CodingUnit     *getCURestricted(const Position &pos, const CodingUnit& curCu,                               const ChannelType _chType) const;
+  const PredictionUnit *getPURestricted(const Position &pos, const PredictionUnit& curPu,                           const ChannelType _chType) const;
+  const TransformUnit  *getTURestricted(const Position &pos, const TransformUnit& curTu,                            const ChannelType _chType) const;
 
-  CodingUnit&     addCU(const UnitArea &unit);
-  PredictionUnit& addPU(const UnitArea &unit);
-  TransformUnit&  addTU(const UnitArea &unit);
+  CodingUnit&     addCU(const UnitArea &unit, const ChannelType _chType);
+  PredictionUnit& addPU(const UnitArea &unit, const ChannelType _chType);
+  TransformUnit&  addTU(const UnitArea &unit, const ChannelType _chType);
 
-  CUTraverser     traverseCUs(const UnitArea& _unit, const ChannelType _chType = MAX_NUM_CHANNEL_TYPE);
-  PUTraverser     traversePUs(const UnitArea& _unit, const ChannelType _chType = MAX_NUM_CHANNEL_TYPE);
-  TUTraverser     traverseTUs(const UnitArea& _unit, const ChannelType _chType = MAX_NUM_CHANNEL_TYPE);
+  CUTraverser     traverseCUs(const UnitArea& _unit, const ChannelType _chType);
+  PUTraverser     traversePUs(const UnitArea& _unit, const ChannelType _chType);
+  TUTraverser     traverseTUs(const UnitArea& _unit, const ChannelType _chType);
 
-  cCUTraverser    traverseCUs(const UnitArea& _unit, const ChannelType _chType = MAX_NUM_CHANNEL_TYPE) const;
-  cPUTraverser    traversePUs(const UnitArea& _unit, const ChannelType _chType = MAX_NUM_CHANNEL_TYPE) const;
-  cTUTraverser    traverseTUs(const UnitArea& _unit, const ChannelType _chType = MAX_NUM_CHANNEL_TYPE) const;
+  cCUTraverser    traverseCUs(const UnitArea& _unit, const ChannelType _chType) const;
+  cPUTraverser    traversePUs(const UnitArea& _unit, const ChannelType _chType) const;
+  cTUTraverser    traverseTUs(const UnitArea& _unit, const ChannelType _chType) const;
 
   // ---------------------------------------------------------------------------
   // encoding search utilities
@@ -156,11 +154,11 @@ public:
   Distortion  interHad;
 
   void initStructData  (const int &QP = -1, const bool &_isLosses = false);
-  void initSubStructure(      CodingStructure& cs, const UnitArea &subArea, const bool &isTuEnc = false, const ChannelType &chType = MAX_NUM_CHANNEL_TYPE);
+  void initSubStructure(      CodingStructure& cs, const ChannelType chType, const UnitArea &subArea, const bool &isTuEnc);
 
-  void copyStructure   (const CodingStructure& subStruct, const bool copyTUs = false, const bool copyRecoBuffer = false);
-  void useSubStructure (const CodingStructure& cs, const UnitArea &subArea, const bool cpyPred, const bool cpyReco, const bool cpyOrgResi, const bool cpyResi);
-  void useSubStructure (const CodingStructure& cs,                          const bool cpyPred, const bool cpyReco, const bool cpyOrgResi, const bool cpyResi) { useSubStructure(cs, cs.area, cpyPred, cpyReco, cpyOrgResi, cpyResi); }
+  void copyStructure   (const CodingStructure& cs, const ChannelType chType, const bool copyTUs = false, const bool copyRecoBuffer = false);
+  void useSubStructure (const CodingStructure& cs, const ChannelType chType, const UnitArea &subArea, const bool cpyPred, const bool cpyReco, const bool cpyOrgResi, const bool cpyResi);
+  void useSubStructure (const CodingStructure& cs, const ChannelType chType,                          const bool cpyPred, const bool cpyReco, const bool cpyOrgResi, const bool cpyResi) { useSubStructure(cs, chType, cs.area, cpyPred, cpyReco, cpyOrgResi, cpyResi); }
 
   void clearTUs();
   void clearPUs();
@@ -168,7 +166,7 @@ public:
 
 
 private:
-  void createInternals(const UnitArea& _unit, const bool createCoeffs = true);
+  void createInternals(const UnitArea& _unit, const bool isTopLayer);
 
 public:
 
@@ -195,7 +193,9 @@ private:
   TUCache& m_tuCache;
 
   std::vector<SAOBlkParam> m_sao;
+#if JEM_TOOLS
   ALFParam m_alfParam;
+#endif
 
   PelStorage m_pred;
   PelStorage m_resi;
@@ -208,7 +208,9 @@ private:
   int     m_offsets[ MAX_NUM_COMPONENT ];
 
   MotionInfo *m_motionBuf;
+#if JEM_TOOLS
   MotionInfo *m_motionBufFRUC;
+#endif
 
 public:
 
@@ -223,6 +225,7 @@ public:
   MotionInfo& getMotionInfo( const Position& pos );
   const MotionInfo& getMotionInfo( const Position& pos ) const;
 
+#if JEM_TOOLS
   MotionBuf getMotionBufFRUC( const     Area& _area );
   MotionBuf getMotionBufFRUC( const UnitArea& _area ) { return getMotionBufFRUC( _area.Y() ); }
   MotionBuf getMotionBufFRUC()                        { return getMotionBufFRUC(  area.Y() ); }
@@ -233,6 +236,7 @@ public:
 
   MotionInfo& getMotionInfoFRUC( const Position& pos );
   const MotionInfo& getMotionInfoFRUC( const Position& pos ) const;
+#endif
 
 public:
   // ---------------------------------------------------------------------------
@@ -303,6 +307,9 @@ private:
 
 
 static inline UInt getNumberValidTBlocks(const PreCalcValues& pcv) { return (pcv.chrFormat==CHROMA_400) ? 1 : ( pcv.multiBlock422 ? MAX_NUM_TBLOCKS : MAX_NUM_COMPONENT ); }
+
+inline unsigned toWSizeIdx( const CodingStructure* cs ) { return gp_sizeIdxInfo->idxFrom( cs->area.lwidth() ); }
+inline unsigned toHSizeIdx( const CodingStructure* cs ) { return gp_sizeIdxInfo->idxFrom( cs->area.lheight() ); }
 
 #endif
 

@@ -179,9 +179,13 @@ static const Int ADJ_DEQUANT_SHIFT =            ( ADJ_QUANT_SHIFT + 1 );
 static const Int RVM_VCEGAM10_M =                                   4;
 
 static const Int NUM_LUMA_MODE =                                   67; ///< Planar + DC + 65 directional mode (4*16 + 1)
+#if JEM_TOOLS
 static const Int LM_FILTER_NUM =                                    4;
 static const Int NUM_LMC_MODE =                   (2 + LM_FILTER_NUM); ///< LMC + MMLM + MFLM(4)
 static const Int NUM_INTRA_MODE =      (NUM_LUMA_MODE + NUM_LMC_MODE);
+#else
+static const Int NUM_INTRA_MODE =                   NUM_LUMA_MODE + 1;
+#endif
 
 static const Int NUM_DIR =           (((NUM_LUMA_MODE - 3) >> 2) + 1);
 static const Int PLANAR_IDX =                                       0; ///< index for intra PLANAR mode
@@ -192,6 +196,7 @@ static const Int VER_IDX =                    (3 * (NUM_DIR - 1) + 2); ///< inde
 static const Int VDIA_IDX =                   (4 * (NUM_DIR - 1) + 2); ///< index for intra VDIAGONAL  mode
 static const Int NOMODE_IDX =                               MAX_UCHAR; ///< indicating uninitialized elements
 
+#if JEM_TOOLS
 static const Int NUM_CHROMA_MODE =                 (5 + NUM_LMC_MODE); ///< total number of chroma modes
 static const Int NUM_DM_MODES =                                     5; ///< total number of chroma DM modes
 static const Int LM_CHROMA_IDX =                        NUM_LUMA_MODE; ///< chroma mode index for derived from LM mode
@@ -200,26 +205,34 @@ static const Int LM_CHROMA_F1_IDX =                 LM_CHROMA_IDX + 2;
 static const Int LM_CHROMA_F2_IDX =                 LM_CHROMA_IDX + 3;
 static const Int LM_CHROMA_F3_IDX =                 LM_CHROMA_IDX + 4;
 static const Int LM_CHROMA_F4_IDX =                 LM_CHROMA_IDX + 5;
+#else
+static const Int NUM_CHROMA_MODE =                                  5; ///< total number of chroma modes
+#endif
 static const Int DM_CHROMA_IDX =                       NUM_INTRA_MODE; ///< chroma mode index for derived from luma intra mode
 
 static const UChar INTER_MODE_IDX =                               255; ///< index for inter modes
+#if JEM_TOOLS
 static const UInt  EMT_INTRA_MAX_CU =                              32; ///< Max Intra CU size applying EMT, supported values: 8, 16, 32, 64, 128
 static const UInt  EMT_INTER_MAX_CU =                              32; ///< Max Inter CU size applying EMT, supported values: 8, 16, 32, 64, 128
 static const UInt  EMT_INTRA_MAX_CU_WITH_QTBT =                    64; ///< Max Intra CU size applying EMT, supported values: 8, 16, 32, 64, 128
 static const UInt  EMT_INTER_MAX_CU_WITH_QTBT =                    64; ///< Max Inter CU size applying EMT, supported values: 8, 16, 32, 64, 128
 
+#endif
 static const Int NUM_MOST_PROBABLE_MODES =                          3;
 static const Int NUM_MOST_PROBABLE_MODES_67 =                       6;
-
+#if JEM_TOOLS
 static const Int MMLM_SAMPLE_NEIGHBOR_LINES =                       2;
 static const Int LM_SYMBOL_NUM =                   (1 + NUM_LMC_MODE);
+#endif
 
 static const Int FAST_UDI_MAX_RDMODE_NUM =              NUM_LUMA_MODE; ///< maximum number of RD comparison in fast-UDI estimation loop
 
+#if JEM_TOOLS
 static const Int NSST_HYGT_PTS =                             (1 << 8);
 static const Int NSST_SIG_NZ_LUMA =                                 1;
 static const Int NSST_SIG_NZ_CHROMA =                               1;
 
+#endif
 static const Int MDCS_ANGLE_LIMIT =                                 9; ///< 0 = Horizontal/vertical only, 1 = Horizontal/vertical +/- 1, 2 = Horizontal/vertical +/- 2 etc...
 
 static const Int MDCS_MAXIMUM_WIDTH =                               8; ///< (measured in pixels) TUs with width greater than this can only use diagonal scan
@@ -233,7 +246,9 @@ static const Int CABAC_INIT_PRESENT_FLAG =                          1;
 
 static const Int LUMA_INTERPOLATION_FILTER_SUB_SAMPLE_POSITIONS   = 4;
 static const Int CHROMA_INTERPOLATION_FILTER_SUB_SAMPLE_POSITIONS = 8;
+#if JEM_TOOLS
 static const Int VCEG_AZ07_MV_ADD_PRECISION_BIT_FOR_STORE         = 2;   ///< additional precision bit for MV storage
+#endif
 
 static const Int MAX_NUM_LONG_TERM_REF_PICS =                      33;
 static const Int NUM_LONG_TERM_REF_PIC_SPS =                        0;
@@ -261,6 +276,7 @@ static const Int MIN_TU_SIZE =                                      4;
 static const Int MAX_TU_SIZE =                                    128;
 static const Int MAX_LOG2_TU_SIZE_PLUS_ONE =                        8; ///< log2(MAX_TU_SIZE) + 1
 static const Int MAX_NUM_PARTS_IN_CTU =                         ( ( MAX_CU_SIZE * MAX_CU_SIZE ) >> ( MIN_CU_LOG2 << 1 ) );
+static const Int MAX_TR_SIZE =                            MAX_CU_SIZE;
 
 static const Int JVET_C0024_ZERO_OUT_TH =                          32;
 static const Double JVET_D0077_SPLIT_DECISION_COST_SCALE =       1.05;
@@ -285,11 +301,13 @@ static const Int CONTEXT_STATE_BITS =                               6;
 static const Int LAST_SIGNIFICANT_GROUPS =                         14;
 static const Int MAX_GR_ORDER_RESIDUAL =                           10;
 
+#if JEM_TOOLS
 static const Int AFFINE_MAX_NUM_V0 =                                3; ///< max number of motion candidates in top-left corner
 static const Int AFFINE_MAX_NUM_V1 =                                2; ///< max number of motion candidates in top-right corner
 static const Int AFFINE_MAX_NUM_V2 =                                2; ///< max number of motion candidates in left-bottom corner
 static const Int AFFINE_MAX_NUM_COMB =                             12; ///< max number of combined motion candidates
 static const Int AFFINE_MIN_BLOCK_SIZE =                            4; ///< Minimum affine MC block size
+#endif
 
 #if W0038_DB_OPT
 static const Int MAX_ENCODER_DEBLOCKING_QUALITY_LAYERS =           8 ;
@@ -297,16 +315,22 @@ static const Int MAX_ENCODER_DEBLOCKING_QUALITY_LAYERS =           8 ;
 
 #if SHARP_LUMA_DELTA_QP
 static const UInt LUMA_LEVEL_TO_DQP_LUT_MAXSIZE =                1024; ///< max LUT size for QP offset based on luma
-#endif
 
+#endif
+#if JEM_TOOLS
 static const Int NUM_EMT_CU_FLAG_CTX =                              6;      ///< number of context models for EMT CU-level flag
 
+#endif
 //QTBT high level parameters
 //for I slice luma CTB configuration para.
 static const Int    MAX_BT_DEPTH  =                                 4;      ///<  <=7
 static const Int    MAX_BT_SIZE   =                                32;      ///<  [1<<MIN_QT_SIZE, 1<<CTU_LOG2]
 static const Int    MIN_BT_SIZE   =                                 4;      ///<  can be set down to 1<<MIN_CU_LOG2
 
+static const Int    MAX_TT_SIZE   =                                32;      ///<  [1<<MIN_QT_SIZE, 1<<CTU_LOG2]
+static const Int    MAX_TT_SIZE_C =                                32;      ///<  [1<<MIN_QT_SIZE, 1<<CTU_LOG2]
+static const Int    MIN_TT_SIZE   =                                 4;      ///<  can be set down to 1<<MIN_CU_LOG2
+static const Int    MIN_TT_SIZE_C =                                 4;      ///<  can be set down to 1<<MIN_CU_LOG2
                                                                             //for P/B slice CTU config. para.
 static const Int    MAX_BT_DEPTH_INTER =                            4;      ///< <=7
 static const Int    MAX_BT_SIZE_INTER  =                          128;      ///< for initialization, [1<<MIN_BT_SIZE_INTER, 1<<CTU_LOG2]
@@ -317,16 +341,12 @@ static const Int    MAX_BT_DEPTH_C      =                           0;      ///<
 static const Int    MAX_BT_SIZE_C       =                          64;      ///< [1<<MIN_QT_SIZE_C, 1<<CTU_LOG2], in luma samples
 static const Int    MIN_BT_SIZE_C       =                           4;      ///< can be set down to 4, in luma samples
 
-#if _DEBUG
-// allow for easier reading when using debugger (one split per hex-position)
-static const SplitSeries SPLIT_BITS         =                       4;
-static const SplitSeries SPLIT_DMULT        =                       4;
-static const SplitSeries SPLIT_MASK         =                      15;      ///< = (1 << SPLIT_BITS) - 1
-#else
-static const SplitSeries SPLIT_BITS         =                       2;
-static const SplitSeries SPLIT_DMULT        =                       2;
-static const SplitSeries SPLIT_MASK         =                       3;      ///< = (1 << SPLIT_BITS) - 1
-#endif
+static const Int    MAX_TT_SIZE_INTER  =                          128;      ///< for initialization, [1<<MIN_BT_SIZE_INTER, 1<<CTU_LOG2]
+static const Int    MIN_TT_SIZE_INTER  =                            4;      ///<
+
+static const SplitSeries SPLIT_BITS         =                       5;
+static const SplitSeries SPLIT_DMULT        =                       5;
+static const SplitSeries SPLIT_MASK         =                      31;      ///< = (1 << SPLIT_BITS) - 1
 
 static const Int    SKIP_DEPTH =                                    3;
 static const Int    SKIPHORNOVERQT_DEPTH_TH =                       2;
@@ -347,28 +367,30 @@ static const Int MAX_TESTED_QPs =   ( 1 + 1 + ( MAX_DELTA_QP << 1 ) );      ///<
 static const Int COM16_C806_TRANS_PREC =                            2;
 
 static const Int NUM_MERGE_IDX_EXT_CTX =                            5;
-
+#if JEM_TOOLS
 static const Int FRUC_MERGE_OFF =                                0x0 ;
 static const Int FRUC_MERGE_BILATERALMV =                        0x01;
 static const Int FRUC_MERGE_TEMPLATE =                           0x02;
 static const Int FRUC_MERGE_TEMPLATE_SIZE =                        4 ;
 static const Int FRUC_MERGE_REFINE_MVWEIGHT =                      4 ;
 static const Int FRUC_MERGE_REFINE_MINBLKSIZE =                    4 ;
-
+#endif
 static const unsigned E0104_ALF_MAX_TEMPLAYERID =                  5;       // define to zero to switch of  code
 static const unsigned C806_ALF_TEMPPRED_NUM =                      6;
 
+#if JEM_TOOLS
 static const Int NB_FRUC_CAND_ADDED =                              2 ; ///< for entire (AMVP and merge) CU, number of added spatial candidates in top, left, top-left, top-right, below-left <0-5>
 static const Int NB_FRUC_CAND_ADDED_SUB =                          4 ; ///< for sub-blocks of merge CU, number of added spatial candidates in top, left, top-left, top-right, below-left <0-5>
 static const UInt NB_FRUC_CAND_ATMVP =                             4 ; ///< for sub-blocks of merge CU, number of ATMVP candidates
 
 static const Int DMVR_INTME_RANGE =                                 1;
+#endif
 
 static const Int NTAPS_LUMA               =                         8; ///< Number of taps for luma
 static const Int NTAPS_CHROMA             =                         4; ///< Number of taps for chroma
+#if JEM_TOOLS
 static const Int NTAPS_LUMA_FRUC          =                         2;
-
-
+#endif
 
 // ====================================================================================================================
 // Macro functions
@@ -397,6 +419,20 @@ template <typename T> inline Void Check3( T minVal, T maxVal, T a)
 {
   CHECK( ( a > maxVal ) || ( a < minVal ), "ERROR: Range check " << minVal << " >= " << a << " <= " << maxVal << " failed" );
 }  ///< general min/max clip
+
+extern MsgLevel g_verbosity;
+
+#include <stdarg.h>
+inline void msg( MsgLevel level, const char* fmt, ... )
+{
+  if( g_verbosity >= level )
+  {
+    va_list args;
+    va_start( args, fmt );
+    vfprintf( level == ERROR ? stderr : stdout, fmt, args );
+    va_end( args );
+  }
+}
 
 template<typename T> bool isPowerOf2( const T val ) { return ( val & ( val - 1 ) ) == 0; }
 
@@ -506,6 +542,15 @@ template <typename ValueType> inline ValueType rightShift_round(const ValueType 
 #define _UNIT_AREA_AT(_a,_x,_y,_w,_h)
 #endif
 
+#if HHI_SPLIT_PARALLELISM || HHI_WPP_PARALLELISM
+#include <omp.h>
+
+#define PARL_PARAM(DEF) , DEF
+#define PARL_PARAM0(DEF) DEF
+#else
+#define PARL_PARAM(DEF)
+#define PARL_PARAM0(DEF)
+#endif
 
 //! \}
 

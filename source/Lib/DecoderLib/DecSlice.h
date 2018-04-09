@@ -60,16 +60,23 @@ class DecSlice
 private:
   // access channel
   CABACDecoder*   m_CABACDecoder;
+#if JEM_TOOLS
+  CABACDataStore* m_CABACDataStore;
+#endif
   DecCu*          m_pcCuDecoder;
 
   Ctx             m_lastSliceSegmentEndContextState;    ///< context storage for state at the end of the previous slice-segment (used for dependent slices only).
-  Ctx             m_entropyCodingSyncContextState;      ///< context storate for state of contexts at the wavefront/WPP/entropy-coding-sync second CTU of tile-row
+  Ctx             m_entropyCodingSyncContextState;      ///< context storage for state of contexts at the wavefront/WPP/entropy-coding-sync second CTU of tile-row
 
 public:
   DecSlice();
   virtual ~DecSlice();
 
+#if JEM_TOOLS
+  Void  init              ( CABACDataStore* cabacDataStore, CABACDecoder* cabacDecoder, DecCu* pcMbDecoder );
+#else
   Void  init              ( CABACDecoder* cabacDecoder, DecCu* pcMbDecoder );
+#endif
   Void  create            ();
   Void  destroy           ();
 

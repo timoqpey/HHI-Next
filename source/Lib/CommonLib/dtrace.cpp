@@ -34,7 +34,7 @@
 /** \file     dtrace.cpp
  *  \brief    Implementation of trace messages support for debugging
  */
- 
+
 #include <string>
 #include <iostream>
 #include <sstream>

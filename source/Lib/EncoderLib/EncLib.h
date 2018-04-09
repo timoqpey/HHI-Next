@@ -42,6 +42,9 @@
 #include "CommonLib/TrQuant.h"
 #include "CommonLib/LoopFilter.h"
 #include "CommonLib/NAL.h"
+#if JEM_TOOLS
+#include "CommonLib/BilateralFilter.h"
+#endif
 
 #include "Utilities/VideoIOYuv.h"
 
@@ -53,8 +56,12 @@
 #include "InterSearch.h"
 #include "IntraSearch.h"
 #include "EncSampleAdaptiveOffset.h"
+#if JEM_TOOLS
 #include "EncAdaptiveLoopFilter.h"
+#endif
 #include "RateCtrl.h"
+
+
 //! \ingroup EncoderLib
 //! \{
 
@@ -67,35 +74,80 @@ class EncLib : public EncCfg
 {
 private:
   // picture
-  Int                       m_iPOCLast;                     ///< time index (POC)
-  Int                       m_iNumPicRcvd;                  ///< number of received pictures
-  UInt                      m_uiNumAllPicCoded;             ///< number of coded pictures
-  PicList                   m_cListPic;                     ///< dynamic list of pictures
+  Int                       m_iPOCLast;                           ///< time index (POC)
+  Int                       m_iNumPicRcvd;                        ///< number of received pictures
+  UInt                      m_uiNumAllPicCoded;                   ///< number of coded pictures
+  PicList                   m_cListPic;                           ///< dynamic list of pictures
 
   // encoder search
-  InterSearch               m_cInterSearch;                 ///< encoder search class
-  IntraSearch               m_cIntraSearch;                 ///< encoder search class
+#if HHI_SPLIT_PARALLELISM || HHI_WPP_PARALLELISM
+  InterSearch              *m_cInterSearch;                       ///< encoder search class
+  IntraSearch              *m_cIntraSearch;                       ///< encoder search class
+#else
+  InterSearch               m_cInterSearch;                       ///< encoder search class
+  IntraSearch               m_cIntraSearch;                       ///< encoder search class
+#endif
   // coding tool
-  TrQuant                   m_cTrQuant;                     ///< transform & quantization class
-  LoopFilter                m_cLoopFilter;                  ///< deblocking filter class
-  EncSampleAdaptiveOffset   m_cEncSAO;                      ///< sample adaptive offset class
+#if HHI_SPLIT_PARALLELISM || HHI_WPP_PARALLELISM
+  TrQuant                  *m_cTrQuant;                           ///< transform & quantization class
+#else
+  TrQuant                   m_cTrQuant;                           ///< transform & quantization class
+#endif
+  LoopFilter                m_cLoopFilter;                        ///< deblocking filter class
+  EncSampleAdaptiveOffset   m_cEncSAO;                            ///< sample adaptive offset class
+#if JEM_TOOLS
   EncAdaptiveLoopFilter     m_cEncALF;
-  HLSWriter                 m_HLSWriter;                    ///< CAVLC encoder
+#endif
+  HLSWriter                 m_HLSWriter;                          ///< CAVLC encoder
+#if JEM_TOOLS
+  CABACDataStore            m_CABACDataStore;
+#endif
+#if HHI_SPLIT_PARALLELISM || HHI_WPP_PARALLELISM
+  CABACEncoder             *m_CABACEncoder;
+#if JEM_TOOLS
+  BilateralFilter          *m_bilateralFilter;
+#endif
+#else
   CABACEncoder              m_CABACEncoder;
+#if JEM_TOOLS
+  BilateralFilter           m_bilateralFilter;
+#endif
+#endif
 
   // processing unit
-  EncGOP                    m_cGOPEncoder;                  ///< GOP encoder
-  EncSlice                  m_cSliceEncoder;                ///< slice encoder
-  EncCu                     m_cCuEncoder;                   ///< CU encoder
+  EncGOP                    m_cGOPEncoder;                        ///< GOP encoder
+  EncSlice                  m_cSliceEncoder;                      ///< slice encoder
+#if HHI_SPLIT_PARALLELISM || HHI_WPP_PARALLELISM
+  EncCu                    *m_cCuEncoder;                         ///< CU encoder
+#else
+  EncCu                     m_cCuEncoder;                         ///< CU encoder
+#endif
   // SPS
-  ParameterSetMap<SPS>      m_spsMap;                       ///< SPS. This is the base value. This is copied to PicSym
-  ParameterSetMap<PPS>      m_ppsMap;                       ///< PPS. This is the base value. This is copied to PicSym
+  ParameterSetMap<SPS>      m_spsMap;                             ///< SPS. This is the base value. This is copied to PicSym
+  ParameterSetMap<PPS>      m_ppsMap;                             ///< PPS. This is the base value. This is copied to PicSym
   // RD cost computation
-  RdCost                    m_cRdCost;                      ///< RD cost computation class
-  CtxCache                  m_CtxCache;                    ///< buffer for temporarily stored context models
-
+#if HHI_SPLIT_PARALLELISM || HHI_WPP_PARALLELISM
+  RdCost                   *m_cRdCost;                            ///< RD cost computation class
+  CtxCache                 *m_CtxCache;                           ///< buffer for temporarily stored context models
+#else
+  RdCost                    m_cRdCost;                            ///< RD cost computation class
+  CtxCache                  m_CtxCache;                           ///< buffer for temporarily stored context models
+#endif
   // quality control
-  RateCtrl                  m_cRateCtrl;                    ///< Rate control class
+  RateCtrl                  m_cRateCtrl;                          ///< Rate control class
+
+  AUWriterIf*               m_AUWriterIf;
+
+#if HHI_SPLIT_PARALLELISM || HHI_WPP_PARALLELISM
+  int                       m_numCuEncStacks;
+#endif
+
+
+public:
+  Ctx                       m_entropyCodingSyncContextState;      ///< leave in addition to vector for compatibility
+#if HHI_WPP_PARALLELISM
+  std::vector<Ctx>          m_entropyCodingSyncContextStateVec;   ///< context storage for state of contexts at the wavefront/WPP/entropy-coding-sync second CTU of tile-row
+#endif
 
 protected:
   Void  xGetNewPicBuffer  ( std::list<PelUnitBuf*>& rcListPicYuvRecOut, Picture*& rpcPic, Int ppsId ); ///< get picture buffer which will be processed. If ppsId<0, then the ppsMap will be queried for the first match.
@@ -114,36 +166,72 @@ public:
 
   Void      create          ();
   Void      destroy         ();
-  Void      init            (Bool isFieldCoding);
+  Void      init            ( Bool isFieldCoding, AUWriterIf* auWriterIf );
   Void      deletePicBuffer ();
 
   // -------------------------------------------------------------------------------------------------------------------
   // member access functions
   // -------------------------------------------------------------------------------------------------------------------
 
-  PicList*                getListPic            ()            { return  &m_cListPic;             }
-  InterSearch*            getInterSearch        ()            { return  &m_cInterSearch;         }
-  IntraSearch*            getIntraSearch        ()            { return  &m_cIntraSearch;         }
+  AUWriterIf*             getAUWriterIf         ()              { return   m_AUWriterIf;           }
+  PicList*                getListPic            ()              { return  &m_cListPic;             }
+#if HHI_SPLIT_PARALLELISM || HHI_WPP_PARALLELISM
+  InterSearch*            getInterSearch        ( int jId = 0 ) { return  &m_cInterSearch[jId];    }
+  IntraSearch*            getIntraSearch        ( int jId = 0 ) { return  &m_cIntraSearch[jId];    }
 
-  TrQuant*                getTrQuant            ()            { return  &m_cTrQuant;             }
-  LoopFilter*             getLoopFilter         ()            { return  &m_cLoopFilter;          }
-  EncSampleAdaptiveOffset* getSAO               ()            { return  &m_cEncSAO;              }
-  EncAdaptiveLoopFilter*  getALF                ()            { return  &m_cEncALF;              }
-  EncGOP*                 getGOPEncoder         ()            { return  &m_cGOPEncoder;          }
-  EncSlice*               getSliceEncoder       ()            { return  &m_cSliceEncoder;        }
-  EncCu*                  getCuEncoder          ()            { return  &m_cCuEncoder;           }
-  HLSWriter*              getHLSWriter          ()            { return  &m_HLSWriter;            }
-  CABACEncoder*           getCABACEncoder       ()            { return  &m_CABACEncoder;         }
+  TrQuant*                getTrQuant            ( int jId = 0 ) { return  &m_cTrQuant[jId];        }
+#else
+  InterSearch*            getInterSearch        ()              { return  &m_cInterSearch;         }
+  IntraSearch*            getIntraSearch        ()              { return  &m_cIntraSearch;         }
 
-  RdCost*                 getRdCost             ()            { return  &m_cRdCost;              }
-  CtxCache*               getCtxCache           ()            { return  &m_CtxCache;             }
-  RateCtrl*               getRateCtrl           ()            { return  &m_cRateCtrl;            }
+  TrQuant*                getTrQuant            ()              { return  &m_cTrQuant;             }
+#endif
+  LoopFilter*             getLoopFilter         ()              { return  &m_cLoopFilter;          }
+  EncSampleAdaptiveOffset* getSAO               ()              { return  &m_cEncSAO;              }
+#if JEM_TOOLS
+  EncAdaptiveLoopFilter*  getALF                ()              { return  &m_cEncALF;              }
+#endif
+  EncGOP*                 getGOPEncoder         ()              { return  &m_cGOPEncoder;          }
+  EncSlice*               getSliceEncoder       ()              { return  &m_cSliceEncoder;        }
+#if HHI_SPLIT_PARALLELISM || HHI_WPP_PARALLELISM
+  EncCu*                  getCuEncoder          ( int jId = 0 ) { return  &m_cCuEncoder[jId];      }
+#else
+  EncCu*                  getCuEncoder          ()              { return  &m_cCuEncoder;           }
+#endif
+  HLSWriter*              getHLSWriter          ()              { return  &m_HLSWriter;            }
+#if JEM_TOOLS
+  CABACDataStore*         getCABACDataStore     ()              { return  &m_CABACDataStore;       }
+#endif
+#if HHI_SPLIT_PARALLELISM || HHI_WPP_PARALLELISM
+  CABACEncoder*           getCABACEncoder       ( int jId = 0 ) { return  &m_CABACEncoder[jId];    }
+#if JEM_TOOLS
+  BilateralFilter*        getBilateralFilter    ( int jId = 0 ) { return  &m_bilateralFilter[jId]; }
+#endif
+
+  RdCost*                 getRdCost             ( int jId = 0 ) { return  &m_cRdCost[jId];         }
+  CtxCache*               getCtxCache           ( int jId = 0 ) { return  &m_CtxCache[jId];        }
+#else
+  CABACEncoder*           getCABACEncoder       ()              { return  &m_CABACEncoder;         }
+#if JEM_TOOLS
+  BilateralFilter*        getBilateralFilter    ()              { return  &m_bilateralFilter;      }
+#endif
+
+  RdCost*                 getRdCost             ()              { return  &m_cRdCost;              }
+  CtxCache*               getCtxCache           ()              { return  &m_CtxCache;             }
+#endif
+  RateCtrl*               getRateCtrl           ()              { return  &m_cRateCtrl;            }
+
   Void selectReferencePictureSet(Slice* slice, Int POCCurr, Int GOPid );
   Int getReferencePictureSetIdxForSOP(Int POCCurr, Int GOPid );
 
   Bool                   PPSNeedsWriting(Int ppsId);
   Bool                   SPSNeedsWriting(Int spsId);
   const PPS* getPPS( int Id ) { return m_ppsMap.getPS( Id); }
+
+#if HHI_SPLIT_PARALLELISM || HHI_WPP_PARALLELISM
+  void                   setNumCuEncStacks( int n )             { m_numCuEncStacks = n; }
+  int                    getNumCuEncStacks()              const { return m_numCuEncStacks; }
+#endif
 
   // -------------------------------------------------------------------------------------------------------------------
   // encoder function
@@ -154,14 +242,15 @@ public:
                PelStorage* pcPicYuvOrg,
                PelStorage* pcPicYuvTrueOrg, const InputColourSpaceConversion snrCSC, // used for SNR calculations. Picture in original colour space.
                std::list<PelUnitBuf*>& rcListPicYuvRecOut,
-               std::list<AccessUnit>& accessUnitsOut, Int& iNumEncoded );
+               Int& iNumEncoded );
 
   /// encode several number of pictures until end-of-sequence
   Void encode( Bool bEos,
                PelStorage* pcPicYuvOrg,
                PelStorage* pcPicYuvTrueOrg, const InputColourSpaceConversion snrCSC, // used for SNR calculations. Picture in original colour space.
                std::list<PelUnitBuf*>& rcListPicYuvRecOut,
-               std::list<AccessUnit>& accessUnitsOut, Int& iNumEncoded, Bool isTff);
+               Int& iNumEncoded, Bool isTff );
+
 
   Void printSummary(Bool isField) { m_cGOPEncoder.printOutSummary (m_uiNumAllPicCoded, isField, m_printMSEBasedSequencePSNR, m_printSequenceMSE, m_spsMap.getFirstPS()->getBitDepths()); }
 

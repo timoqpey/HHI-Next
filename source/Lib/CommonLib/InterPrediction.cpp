@@ -51,13 +51,16 @@
 // ====================================================================================================================
 
 InterPrediction::InterPrediction()
-: m_currChromaFormat( NUM_CHROMA_FORMAT )
+:
+  m_currChromaFormat( NUM_CHROMA_FORMAT )
 , m_maxCompIDToPred ( MAX_NUM_COMPONENT )
 , m_pcRdCost        ( nullptr )
+#if JEM_TOOLS
 , m_pGradX0         ( nullptr )
 , m_pGradY0         ( nullptr )
 , m_pGradX1         ( nullptr )
 , m_pGradY1         ( nullptr )
+#endif
 {
   for( UInt ch = 0; ch < MAX_NUM_COMPONENT; ch++ )
   {
@@ -79,6 +82,8 @@ InterPrediction::InterPrediction()
       m_filteredBlockTmp[i][c] = nullptr;
     }
   }
+
+#if JEM_TOOLS
   m_LICMultApprox[0] = 0;
   for( int k = 1; k < 64; k++ )
   {
@@ -93,6 +98,7 @@ InterPrediction::InterPrediction()
     }
     m_cYuvPredTempDMVR[ch] = nullptr;
   }
+#endif
 }
 
 InterPrediction::~InterPrediction()
@@ -126,6 +132,7 @@ Void InterPrediction::destroy()
     }
   }
 
+#if JEM_TOOLS
   xFree( m_pGradX0 );   m_pGradX0 = nullptr;
   xFree( m_pGradY0 );   m_pGradY0 = nullptr;
   xFree( m_pGradX1 );   m_pGradX1 = nullptr;
@@ -142,6 +149,7 @@ Void InterPrediction::destroy()
     xFree( m_cYuvPredTempDMVR[ch] );
     m_cYuvPredTempDMVR[ch] = nullptr;
   }
+#endif
 }
 
 Void InterPrediction::init( RdCost* pcRdCost, ChromaFormat chromaFormatIDC )
@@ -161,9 +169,13 @@ Void InterPrediction::init( RdCost* pcRdCost, ChromaFormat chromaFormatIDC )
   {
     for( UInt c = 0; c < MAX_NUM_COMPONENT; c++ )
     {
+#if JEM_TOOLS
       Int extWidth  = MAX_CU_SIZE + DMVR_INTME_RANGE*2 + 16;
       Int extHeight = MAX_CU_SIZE + DMVR_INTME_RANGE*2 + 1;
-
+#else
+      Int extWidth  = MAX_CU_SIZE + 16;
+      Int extHeight = MAX_CU_SIZE + 1;
+#endif
       for( UInt i = 0; i < LUMA_INTERPOLATION_FILTER_SUB_SAMPLE_POSITIONS; i++ )
       {
         m_filteredBlockTmp[i][c] = ( Pel* ) xMalloc( Pel, ( extWidth + 4 ) * ( extHeight + 7 + 4 ) );
@@ -181,14 +193,13 @@ Void InterPrediction::init( RdCost* pcRdCost, ChromaFormat chromaFormatIDC )
       }
     }
 
-#define BIO_TEMP_BUFFER_SIZE ( MAX_CU_SIZE ) * ( MAX_CU_SIZE )
-
+    m_iRefListIdx = -1;
+    
+#if JEM_TOOLS
     m_pGradX0     = ( Pel* ) xMalloc( Pel, BIO_TEMP_BUFFER_SIZE );
     m_pGradY0     = ( Pel* ) xMalloc( Pel, BIO_TEMP_BUFFER_SIZE );
     m_pGradX1     = ( Pel* ) xMalloc( Pel, BIO_TEMP_BUFFER_SIZE );
     m_pGradY1     = ( Pel* ) xMalloc( Pel, BIO_TEMP_BUFFER_SIZE );
-
-    m_iRefListIdx = -1;
 
     m_tmpObmcBuf.create( UnitArea( chromaFormatIDC, Area( 0, 0, MAX_CU_SIZE, MAX_CU_SIZE ) ) );
 
@@ -200,16 +211,23 @@ Void InterPrediction::init( RdCost* pcRdCost, ChromaFormat chromaFormatIDC )
       }
       m_cYuvPredTempDMVR[ch] = ( Pel* ) xMalloc( Pel, ( MAX_CU_SIZE + DMVR_INTME_RANGE*2 ) * ( MAX_CU_SIZE + DMVR_INTME_RANGE*2 ) );
     }
+#endif
   }
 
+#if JEM_TOOLS
   m_uiaBIOShift[0] = 0;
   for (Int i = 1; i < 64; i++)
   {
     m_uiaBIOShift[i] = ((1 << 15) + i / 2) / i;
   }
+#endif
 }
 
+#if JEM_TOOLS
 Bool checkIdenticalMotion( const PredictionUnit &pu, bool checkAffine )
+#else
+Bool checkIdenticalMotion( const PredictionUnit &pu )
+#endif
 {
   const Slice &slice = *pu.cs->slice;
 
@@ -222,13 +240,16 @@ Bool checkIdenticalMotion( const PredictionUnit &pu, bool checkAffine )
 
       if( RefPOCL0 == RefPOCL1 )
       {
+#if JEM_TOOLS
         if( !pu.cu->affine )
+#endif
         {
           if( pu.mv[0] == pu.mv[1] )
           {
             return true;
           }
         }
+#if JEM_TOOLS
         else
         {
           CHECK( !checkAffine, "In this case, checkAffine should be on." );
@@ -238,6 +259,7 @@ Bool checkIdenticalMotion( const PredictionUnit &pu, bool checkAffine )
             return true;
           }
         }
+#endif
       }
     }
   }
@@ -262,13 +284,16 @@ Bool InterPrediction::xCheckIdenticalMotion( const PredictionUnit &pu )
 
       if( RefPOCL0 == RefPOCL1 )
       {
+#if JEM_TOOLS
         if( !pu.cu->affine )
+#endif
         {
           if( pu.mv[0] == pu.mv[1] )
           {
             return true;
           }
         }
+#if JEM_TOOLS
         else
         {
           const CMotionBuf &mb = pu.getMotionBuf();
@@ -277,6 +302,7 @@ Bool InterPrediction::xCheckIdenticalMotion( const PredictionUnit &pu )
             return true;
           }
         }
+#endif
       }
     }
   }
@@ -284,6 +310,7 @@ Bool InterPrediction::xCheckIdenticalMotion( const PredictionUnit &pu )
   return false;
 }
 
+#if JEM_TOOLS
 Void InterPrediction::xSubPuMC( PredictionUnit& pu, PelUnitBuf& predBuf, const RefPicList &eRefPicList /*= REF_PIC_LIST_X*/ )
 {
   const SPSNext& spsNext  = pu.cs->sps->getSpsNext();
@@ -333,14 +360,20 @@ Void InterPrediction::xSubPuMC( PredictionUnit& pu, PelUnitBuf& predBuf, const R
     }
   }
 }
+#endif
 
+#if JEM_TOOLS
 Void InterPrediction::xPredInterUni(const PredictionUnit& pu, const RefPicList& eRefPicList, PelUnitBuf& pcYuvPred, const Bool& bi, const Bool& bBIOApplied /*= false*/, const Bool& bDMVRApplied /*= false*/ )
+#else
+Void InterPrediction::xPredInterUni(const PredictionUnit& pu, const RefPicList& eRefPicList, PelUnitBuf& pcYuvPred, const Bool& bi )
+#endif
 {
   const SPS &sps = *pu.cs->sps;
 
   Int iRefIdx = pu.refIdx[eRefPicList];
   Mv mv[3];
 
+#if JEM_TOOLS
   if( pu.cu->affine )
   {
     CHECK( iRefIdx < 0, "iRefIdx incorrect." );
@@ -353,6 +386,7 @@ Void InterPrediction::xPredInterUni(const PredictionUnit& pu, const RefPicList& 
     clipMv(mv[2], pu.cu->lumaPos(), sps);
   }
   else
+#endif
   {
     mv[0] = pu.mv[eRefPicList];
   }
@@ -363,22 +397,33 @@ Void InterPrediction::xPredInterUni(const PredictionUnit& pu, const RefPicList& 
   {
     const ComponentID compID = ComponentID( comp );
 
+#if JEM_TOOLS
     if( pu.cu->affine )
     {
       xPredAffineBlk( compID, pu, pu.cu->slice->getRefPic(eRefPicList, iRefIdx), mv, pcYuvPred, bi, pu.cu->slice->clpRng( compID ), bBIOApplied );
     }
     else
+#endif
     {
-      xPredInterBlk( compID, pu, pu.cu->slice->getRefPic( eRefPicList, iRefIdx ), mv[0], pcYuvPred, bi, pu.cu->slice->clpRng( compID ), bBIOApplied, bDMVRApplied, FRUC_MERGE_OFF, true );
+      xPredInterBlk( compID, pu, pu.cu->slice->getRefPic( eRefPicList, iRefIdx ), mv[0], pcYuvPred, bi, pu.cu->slice->clpRng( compID )
+#if JEM_TOOLS
+                     , bBIOApplied, bDMVRApplied, FRUC_MERGE_OFF, true
+#endif
+                    );
     }
   }
 }
 
+#if JEM_TOOLS
 Void InterPrediction::xPredInterBi(PredictionUnit& pu, PelUnitBuf &pcYuvPred, Bool obmc)
+#else
+Void InterPrediction::xPredInterBi(PredictionUnit& pu, PelUnitBuf &pcYuvPred)
+#endif
 {
   const PPS   &pps   = *pu.cs->pps;
   const Slice &slice = *pu.cs->slice;
 
+#if JEM_TOOLS
   bool bBIOApplied = false;
   if ( pu.cs->sps->getSpsNext().getUseBIO() )
   {
@@ -419,6 +464,7 @@ Void InterPrediction::xPredInterBi(PredictionUnit& pu, PelUnitBuf &pcYuvPred, Bo
       bDMVRApplied = true;
     }
   }
+#endif
 
   for (UInt refList = 0; refList < NUM_REF_PIC_LIST_01; refList++)
   {
@@ -438,10 +484,15 @@ Void InterPrediction::xPredInterBi(PredictionUnit& pu, PelUnitBuf &pcYuvPred, Bo
 
     if (pu.refIdx[0] >= 0 && pu.refIdx[1] >= 0)
     {
-      xPredInterUni ( pu, eRefPicList, pcMbBuf, true, bBIOApplied, bDMVRApplied );
+      xPredInterUni ( pu, eRefPicList, pcMbBuf, true
+#if JEM_TOOLS
+                      , bBIOApplied, bDMVRApplied
+#endif
+                     );
     }
     else
     {
+#if JEM_TOOLS
       if( !pu.cu->LICFlag && ( (pps.getUseWP() && slice.getSliceType() == P_SLICE) || (pps.getWPBiPred() && slice.getSliceType() == B_SLICE) ) )
       {
         xPredInterUni ( pu, eRefPicList, pcMbBuf, true, bBIOApplied, false );
@@ -450,13 +501,25 @@ Void InterPrediction::xPredInterBi(PredictionUnit& pu, PelUnitBuf &pcYuvPred, Bo
       {
         xPredInterUni ( pu, eRefPicList, pcMbBuf, false, bBIOApplied, false );
       }
+#else
+      if( ( (pps.getUseWP() && slice.getSliceType() == P_SLICE) || (pps.getWPBiPred() && slice.getSliceType() == B_SLICE) ) )
+      {
+        xPredInterUni ( pu, eRefPicList, pcMbBuf, true );
+      }
+      else
+      {
+        xPredInterUni ( pu, eRefPicList, pcMbBuf, false );
+      }
+#endif
     }
   }
 
+#if JEM_TOOLS
   if ( bDMVRApplied )
   {
     xProcessDMVR( pu, pcYuvPred, slice.clpRngs(), bBIOApplied );
   }
+#endif
 
   CPelUnitBuf srcPred0 = ( pu.chromaFormat == CHROMA_400 ?
                            CPelUnitBuf(pu.chromaFormat, PelBuf(m_acYuvPred[0][0], pcYuvPred.Y())) :
@@ -464,7 +527,7 @@ Void InterPrediction::xPredInterBi(PredictionUnit& pu, PelUnitBuf &pcYuvPred, Bo
   CPelUnitBuf srcPred1 = ( pu.chromaFormat == CHROMA_400 ?
                            CPelUnitBuf(pu.chromaFormat, PelBuf(m_acYuvPred[1][0], pcYuvPred.Y())) :
                            CPelUnitBuf(pu.chromaFormat, PelBuf(m_acYuvPred[1][0], pcYuvPred.Y()), PelBuf(m_acYuvPred[1][1], pcYuvPred.Cb()), PelBuf(m_acYuvPred[1][2], pcYuvPred.Cr())) );
-
+#if JEM_TOOLS
   if( !pu.cu->LICFlag && pps.getWPBiPred() && slice.getSliceType() == B_SLICE )
   {
     xWeightedPredictionBi( pu, srcPred0, srcPred1, pcYuvPred, m_maxCompIDToPred );
@@ -477,11 +540,30 @@ Void InterPrediction::xPredInterBi(PredictionUnit& pu, PelUnitBuf &pcYuvPred, Bo
   {
     xWeightedAverage( pu, srcPred0, srcPred1, pcYuvPred, slice.getSPS()->getBitDepths(), slice.clpRngs(), bBIOApplied );
   }
+#else
+  if( pps.getWPBiPred() && slice.getSliceType() == B_SLICE )
+  {
+    xWeightedPredictionBi( pu, srcPred0, srcPred1, pcYuvPred, m_maxCompIDToPred );
+  }
+  else if( pps.getUseWP() && slice.getSliceType() == P_SLICE )
+  {
+    xWeightedPredictionUni( pu, srcPred0, REF_PIC_LIST_0, pcYuvPred, -1, m_maxCompIDToPred );
+  }
+  else
+  {
+    xWeightedAverage( pu, srcPred0, srcPred1, pcYuvPred, slice.getSPS()->getBitDepths(), slice.clpRngs() );
+  }
+#endif
 }
 
 
-Void InterPrediction::xPredInterBlk ( const ComponentID& compID, const PredictionUnit& pu, const Picture* refPic, const Mv& _mv, PelUnitBuf& dstPic, const Bool& bi, const ClpRng& clpRng, const Bool& bBIOApplied /*=false*/, const Bool& bDMVRApplied /*= false*/, const Int& nFRUCMode /*= FRUC_MERGE_OFF*/, const Bool& doLic /*= true*/ )
+Void InterPrediction::xPredInterBlk ( const ComponentID& compID, const PredictionUnit& pu, const Picture* refPic, const Mv& _mv, PelUnitBuf& dstPic, const Bool& bi, const ClpRng& clpRng
+#if JEM_TOOLS
+                                      , const Bool& bBIOApplied /*=false*/, const Bool& bDMVRApplied /*= false*/, const Int& nFRUCMode /*= FRUC_MERGE_OFF*/, const Bool& doLic /*= true*/
+#endif
+                                    )
 {
+#if JEM_TOOLS
   const Int       nFilterIdx = nFRUCMode ? pu.cs->slice->getSPS()->getSpsNext().getFRUCRefineFilter() : 0;
   const ChromaFormat  chFmt  = pu.chromaFormat;
   const bool          rndRes = ( !bi || pu.cu->LICFlag );
@@ -506,6 +588,19 @@ Void InterPrediction::xPredInterBlk ( const ComponentID& compID, const Predictio
 
   CHECKD( !pu.cs->sps->getSpsNext().getUseHighPrecMv() && ( ( xFrac & 3 ) != 0 ), "Invalid fraction" );
   CHECKD( !pu.cs->sps->getSpsNext().getUseHighPrecMv() && ( ( yFrac & 3 ) != 0 ), "Invalid fraction" );
+#else
+  const ChromaFormat  chFmt  = pu.chromaFormat;
+  const bool          rndRes = !bi;
+
+  int shiftHor = 2 + ::getComponentScaleX( compID, chFmt );
+  int shiftVer = 2 + ::getComponentScaleY( compID, chFmt );
+  
+  int xFrac = _mv.hor & ( ( 1 << shiftHor ) - 1 );
+  int yFrac = _mv.ver & ( ( 1 << shiftVer ) - 1 );
+
+  CHECKD( ( xFrac & 3 ) != 0, "Invalid fraction" );
+  CHECKD( ( yFrac & 3 ) != 0, "Invalid fraction" );
+#endif
 
   PelBuf &dstBuf  = dstPic.bufs[compID];
   unsigned width  = dstBuf.width;
@@ -517,6 +612,7 @@ Void InterPrediction::xPredInterBlk ( const ComponentID& compID, const Predictio
     refBuf = refPic->getRecoBuf( CompArea( compID, chFmt, offset, pu.blocks[compID].size() ) );
   }
 
+#if JEM_TOOLS
   if( bBIOApplied && compID == COMPONENT_Y && !bDMVRApplied )
   {
     Pel*  pGradY    = m_pGradY0;
@@ -542,35 +638,51 @@ Void InterPrediction::xPredInterBlk ( const ComponentID& compID, const Predictio
     xGradFilterY  ( ref, refStride, pGradY, iWidthG, iWidthG, iHeightG, yFrac, xFrac, clpRng.bd );
     xGradFilterX  ( ref, refStride, pGradX, iWidthG, iWidthG, iHeightG, yFrac, xFrac, clpRng.bd );
   }
+#endif
 
   if( yFrac == 0 )
   {
+#if JEM_TOOLS
     m_if.filterHor(compID, (Pel*) refBuf.buf, refBuf.stride, dstBuf.buf, dstBuf.stride, width, height, xFrac, rndRes, chFmt, clpRng, nFilterIdx);
+#else
+    m_if.filterHor(compID, (Pel*) refBuf.buf, refBuf.stride, dstBuf.buf, dstBuf.stride, width, height, xFrac, rndRes, chFmt, clpRng);
+#endif
   }
   else if( xFrac == 0 )
   {
+#if JEM_TOOLS
     m_if.filterVer(compID, (Pel*) refBuf.buf, refBuf.stride, dstBuf.buf, dstBuf.stride, width, height, yFrac, true, rndRes, chFmt, clpRng, nFilterIdx);
+#else
+    m_if.filterVer(compID, (Pel*) refBuf.buf, refBuf.stride, dstBuf.buf, dstBuf.stride, width, height, yFrac, true, rndRes, chFmt, clpRng);
+#endif
   }
   else
   {
     PelBuf tmpBuf = PelBuf(m_filteredBlockTmp[0][compID], pu.blocks[compID]);
 
     Int vFilterSize = isLuma(compID) ? NTAPS_LUMA : NTAPS_CHROMA;
+#if JEM_TOOLS
     if( isLuma(compID) && nFilterIdx == 1 )
     {
       vFilterSize = NTAPS_LUMA_FRUC;
     }
     m_if.filterHor(compID, (Pel*) refBuf.buf - ((vFilterSize >> 1) - 1) * refBuf.stride, refBuf.stride, tmpBuf.buf, tmpBuf.stride, width, height + vFilterSize - 1, xFrac, false,         chFmt, clpRng, nFilterIdx);
     m_if.filterVer(compID, (Pel*) tmpBuf.buf + ((vFilterSize >> 1) - 1) * tmpBuf.stride, tmpBuf.stride, dstBuf.buf, dstBuf.stride, width, height,                   yFrac, false, rndRes, chFmt, clpRng, nFilterIdx);
-
+#else
+    m_if.filterHor(compID, (Pel*) refBuf.buf - ((vFilterSize >> 1) - 1) * refBuf.stride, refBuf.stride, tmpBuf.buf, tmpBuf.stride, width, height + vFilterSize - 1, xFrac, false,         chFmt, clpRng);
+    m_if.filterVer(compID, (Pel*) tmpBuf.buf + ((vFilterSize >> 1) - 1) * tmpBuf.stride, tmpBuf.stride, dstBuf.buf, dstBuf.stride, width, height,                   yFrac, false, rndRes, chFmt, clpRng);
+#endif
   }
 
+#if JEM_TOOLS
   if( pu.cu->LICFlag && doLic )
   {
     xLocalIlluComp( pu, compID, *refPic, _mv, bi, dstBuf );
   }
+#endif
 }
 
+#if JEM_TOOLS
 Void InterPrediction::xPredAffineBlk(const ComponentID& compID, const PredictionUnit& pu, const Picture* refPic, const Mv* _mv, PelUnitBuf& dstPic, const Bool& bi, const ClpRng& clpRng, const Bool& bBIOApplied /*= false*/ )
 {
   if( _mv[0] == _mv[1] )
@@ -688,7 +800,7 @@ Void InterPrediction::xPredAffineBlk(const ComponentID& compID, const Prediction
         yFrac = iMvScaleTmpVer & 31;
       }
 
-      const CPelBuf refBuf = refPic->getRecoBuf(CompArea(compID, chFmt, pu.blocks[compID].offset(xInt + w, yInt + h), pu.blocks[compID]));
+      const CPelBuf refBuf = refPic->getRecoBuf( CompArea( compID, chFmt, pu.blocks[compID].offset(xInt + w, yInt + h), pu.blocks[compID] ) );
       PelBuf &dstBuf = dstPic.bufs[compID];
 
       if ( yFrac == 0 )
@@ -718,6 +830,7 @@ Void InterPrediction::xPredAffineBlk(const ComponentID& compID, const Prediction
     iMvScaleVer = iMvYVer;
   }
 }
+#endif
 
 int getMSB( unsigned x )
 {
@@ -736,6 +849,7 @@ int getMSB( unsigned x )
   return msb;
 }
 
+#if JEM_TOOLS
 void InterPrediction::xGetLICParams( const CodingUnit& cu,
                                      const ComponentID compID,
                                      const Picture&    refPic,
@@ -840,7 +954,7 @@ void InterPrediction::xGetLICParams( const CodingUnit& cu,
   const int scaleShiftA   = scaleShiftA2 + 15 - shift - scaleShiftA1;
             a1            =               a1 >> scaleShiftA1;
             a2            = Clip3( 0, 63, a2 >> scaleShiftA2 );
-            scale         = int( ( int64_t(a1) * int64_t(m_LICMultApprox[a2]) ) >> scaleShiftA );
+            scale         = int( ( int64_t( a1 ) * int64_t( m_LICMultApprox[a2] ) ) >> scaleShiftA );
             scale         = Clip3( 0, 1 << ( shift + 2 ), scale );
   const int maxOffset     = ( 1 << ( bitDepth - 1 ) ) - 1;
   const int minOffset     = -1 - maxOffset;
@@ -856,6 +970,7 @@ void InterPrediction::xLocalIlluComp( const PredictionUnit& pu,
                                             PelBuf&         dstBuf )
 {
   int shift = 0, scale = 0, offset = 0;
+
   xGetLICParams( *pu.cu, compID, refPic, mv, shift, scale, offset );
 
   const int bitDepth   = pu.cs->sps->getBitDepth( toChannelType( compID ) );
@@ -876,12 +991,6 @@ void InterPrediction::xLocalIlluComp( const PredictionUnit& pu,
 
 void InterPrediction::applyBiOptFlow( const PredictionUnit &pu, const CPelUnitBuf &pcYuvSrc0, const CPelUnitBuf &pcYuvSrc1, const Int &iRefIdx0, const Int &iRefIdx1, PelUnitBuf &pcYuvDst, const BitDepths &clipBitDepths )
 {
-  static Int64 m_piDotProduct1[BIO_TEMP_BUFFER_SIZE];
-  static Int64 m_piDotProduct2[BIO_TEMP_BUFFER_SIZE];
-  static Int64 m_piDotProduct3[BIO_TEMP_BUFFER_SIZE];
-  static Int64 m_piDotProduct5[BIO_TEMP_BUFFER_SIZE];
-  static Int64 m_piDotProduct6[BIO_TEMP_BUFFER_SIZE];
-
   const int     iHeight     = pcYuvDst.Y().height;
   const int     iWidth      = pcYuvDst.Y().width;
   int           iHeightG    = iHeight;
@@ -1037,19 +1146,28 @@ void InterPrediction::applyBiOptFlow( const PredictionUnit &pu, const CPelUnitBu
     }  // xu
   }  // yu
 }
+#endif
 
+#if JEM_TOOLS
 Void InterPrediction::xWeightedAverage( const PredictionUnit& pu, const CPelUnitBuf& pcYuvSrc0, const CPelUnitBuf& pcYuvSrc1, PelUnitBuf& pcYuvDst, const BitDepths& clipBitDepths, const ClpRngs& clpRngs, const Bool& bBIOApplied )
+#else
+Void InterPrediction::xWeightedAverage( const PredictionUnit& pu, const CPelUnitBuf& pcYuvSrc0, const CPelUnitBuf& pcYuvSrc1, PelUnitBuf& pcYuvDst, const BitDepths& clipBitDepths, const ClpRngs& clpRngs )
+#endif
 {
   const int iRefIdx0 = pu.refIdx[0];
   const int iRefIdx1 = pu.refIdx[1];
 
   if( iRefIdx0 >= 0 && iRefIdx1 >= 0 )
   {
+#if JEM_TOOLS
     if( bBIOApplied )
     {
       applyBiOptFlow( pu, pcYuvSrc0, pcYuvSrc1, iRefIdx0, iRefIdx1, pcYuvDst, clipBitDepths );
     }
     pcYuvDst.addAvg( pcYuvSrc0, pcYuvSrc1, clpRngs, bBIOApplied );
+#else
+    pcYuvDst.addAvg( pcYuvSrc0, pcYuvSrc1, clpRngs );
+#endif
   }
   else if( iRefIdx0 >= 0 && iRefIdx1 < 0 )
   {
@@ -1069,7 +1187,11 @@ Void InterPrediction::motionCompensation( PredictionUnit &pu, PelUnitBuf &predBu
 
   if( eRefPicList != REF_PIC_LIST_X )
   {
+#if JEM_TOOLS
     if( !pu.cu->LICFlag && ( ( sliceType == P_SLICE && pps.getUseWP() ) || ( sliceType == B_SLICE && pps.getWPBiPred() ) ) )
+#else
+    if( ( ( sliceType == P_SLICE && pps.getUseWP() ) || ( sliceType == B_SLICE && pps.getWPBiPred() ) ) )
+#endif
     {
       xPredInterUni         ( pu,          eRefPicList, predBuf, true );
       xWeightedPredictionUni( pu, predBuf, eRefPicList, predBuf, -1, m_maxCompIDToPred );
@@ -1081,11 +1203,15 @@ Void InterPrediction::motionCompensation( PredictionUnit &pu, PelUnitBuf &predBu
   }
   else
   {
+#if JEM_TOOLS
     if( pu.mergeType != MRG_TYPE_DEFAULT_N )
     {
       xSubPuMC( pu, predBuf, eRefPicList );
     }
     else if( xCheckIdenticalMotion( pu ) )
+#else
+    if( xCheckIdenticalMotion( pu ) )
+#endif
     {
       xPredInterUni( pu, REF_PIC_LIST_0, predBuf, false );
     }
@@ -1102,9 +1228,13 @@ Void InterPrediction::motionCompensation( CodingUnit &cu, const RefPicList &eRef
   for( auto &pu : CU::traversePUs( cu ) )
   {
     PelUnitBuf predBuf = cu.cs->getPredBuf( pu );
+#if JEM_TOOLS
     pu.mvRefine = true;
     motionCompensation( pu, predBuf, eRefPicList );
     pu.mvRefine = false;
+#else
+    motionCompensation( pu, predBuf, eRefPicList );
+#endif
   }
 }
 
@@ -1114,6 +1244,7 @@ Void InterPrediction::motionCompensation( PredictionUnit &pu, const RefPicList &
   motionCompensation( pu, predBuf, eRefPicList );
 }
 
+#if JEM_TOOLS
 /** Function for sub-block based Overlapped Block Motion Compensation (OBMC).
 *
 * This function can:
@@ -1170,8 +1301,8 @@ Void InterPrediction::subBlockOBMC( PredictionUnit  &pu, PelUnitBuf* pDst, Bool 
 
         Int  i1stPUWidth     = -1, i1stPUHeight = -1;
         Bool b2ndPU          = false;
-  const Bool bVerticalPU     = ( ePartSize == SIZE_2NxN || ePartSize == SIZE_2NxnU || ePartSize == SIZE_2NxnD );
-  const Bool bHorizontalPU   = ( ePartSize == SIZE_Nx2N || ePartSize == SIZE_nLx2N || ePartSize == SIZE_nRx2N );
+  const Bool bVerticalPU     = false;
+  const Bool bHorizontalPU   = false;
 
   const Bool bTwoPUs         = ( bVerticalPU || bHorizontalPU );
 
@@ -1194,7 +1325,7 @@ Void InterPrediction::subBlockOBMC( PredictionUnit  &pu, PelUnitBuf* pDst, Bool 
   const Int nRefineBlkSize = std::max( avgLength >> pu.cs->slice->getSPS()->getSpsNext().getFRUCSmallBlkRefineDepth(), FRUC_MERGE_REFINE_MINBLKSIZE );
 
   const Bool bNormal2Nx2N  = ePartSize == SIZE_2Nx2N && !bATMVP && !bFruc && !bAffine;
-  const Bool bSubMotion    = ePartSize == SIZE_NxN || ( ePartSize == SIZE_2Nx2N && ( bATMVP || bFruc || bAffine ) );
+  const Bool bSubMotion    = ePartSize == SIZE_2Nx2N && ( bATMVP || bFruc || bAffine );
 
   MotionInfo currMi  = pu.getMotionInfo();
   MotionInfo NeighMi = MotionInfo();
@@ -1466,7 +1597,9 @@ Void InterPrediction::xSubtractOBMC( PredictionUnit &pu, PelUnitBuf &pcYuvPredDs
     }
   }
 }
+#endif
 
+#if JEM_TOOLS
 Void InterPrediction::xSubBlockMotionCompensation( PredictionUnit &pu, PelUnitBuf &pcYuvPred )
 {
   if( xCheckIdenticalMotion( pu ) )
@@ -1478,7 +1611,9 @@ Void InterPrediction::xSubBlockMotionCompensation( PredictionUnit &pu, PelUnitBu
     xPredInterBi( pu, pcYuvPred, true );
   }
 }
+#endif
 
+#if JEM_TOOLS
 Void InterPrediction::xGradFilterX( const Pel* piRefY, Int iRefStride, Pel* piDstY, Int iDstStride, Int iWidth, Int iHeight, Int iMVyFrac, Int iMVxFrac, const Int bitDepth )
 {
   static const int iBIOGradShift = 4;
@@ -2056,7 +2191,7 @@ Void InterPrediction::xFrucCollectBlkStartMv( PredictionUnit& pu, const MergeCtx
 
   for( Int nMergeIndex = 0; nMergeIndex < mergeCtx.numValidMergeCand << 1; nMergeIndex++ )
   {
-    Bool mrgTpDflt = ( pu.cs->sps->getSpsNext().getUseSubPuMvp() ) ? mergeCtx.mrgTypeNeighnours[nMergeIndex>>1] == MRG_TYPE_DEFAULT_N : true;
+    Bool mrgTpDflt = ( pu.cs->sps->getSpsNext().getUseSubPuMvp() ) ? mergeCtx.mrgTypeNeighbours[nMergeIndex>>1] == MRG_TYPE_DEFAULT_N : true;
     if( mergeCtx.mvFieldNeighbours[nMergeIndex].refIdx >= 0 && mrgTpDflt )
     {
       if( nTargetRefIdx >= 0 && ( mergeCtx.mvFieldNeighbours[nMergeIndex].refIdx != nTargetRefIdx || ( nMergeIndex & 0x01 ) != ( Int )eTargetRefList ) )
@@ -2108,27 +2243,27 @@ Void InterPrediction::xFrucCollectBlkStartMv( PredictionUnit& pu, const MergeCtx
     if (neighbor == 0)       // top neighbor
     {
       neibPos = pu.lumaPos().offset( 0, -1 );
-      neibPU  = pu.cs->getPURestricted( neibPos, pu );
+      neibPU  = pu.cs->getPURestricted( neibPos, pu, pu.chType );
     }
     else if (neighbor == 1)  // left neighbor
     {
       neibPos = pu.lumaPos().offset( -1, 0 );
-      neibPU  = pu.cs->getPURestricted( neibPos, pu );
+      neibPU  = pu.cs->getPURestricted( neibPos, pu, pu.chType );
     }
     else if (neighbor == 2)  // top-left neighbor
     {
       neibPos = pu.lumaPos().offset( -1, -1 );
-      neibPU  = pu.cs->getPURestricted( neibPos, pu );
+      neibPU  = pu.cs->getPURestricted( neibPos, pu, pu.chType );
     }
     else if (neighbor == 3)  // top-right neighbor
     {
       neibPos = pu.Y().topRight().offset( 1, -1 );
-      neibPU  = pu.cs->getPURestricted( neibPos, pu );
+      neibPU  = pu.cs->getPURestricted( neibPos, pu, pu.chType );
     }
     else if (neighbor == 4)  // below-left neighbor
     {
       neibPos = pu.Y().bottomLeft().offset( -1, 1 );
-      neibPU  = pu.cs->getPURestricted( neibPos, pu );
+      neibPU  = pu.cs->getPURestricted( neibPos, pu, pu.chType );
     }
     else
     {
@@ -2171,27 +2306,27 @@ Void InterPrediction::xFrucCollectSubBlkStartMv( PredictionUnit& pu, const Merge
     if (neighbor == 0)       // top neighbor
     {
       neibPos = pu.lumaPos().offset( 0, -1 );
-      neibPU  = pu.cs->getPURestricted( neibPos, pu );
+      neibPU  = pu.cs->getPURestricted( neibPos, pu, pu.chType );
     }
     else if (neighbor == 1)  // left neighbor
     {
       neibPos = pu.lumaPos().offset( -1, 0 );
-      neibPU  = pu.cs->getPURestricted( neibPos, pu );
+      neibPU  = pu.cs->getPURestricted( neibPos, pu, pu.chType );
     }
     else if (neighbor == 2)  // top-left neighbor
     {
       neibPos = pu.lumaPos().offset( -1, -1 );
-      neibPU  = pu.cs->getPURestricted( neibPos, pu );
+      neibPU  = pu.cs->getPURestricted( neibPos, pu, pu.chType );
     }
     else if (neighbor == 3)  // top-right neighbor
     {
       neibPos = pu.Y().topRight().offset( 1, -1 );
-      neibPU  = pu.cs->getPURestricted( neibPos, pu );
+      neibPU  = pu.cs->getPURestricted( neibPos, pu, pu.chType );
     }
     else if (neighbor == 4)  // below-left neighbor
     {
       neibPos = pu.Y().bottomLeft().offset( -1, 1 );
-      neibPU  = pu.cs->getPURestricted( neibPos, pu );
+      neibPU  = pu.cs->getPURestricted( neibPos, pu, pu.chType );
     }
     else
     {
@@ -2833,7 +2968,7 @@ Bool InterPrediction::xFrucIsTopTempAvailable( PredictionUnit& pu )
 {
   const CodingStructure &cs     = *pu.cs;
         Position posRT          = pu.Y().topRight();
-  const PredictionUnit *puAbove = cs.getPURestricted( posRT.offset( 0, -1 ), pu );
+  const PredictionUnit *puAbove = cs.getPURestricted( posRT.offset( 0, -1 ), pu, pu.chType );
 
   return ( puAbove && pu.cu != puAbove->cu );
 }
@@ -2842,7 +2977,7 @@ Bool InterPrediction::xFrucIsLeftTempAvailable( PredictionUnit& pu )
 {
   const CodingStructure &cs    = *pu.cs;
         Position posLB         = pu.Y().bottomLeft();
-  const PredictionUnit *puLeft = cs.getPURestricted( posLB.offset( -1, 0 ), pu );
+  const PredictionUnit *puLeft = cs.getPURestricted( posLB.offset( -1, 0 ), pu, pu.chType );
 
   return ( puLeft && pu.cu !=puLeft->cu );
 }
@@ -2912,7 +3047,6 @@ Void InterPrediction::xPredInterLines( const PredictionUnit& pu, const Picture* 
 
   Position offset      = pu.blocks[compID].pos().offset( _mv.getHor() >> shiftHor, _mv.getVer() >> shiftVer );
   const CPelBuf refBuf = refPic->getRecoBuf( CompArea( compID, chFmt, offset, pu.blocks[compID].size() ) );
-
   PelBuf &dstBuf = dstPic.bufs[compID];
 
   int xFrac = _mv.hor & ( ( 1 << shiftHor ) - 1 );
@@ -3094,6 +3228,7 @@ Void InterPrediction::xProcessDMVR( PredictionUnit& pu, PelUnitBuf &pcYuvDst, co
                          PelUnitBuf(pu.chromaFormat, PelBuf(m_acYuvPred[1][0], pcYuvDst.Y())) :
                          PelUnitBuf(pu.chromaFormat, PelBuf(m_acYuvPred[1][0], pcYuvDst.Y()), PelBuf(m_acYuvPred[1][1], pcYuvDst.Cb()), PelBuf(m_acYuvPred[1][2], pcYuvDst.Cr())) );
 
+
   //mv refinement
   UInt searchStepShift = 2;
   if( pu.cu->slice->getSPS()->getSpsNext().getUseHighPrecMv() )
@@ -3103,7 +3238,7 @@ Void InterPrediction::xProcessDMVR( PredictionUnit& pu, PelUnitBuf &pcYuvDst, co
     pu.mv[1].setHighPrec();
   }
 
-  pcYuvDst.addAvg ( srcPred0, srcPred1, clpRngs, false, true );
+  pcYuvDst.addAvg( srcPred0, srcPred1, clpRngs, false, true );
 
   //list 0
   //get init cost
@@ -3151,6 +3286,161 @@ Void InterPrediction::xProcessDMVR( PredictionUnit& pu, PelUnitBuf &pcYuvDst, co
 
   PU::spanMotionInfo( pu );
 }
+#endif
 
+#if MCTS_ENC_CHECK
+Void getRefPUPartPos(PredictionUnit& pu, Int xOff, Int yOff, const Mv& mv, Int& ruiPredXLeft, Int& ruiPredYTop, Int& ruiPredXRight, Int& ruiPredYBottom)
+{
+  Mv _mv = mv;
+#if JEM_TOOLS
+  _mv.setHighPrec();
+
+  Int predShift = (2 + VCEG_AZ07_MV_ADD_PRECISION_BIT_FOR_STORE);
+#else
+  Int predShift = 2;
+#endif
+  
+  ruiPredXLeft   = (_mv.getHor() >> predShift) + pu.lx() + xOff;
+  ruiPredYTop    = (_mv.getVer() >> predShift) + pu.ly() + yOff;
+  ruiPredXRight  = ruiPredXLeft + pu.lwidth() - 1;
+  ruiPredYBottom = ruiPredYTop + pu.lheight() - 1;
+}
+
+Bool checkMVPRange(const Mv& mv, UInt ctuLength, UInt tileXPosInCtus, UInt tileYPosInCtus, UInt tileWidthtInCtus, UInt tileHeightInCtus, Int PredXLeft, Int PredXRight, Int PredYTop, Int PredYBottom, ChromaFormat chromaFormat)
+{
+  // all calculations in High Precision
+  Mv _mv=mv;
+#if JEM_TOOLS
+  _mv.setHighPrec();
+#endif
+
+  // filter length of sub-sample generation filter to be considered
+  const UInt LumaLTSampleOffset = 3;
+  const UInt LumaRBSampleOffset = 4;
+  const UInt CromaLTSampleoffset = 1;
+  const UInt CromaRBSampleoffset = 2;
+
+  // tile position in full pel
+  const Int leftTopPelPosX = ctuLength * tileXPosInCtus;
+  const Int leftTopPelPosY = ctuLength * tileYPosInCtus;
+  const Int rightBottomPelPosX = ((tileWidthtInCtus + tileXPosInCtus) * ctuLength) - 1;
+  const Int rightBottomPelPosY = ((tileHeightInCtus + tileYPosInCtus) * ctuLength) - 1;
+
+#if JEM_TOOLS
+  int fracDiv = 1 << (2 + VCEG_AZ07_MV_ADD_PRECISION_BIT_FOR_STORE);
+#else
+  int fracDiv = 1 << 2;
+#endif
+
+  // Luma MV range check
+  const Bool isFullPelHorLuma = (_mv.getHor() % fracDiv == 0);
+  const Bool isFullPelVerLuma = (_mv.getVer() % fracDiv == 0);
+
+  const Int lRangeXLeft = leftTopPelPosX + (isFullPelHorLuma ? 0 : LumaLTSampleOffset);
+  const Int lRangeYTop = leftTopPelPosY + (isFullPelVerLuma ? 0 : LumaLTSampleOffset);
+  const Int lRangeXRight = rightBottomPelPosX - (isFullPelHorLuma ? 0 : LumaRBSampleOffset);
+  const Int lRangeYBottom = rightBottomPelPosY - (isFullPelVerLuma ? 0 : LumaRBSampleOffset);
+
+  if (!(PredXLeft >= lRangeXLeft && PredXLeft <= lRangeXRight) || !(PredXRight >= lRangeXLeft && PredXRight <= lRangeXRight))
+  {
+    return false;
+  }
+  else if (!(PredYTop >= lRangeYTop && PredYTop <= lRangeYBottom) || !(PredYBottom >= lRangeYTop && PredYBottom <= lRangeYBottom))
+  {
+    return false;
+  }
+
+  if ((chromaFormat != CHROMA_444) && (chromaFormat != CHROMA_400))
+  {
+    // Chroma MV range check
+#if JEM_TOOLS
+    int fracDiv = 1 << ( 3 + VCEG_AZ07_MV_ADD_PRECISION_BIT_FOR_STORE );
+#else
+    int fracDiv = 1 << 3;
+#endif
+
+    const Bool isFullPelHorChroma = (_mv.getHor() % fracDiv == 0);
+    const Bool isFullPelVerChroma = (_mv.getVer() % fracDiv == 0);
+
+    const Int cRangeXLeft = leftTopPelPosX + (isFullPelHorChroma ? 0 : CromaLTSampleoffset);
+    const Int cRangeYTop = leftTopPelPosY + (isFullPelVerChroma ? 0 : CromaLTSampleoffset);
+    const Int cRangeXRight = rightBottomPelPosX - (isFullPelHorChroma ? 0 : CromaRBSampleoffset);
+    const Int cRangeYBottom = rightBottomPelPosY - (isFullPelVerChroma ? 0 : CromaRBSampleoffset);
+
+    if (!(PredXLeft >= cRangeXLeft && PredXLeft <= cRangeXRight) || !(PredXRight >= cRangeXLeft && PredXRight <= cRangeXRight))
+    {
+      return false;
+    }
+    else if ((!(PredYTop >= cRangeYTop && PredYTop <= cRangeYBottom) || !(PredYBottom >= cRangeYTop && PredYBottom <= cRangeYBottom)) && (chromaFormat != CHROMA_422))
+    {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+Bool InterPrediction::checkTMctsMv(PredictionUnit &pu)
+{
+  UInt  tileXPosInCtus = 0;
+  UInt  tileYPosInCtus = 0;
+  UInt  tileWidthtInCtus = 0;
+  UInt  tileHeightInCtus = 0;
+
+  getTilePosition(pu, tileXPosInCtus, tileYPosInCtus, tileWidthtInCtus, tileHeightInCtus);
+
+  const UInt            ctuLength = pu.cs->sps->getMaxCUWidth();
+  const ChromaFormat chromaFormat = pu.cs->sps->getChromaFormatIdc();
+
+  Int   predXLeft;
+  Int   predYTop;
+  Int   predXRight;
+  Int   predYBottom;
+
+
+  const MotionBuf mb = pu.getMotionBuf();
+
+  for (int y = 0; y < mb.height; y++)
+  {
+    for (int x = 0; x < mb.width; x++)
+    {
+      const MotionInfo &mi = mb.at(x, y);
+
+      CHECK(!mi.isInter, "But it should be!");
+
+      int xOff = x << g_miScaling.posx;
+      int yOff = y << g_miScaling.posy;
+
+      if (xCheckIdenticalMotion(pu))
+      {
+        RefPicList eRefPicList = REF_PIC_LIST_0;
+        const Mv mv = mi.mv[eRefPicList];
+        getRefPUPartPos(pu, xOff, yOff, mv, predXLeft, predYTop, predXRight, predYBottom);
+        if (!checkMVPRange(mv, ctuLength, tileXPosInCtus, tileYPosInCtus, tileWidthtInCtus, tileHeightInCtus, predXLeft, predXRight, predYTop, predYBottom, chromaFormat))
+        {
+          return false;
+        }
+      }
+      else
+      {
+        for (UInt refList = 0; refList < NUM_REF_PIC_LIST_01; refList++)
+        {
+          RefPicList eRefPicList = (refList ? REF_PIC_LIST_1 : REF_PIC_LIST_0);
+
+          const Mv mv = mi.mv[eRefPicList];;
+          getRefPUPartPos(pu, xOff, yOff, mv, predXLeft, predYTop, predXRight, predYBottom);
+          if (!checkMVPRange(mv, ctuLength, tileXPosInCtus, tileYPosInCtus, tileWidthtInCtus, tileHeightInCtus, predXLeft, predXRight, predYTop, predYBottom, chromaFormat))
+          {
+            return false;
+          }
+        }
+      }
+    }
+  }
+
+  return true;
+}
+
+#endif
 
 //! \}
