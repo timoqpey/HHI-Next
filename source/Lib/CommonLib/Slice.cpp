@@ -40,6 +40,7 @@
 #include "Slice.h"
 #include "Picture.h"
 #include "dtrace_next.h"
+#include <set>
 
 
 //! \ingroup CommonLib
@@ -109,9 +110,9 @@ Slice::Slice()
 , m_LFCrossSliceBoundaryFlag      ( false )
 , m_enableTMVPFlag                ( true )
 , m_encCABACTableIdx              (I_SLICE)
-, m_iProcessingStartTime          (0)
-, m_dProcessingTime               (0)
-, m_uiMaxBTSize                   (0)
+, m_iProcessingStartTime          ( 0 )
+, m_dProcessingTime               ( 0 )
+, m_uiMaxBTSize                   ( 0 )
 {
   for(UInt i=0; i<NUM_REF_PIC_LIST_01; i++)
   {
@@ -333,6 +334,8 @@ Void Slice::setRefPOCList       ()
       m_aiRefPOCList[iDir][iNumRefIdx] = m_apcRefPicList[iDir][iNumRefIdx]->getPOC();
     }
   }
+  if( getSPS()->getSpsNext().getUseInterMultiHyp() )
+    setMultiHypRefPicList();
 
 }
 
@@ -513,6 +516,34 @@ Void Slice::setRefPicList( PicList& rcListPic, Bool checkNumPocTotalCurr, Bool b
   }
 }
 
+void Slice::setMultiHypRefPicList()
+{
+  m_multiHypRefPics.clear();
+  std::set<int> usedRefPOCs;
+
+  const int iNumRefIdx[2]= { getNumRefIdx(REF_PIC_LIST_0), getNumRefIdx(REF_PIC_LIST_1) };
+  for( int i = 0; i < std::max(iNumRefIdx[0], iNumRefIdx[1]); ++i )
+  {
+    for( int iRefPicList = 0; iRefPicList < 2; ++iRefPicList )
+    {
+      if( i < iNumRefIdx[iRefPicList] )
+      {
+        const RefPicList eRefPicList = RefPicList( iRefPicList );
+        const int iRefPOC = getRefPOC( eRefPicList, i );
+        if( usedRefPOCs.count( iRefPOC ) == 0 )
+        {
+          RefListAndRefIdx entry;
+          entry.refList = eRefPicList;
+          entry.refIdx = i;
+          m_multiHypRefPics.push_back( entry );
+          if( m_multiHypRefPics.size() == m_pcSPS->getSpsNext().getMaxNumAddHypRefFrames() )
+            return;
+          usedRefPOCs.insert( iRefPOC );
+        }
+      }
+    }
+  }
+}
 
 Int Slice::getNumRpsCurrTempList() const
 {
@@ -816,6 +847,7 @@ Void Slice::copySliceInfo(Slice *pSrc, bool cpyAlmostAll)
   m_maxNumMergeCand               = pSrc->m_maxNumMergeCand;
   if( cpyAlmostAll ) m_encCABACTableIdx  = pSrc->m_encCABACTableIdx;
   m_uiMaxBTSize                   = pSrc->m_uiMaxBTSize;
+  m_multiHypRefPics               = pSrc->m_multiHypRefPics;
 }
 
 
@@ -1695,33 +1727,72 @@ SPSNext::SPSNext( SPS& sps )
   , m_FRUC                      ( false )
   , m_Affine                    ( false )
   , m_AClip                     ( false )
-  , m_CIPF                      ( false )
+  , m_CIPFEnabled               ( false )
   , m_BIF                       ( false )
   , m_DMVR                      ( false )
   , m_MDMS                      ( false )
+  , m_MTTEnabled                ( false )
+  , m_NextDQP                   ( false )
+  , m_HHIPrivate                ( false )
+  //, m_GenBinSplit               ( false )
+  , m_IntraBiFi                 ( false )
+  , m_TCQEnabledFlag            ( false )
+  , m_InterMultiHyp             ( false )
+  , m_MDBP                      ( false )
+  , m_RestrictedMerge           ( false )
+  , m_IntraFTM                  ( false )
+  , m_mode1dPartitions          ( false )
+  , m_Intra_NN                  ( false )
+  , m_useIntraNNTrafos          ( false )
+  , m_UseSetOfTrafos            ( false )
+  , m_DiffusionFilterEnabled    ( false )
+#if THRESHOLDING
+  , m_thresholding              ( false )
+#endif
+  , m_IntraMRL                  ( false )
 
   // default values for additional parameters
   , m_CTUSize                   ( 0 )
   , m_minQT                     { 0, 0 }
-  , m_maxBTDepth                ( MAX_BT_DEPTH_INTER )
-  , m_maxBTDepthI               ( MAX_BT_DEPTH )
-  , m_maxBTDepthIChroma         ( MAX_BT_DEPTH_C )
-  , m_maxBTSize                 ( MAX_BT_SIZE_INTER )
-  , m_maxBTSizeI                ( MAX_BT_SIZE )
-  , m_maxBTSizeIChroma          ( MAX_BT_SIZE_C )
+  , m_maxBTDepth                { MAX_BT_DEPTH, MAX_BT_DEPTH_INTER, MAX_BT_DEPTH_C }
+  , m_maxBTSize                 { MAX_BT_SIZE,  MAX_BT_SIZE_INTER,  MAX_BT_SIZE_C }
   , m_subPuLog2Size             ( 0 )
   , m_CABACEngineMode           ( 0 )
   , m_ImvMode                   ( IMV_OFF )
   , m_altResiCompId             ( 0 )
   , m_LICMode                   ( 0 )
+  , m_MTTMode                   ( 0 )
   , m_OBMCBlkSize               ( 4 )
   , m_FRUCRefineFilter          ( 1 )
   , m_FRUCRefineRange           ( 8 )
   , m_FRUCSmallBlkRefineDepth   ( 3 )
+  , m_gbsNonLog2CUs             ( true )
+  , m_gbsForceSplitToLog2       ( false )
   , m_ELMMode                   ( 0 )
   , m_IntraPDPCMode             ( 0 )
+  , m_skipDQPinOddPOCs          ( false )
+  , m_maxNumAddHyps             ( 0 )
+  , m_numAddHypWeights          ( 0 )
+  , m_maxNumAddHypRefFrames     ( 0 )
+  , m_RegionSizeParameter       ( 1 )
+  , m_FTMmode                   ( false )
+  , m_derivedFTMAreaSize1       ( 8 )
+  , m_derivedFTMAreaSize2       ( 24 )
+  , m_derivedFTMAreaSize3       ( 72 )
+  , m_derivedFTMDownSample      ( false )
+  , m_DiffusionFilterMode       ( 0 )
+  , m_RestrDiffusionMode        ( 0 )
+  , m_RestrIntraDiffusionMode   ( false )
+  , m_NumDiffusionFiltersIntra  ( 0 )
+  , m_NumDiffusionFiltersInter  ( 0 )
+  , m_CIPFMode                  ( 0 )
   // ADD_NEW_TOOL : (sps extension) add tool enabling flags here (with "false" as default values)
-{}
+{
+#if THRESHOLDING
+  memset( m_thresholdingMaxSize, 0, sizeof(m_thresholdingMaxSize) );
+  memset( m_thresholdingMaxThrs, 0, sizeof(m_thresholdingMaxThrs) );
+#endif
+}
 
 
 SPS::SPS()
@@ -1787,6 +1858,13 @@ Void  SPS::createRPSList( Int numRPS )
   m_RPSList.create(numRPS);
 }
 
+void SPSNext::setFTMderivedParameters(unsigned RegionSizeParameter)
+{
+  m_derivedFTMAreaSize1 = (4 * (RegionSizeParameter + 1));
+  m_derivedFTMAreaSize2 = (2 * m_derivedFTMAreaSize1);
+  m_derivedFTMAreaSize3 = ((getSPS().getPicWidthInLumaSamples() > 1280) ? 4 * m_derivedFTMAreaSize2 : 2 * m_derivedFTMAreaSize2);
+  m_derivedFTMDownSample = ((getSPS().getPicWidthInLumaSamples() > 1280) ? true : false); // DownSampling for Reg 4 and 5 only
+}
 
 
 const Int SPS::m_winUnitX[]={1,2,2,1};
@@ -2267,6 +2345,7 @@ const Int* ScalingList::getScalingListDefaultAddress(UInt sizeId, UInt listId)
   const Int *src = 0;
   switch(sizeId)
   {
+    case SCALING_LIST_1D:
     case SCALING_LIST_2x2:
     case SCALING_LIST_4x4:
       src = g_quantTSDefault4x4;
@@ -2491,6 +2570,19 @@ UInt PreCalcValues::getMaxBtSize( const Slice &slice, const ChannelType chType )
   return ( !slice.isIntra() || isLuma( chType ) || ISingleTree ) ? slice.getMaxBTSize() : MAX_BT_SIZE_C;
 }
 
+UInt PreCalcValues::getMinTtSize( const Slice &slice, const ChannelType chType ) const
+{
+  return minTtSize[getValIdx( slice, chType )];
+}
+
+UInt PreCalcValues::getMaxTtSize( const Slice &slice, const ChannelType chType ) const
+{
+  return maxTtSize[getValIdx( slice, chType )];
+}
+unsigned PreCalcValues::getMaxAsymSize( const Slice &slice, const ChannelType chType ) const
+{
+  return maxAsymSize[getValIdx( slice, chType )];
+}
 
 UInt PreCalcValues::getMinQtSize( const Slice &slice, const ChannelType chType ) const
 {

@@ -37,13 +37,14 @@
 
 #include "Rom.h"
 #include "UnitTools.h"
+#include "CommonLib/BilateralFilter.h"
 
 #include <memory.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <math.h>
 #include <iomanip>
-#include "CommonLib/BilateralFilter.h"
+
 // ====================================================================================================================
 // Initialize / destroy functions
 // ====================================================================================================================
@@ -51,6 +52,7 @@
 #if ENABLE_TRACING
 CDTrace *g_trace_ctx = NULL;
 #endif
+
 
 //! \ingroup CommonLib
 //! \{
@@ -192,12 +194,6 @@ Int g_aiLMCodeWord[LM_SYMBOL_NUM][16];
 // initialize ROM variables
 Void initROM()
 {
-  BilateralFilter::instance()->createdivToMulLUTs();
-  for(Int qp=18; qp<MAX_QP+1; qp++ )
-  {
-    BilateralFilter::instance()->createBilateralFilterTable(qp);
-  }
-
   Int i, c;
 
 #if RExt__HIGH_BIT_DEPTH_SUPPORT
@@ -233,8 +229,20 @@ Void initROM()
   // g_aucConvertToBit[ x ]: log2(x/4), if x=4 -> 0, x=8 -> 1, x=16 -> 2, ...
   // g_aucLog2[ x ]: log2(x), if x=1 -> 0, x=2 -> 1, x=4 -> 2, x=8 -> 3, x=16 -> 4, ...
   ::memset(g_aucLog2, 0, sizeof(g_aucLog2));
+  // Explanation for g_aucLog2ForNonPowerOfSizes[ x ]
+  // 1) if x is a power of 2 -> g_aucLog2ForNonPowerOfSizes[ x ] = 0
+  // 2) if x is not a power of 2 -> x=K*p, where K is a power of 2 and p is not. Then g_aucLog2ForNonPowerOfSizes[ x ] = ceil(log2(p))
+  ::memset(g_aucCeilOfLog2OfNonPowerOf2Part, 0, sizeof(g_aucCeilOfLog2OfNonPowerOf2Part));
+  // Explanation for g_aucLog2OfPowerOf2Part[ x ]
+  // 1) if x is a power of 2 -> g_aucLog2ForNonPowerOfSizes[ x ] = log2(x)
+  // 2) if x is not a power of 2 -> x=K*p, where K is a power of 2 and p is not. Then g_aucLog2ForNonPowerOfSizes[ x ] = log2(K)
+  ::memset(g_aucLog2OfPowerOf2Part, 0, sizeof(g_aucLog2OfPowerOf2Part));
   c = 0;
+#if THRESHOLDING
+  for( int i = 0, n = 0; i <= MAX_TR_SIZE; i++ )
+#else
   for( int i = 0, n = 0; i <= MAX_CU_SIZE; i++ )
+#endif
   {
     g_aucNextLog2[i] = i <= 1 ? 0 : c + 1;
 
@@ -246,27 +254,78 @@ Void initROM()
 
     g_aucPrevLog2[i] = c;
     g_aucLog2    [i] = c;
+    g_aucLog2OfPowerOf2Part[i] = c;
   }
 
   c = 2; //for the 2x2 transforms if QTBT is on
 
   const Double PI = 3.14159265358979323846;
 
-  for (i = 0; i < 7; i++)
+  gp_sizeIdxInfo = new SizeIndexInfoWithNonLog2();
+  gp_sizeIdxInfo->init(MAX_CU_SIZE);
+#if THRESHOLDING
+  const int numberOfDifferentSizes = 18;//gp_sizeIdxInfo->numAllHeights();
+  UInt lengths[numberOfDifferentSizes] = { 2, 4, 6, 8, 10, 12, 16, 20, 24, 32, 40, 48, 64, 80, 96, 128, 160, 192 };
+  UInt nonPowerOf2FactorsOfLengths[numberOfDifferentSizes] = { 1, 1, 3, 1,  5,  3,  1,  5,  3,  1,  5,  3,  1,  5,  3,   1,  5,  3 };
+#else
+  const int numberOfDifferentSizes = 16;//gp_sizeIdxInfo->numAllHeights();
+  UInt lengths[numberOfDifferentSizes] = { 2, 4, 6, 8, 10, 12, 16, 20, 24, 32, 40, 48, 64, 80, 96, 128 };
+  UInt nonPowerOf2FactorsOfLengths[numberOfDifferentSizes] = { 1, 1, 3, 1,  5,  3,  1,  5,  3,  1,  5,  3,  1,  5,  3,   1 };
+#endif
+  UInt lengthsPowerOf2Factor[numberOfDifferentSizes];
+  for (int i = 0; i < numberOfDifferentSizes; i++)
   {
-    TMatrixCoeff *iT = NULL;
-    const Double s = sqrt((Double)c) * (64 << COM16_C806_TRANS_PREC);
+    lengthsPowerOf2Factor[i] = lengths[i] / nonPowerOf2FactorsOfLengths[i];
+  }
 
+  for (i = 0; i < numberOfDifferentSizes; i++)
+  {
+    //Parameters of the scaling (to make it easier to understand, in this explanation COM16_C806_TRANS_PREC is ignored)
+    //N => size of the 1-D transform
+    //N=K*p, where K is a power of 2 and p is a prime number. For example, for N=12 -> K=4 and p=3
+    //Scaling for a power of 2 => 2^(6+0.5*log2(N))=sqrt(N)*64
+    //If N is not a power of 2, then we need to change the scaling of the transform to avoid having later non-integer shifts that would require double divisions. Therefore:
+    //Scaling for a non-power of 2 => 2^(6+0.5*log2(K)+ceil(log2(p))-0.5*log2(p))=sqrt(K/p)*64*2^ceil(log2(p))
+    //As we can see, in the exponent we have subtracted the non-integer part log2(p) and we have added ceil(log2(p)), which is an integer. The scaling is hence bigger, so no precision is lost.
+    c = lengths[i];
+    const double K = lengthsPowerOf2Factor[i];
+    const double p = nonPowerOf2FactorsOfLengths[i];
+    const int ceilLog2ofp = (int)ceil(log2(p));
+    TMatrixCoeff *iT = NULL;
+    const Double s = sqrt(K / p) * (64 << (ceilLog2ofp + COM16_C806_TRANS_PREC)); //here we have added COM16_C806_TRANS_PREC for more precision
+
+    //we update the g_aucCeilOfLog2OfNonPowerOf2Part for the non-power of 2 values of N, where we save ceil(log2(p))
+    g_aucCeilOfLog2OfNonPowerOf2Part[c] = (p != 1) ? (SChar)(ceilLog2ofp) : 0;
+    g_aucLog2OfPowerOf2Part[c] = (p != 1) ? (SChar)(log2(K)) : g_aucLog2[c];
+
+
+
+
+
+    //now we fill the transforms arrays
     switch (i)
     {
-    case 0: iT = g_aiTr2[0][0]; break;
-    case 1: iT = g_aiTr4[0][0]; break;
-    case 2: iT = g_aiTr8[0][0]; break;
-    case 3: iT = g_aiTr16[0][0]; break;
-    case 4: iT = g_aiTr32[0][0]; break;
-    case 5: iT = g_aiTr64[0][0]; break;
-    case 6: iT = g_aiTr128[0][0]; break;
-    case 7: exit(0); break;
+    case 0:  iT = g_aiTr2[0][0]; break;
+    case 1:  iT = g_aiTr4[0][0]; break;
+    case 2:  iT = g_aiTr6[0][0]; break;
+    case 3:  iT = g_aiTr8[0][0]; break;
+    case 4:  iT = g_aiTr10[0][0]; break;
+    case 5:  iT = g_aiTr12[0][0]; break;
+    case 6:  iT = g_aiTr16[0][0]; break;
+    case 7:  iT = g_aiTr20[0][0]; break;
+    case 8:  iT = g_aiTr24[0][0]; break;
+    case 9:  iT = g_aiTr32[0][0]; break;
+    case 10: iT = g_aiTr40[0][0]; break;
+    case 11: iT = g_aiTr48[0][0]; break;
+    case 12: iT = g_aiTr64[0][0]; break;
+    case 13: iT = g_aiTr80[0][0]; break;
+    case 14: iT = g_aiTr96[0][0]; break;
+    case 15: iT = g_aiTr128[0][0]; break;
+#if THRESHOLDING
+    case 16: iT = g_aiTr160[ 0 ][ 0 ]; break;
+    case 17: iT = g_aiTr192[ 0 ][ 0 ]; break;
+#endif
+    default: exit(0); break;
     }
 
     for (Int k = 0; k < c; k++)
@@ -298,14 +357,12 @@ Void initROM()
         v = sin(PI*(k + 0.5)*(n + 1) / (c + 0.5)) * sqrt(2.0 / (c + 0.5));
         iT[DST7*c*c + k*c + n] = (Short)(s * v + (v > 0 ? 0.5 : -0.5));
       }
+
     }
-    c <<= 1;
   }
-  gp_sizeIdxInfo = new SizeIndexInfoLog2();
-  gp_sizeIdxInfo->init(MAX_CU_SIZE);
 
 
-  generateBlockSizeQuantScaling(*gp_sizeIdxInfo);
+  generateTrafoBlockSizeScaling(*gp_sizeIdxInfo);
 
   const Double scPi = 2.0 * 3.14159265358979323846 / (Double)NSST_HYGT_PTS;
   for (i = 0; i < NSST_HYGT_PTS; i++)
@@ -314,7 +371,7 @@ Void initROM()
     g_tabSinCos[i].s = Int(floor(sin(i * scPi) * 1024.0 + 0.5));
   }
 
-  SizeIndexInfoLog2 sizeInfo;
+  SizeIndexInfoWithNonLog2 sizeInfo;
   sizeInfo.init(MAX_CU_SIZE);
 
   // initialize scan orders
@@ -351,7 +408,7 @@ Void initROM()
         }
       }
 
-      if( blockWidthIdx > sizeInfo.numWidths() || blockHeightIdx > sizeInfo.numHeights() )
+      if( blockWidthIdx >= sizeInfo.numWidths() || blockHeightIdx >= sizeInfo.numHeights() )
       {
         // size indizes greater than numIdxs are sizes than are only used when grouping - they will never come up as a block size - thus they can be skipped at this point
         for( UInt scanTypeIndex = 0; scanTypeIndex < SCAN_NUMBER_OF_TYPES; scanTypeIndex++ )
@@ -359,6 +416,10 @@ Void initROM()
           g_scanOrder     [SCAN_GROUPED_4x4][scanTypeIndex][blockWidthIdx][blockHeightIdx]    = nullptr;
           g_scanOrderPosXY[SCAN_GROUPED_4x4][scanTypeIndex][blockWidthIdx][blockHeightIdx][0] = nullptr;
           g_scanOrderPosXY[SCAN_GROUPED_4x4][scanTypeIndex][blockWidthIdx][blockHeightIdx][1] = nullptr;
+
+          g_rasterPos2ScanId[scanTypeIndex][blockWidthIdx][blockHeightIdx] = nullptr;
+          g_scanId2NbInfoSbb[scanTypeIndex][blockWidthIdx][blockHeightIdx] = nullptr;
+          g_scanId2NbInfoOut[scanTypeIndex][blockWidthIdx][blockHeightIdx] = nullptr;
         }
 
         continue;
@@ -367,8 +428,8 @@ Void initROM()
       //--------------------------------------------------------------------------------------------------
 
       //grouped scan orders
-      const UInt  log2CGWidth    = (blockWidth & 3) + (blockHeight & 3) > 0 ? 1 : 2;
-      const UInt  log2CGHeight   = (blockWidth & 3) + (blockHeight & 3) > 0 ? 1 : 2;
+      const UInt  log2CGWidth    = (blockWidth != 1 && blockHeight != 1 ? ((blockWidth & 3) + (blockHeight & 3) > 0 ? 1 : 2) : blockWidth  != 1 ? ((blockWidth  & 3) ? 1 : 2) : 0);
+      const UInt  log2CGHeight   = (blockWidth != 1 && blockHeight != 1 ? ((blockWidth & 3) + (blockHeight & 3) > 0 ? 1 : 2) : blockHeight != 1 ? ((blockHeight & 3) ? 1 : 2) : 0);
 
       const UInt  groupWidth     = 1 << log2CGWidth;
       const UInt  groupHeight    = 1 << log2CGHeight;
@@ -385,6 +446,10 @@ Void initROM()
         g_scanOrder     [SCAN_GROUPED_4x4][scanType][blockWidthIdx][blockHeightIdx]    = new UInt[totalValues];
         g_scanOrderPosXY[SCAN_GROUPED_4x4][scanType][blockWidthIdx][blockHeightIdx][0] = new UInt[totalValues];
         g_scanOrderPosXY[SCAN_GROUPED_4x4][scanType][blockWidthIdx][blockHeightIdx][1] = new UInt[totalValues];
+
+        g_rasterPos2ScanId[scanType][blockWidthIdx][blockHeightIdx] = new unsigned[totalValues];
+        g_scanId2NbInfoSbb[scanType][blockWidthIdx][blockHeightIdx] = new NbInfoSbb[totalValues];
+        g_scanId2NbInfoOut[scanType][blockWidthIdx][blockHeightIdx] = new NbInfoOut[totalValues];
 
         ScanGenerator fullBlockScan(widthInGroups, heightInGroups, groupWidth, scanType);
 
@@ -407,6 +472,7 @@ Void initROM()
             g_scanOrder     [SCAN_GROUPED_4x4][scanType][blockWidthIdx][blockHeightIdx]   [groupOffsetScan + scanPosition] = rasterPos;
             g_scanOrderPosXY[SCAN_GROUPED_4x4][scanType][blockWidthIdx][blockHeightIdx][0][groupOffsetScan + scanPosition] = posX;
             g_scanOrderPosXY[SCAN_GROUPED_4x4][scanType][blockWidthIdx][blockHeightIdx][1][groupOffsetScan + scanPosition] = posY;
+            g_rasterPos2ScanId[scanType][blockWidthIdx][blockHeightIdx][rasterPos] = groupOffsetScan + scanPosition;
           }
 
           fullBlockScan.GetNextIndex(0, 0);
@@ -414,6 +480,127 @@ Void initROM()
       }
 
       //--------------------------------------------------------------------------------------------------
+    }
+  }
+
+  for (UInt blockHeightIdx = 0; blockHeightIdx < sizeInfo.numHeights(); blockHeightIdx++)
+  {
+    for (UInt blockWidthIdx = 0; blockWidthIdx < sizeInfo.numWidths(); blockWidthIdx++)
+    {
+      const int blockWidth  = sizeInfo.sizeFrom(blockWidthIdx);
+      const int blockHeight = sizeInfo.sizeFrom(blockHeightIdx);
+
+      const UInt  log2CGWidth    = (blockWidth != 1 && blockHeight != 1 ? ((blockWidth & 3) + (blockHeight & 3) > 0 ? 1 : 2) : blockWidth  != 1 ? ((blockWidth  & 3) ? 1 : 2) : 0);
+      const UInt  log2CGHeight   = (blockWidth != 1 && blockHeight != 1 ? ((blockWidth & 3) + (blockHeight & 3) > 0 ? 1 : 2) : blockHeight != 1 ? ((blockHeight & 3) ? 1 : 2) : 0);
+      const UInt  groupWidth     = 1 << log2CGWidth;
+      const UInt  groupHeight    = 1 << log2CGHeight;
+      const UInt  groupSize      = groupWidth * groupHeight;
+      const UInt  widthInGroups  = blockWidth  >> log2CGWidth;
+      const UInt  heightInGroups = blockHeight >> log2CGHeight;
+      const UInt  totalValues    = widthInGroups * heightInGroups * groupSize;
+
+      for (UInt scanTypeIndex = 0; scanTypeIndex < SCAN_NUMBER_OF_TYPES; scanTypeIndex++)
+      {
+        const CoeffScanType scanType  = CoeffScanType(scanTypeIndex);
+        const UInt*         scanId2X  = g_scanOrderPosXY[SCAN_GROUPED_4x4][scanType][blockWidthIdx][blockHeightIdx][0];
+        const UInt*         scanId2Y  = g_scanOrderPosXY[SCAN_GROUPED_4x4][scanType][blockWidthIdx][blockHeightIdx][1];
+        const unsigned*     raster2id = g_rasterPos2ScanId                [scanType][blockWidthIdx][blockHeightIdx];
+        NbInfoSbb*          sId2NbSbb = g_scanId2NbInfoSbb                [scanType][blockWidthIdx][blockHeightIdx];
+        NbInfoOut*          sId2NbOut = g_scanId2NbInfoOut                [scanType][blockWidthIdx][blockHeightIdx];
+
+        // init
+        for( unsigned scanId = 0; scanId < totalValues; scanId++ )
+        {
+          const int posX = scanId2X[ scanId ];
+          const int posY = scanId2Y[ scanId ];
+          const int rpos = posY * blockWidth + posX;
+
+          {
+            //===== inside subband neighbours =====
+            NbInfoSbb&     nbSbb  = sId2NbSbb[ scanId ];
+            const int      begSbb = scanId - ( scanId & (groupSize-1) ); // first pos in current subblock
+            int            cpos[5];
+            cpos[0] = ( posX < blockWidth -1                         ? ( raster2id[rpos+1           ] - begSbb < groupSize ? raster2id[rpos+1           ] - begSbb : 0 ) : 0 );
+            cpos[1] = ( posX < blockWidth -2                         ? ( raster2id[rpos+2           ] - begSbb < groupSize ? raster2id[rpos+2           ] - begSbb : 0 ) : 0 );
+            cpos[2] = ( posX < blockWidth -1 && posY < blockHeight-1 ? ( raster2id[rpos+1+blockWidth] - begSbb < groupSize ? raster2id[rpos+1+blockWidth] - begSbb : 0 ) : 0 );
+            cpos[3] = ( posY < blockHeight-1                         ? ( raster2id[rpos+  blockWidth] - begSbb < groupSize ? raster2id[rpos+  blockWidth] - begSbb : 0 ) : 0 );
+            cpos[4] = ( posY < blockHeight-2                         ? ( raster2id[rpos+2*blockWidth] - begSbb < groupSize ? raster2id[rpos+2*blockWidth] - begSbb : 0 ) : 0 );
+            for( nbSbb.num = 0; true; )
+            {
+              int nk = -1;
+              for( int k = 0; k < 5; k++ )
+              {
+                if( cpos[k] != 0 && ( nk < 0 || cpos[k] < cpos[nk] ) )
+                {
+                  nk = k;
+                }
+              }
+              if( nk < 0 )
+              {
+                break;
+              }
+              nbSbb.inPos[ nbSbb.num++ ] = uint8_t( cpos[nk] );
+              cpos[nk] = 0;
+            }
+            for( int k = nbSbb.num; k < 5; k++ )
+            {
+              nbSbb.inPos[k] = 0;
+            }
+          }
+          {
+            //===== outside subband neighbours =====
+            NbInfoOut&     nbOut  = sId2NbOut[ scanId ];
+            const int      begSbb = scanId - ( scanId & (groupSize-1) ); // first pos in current subblock
+            int            cpos[5];
+            cpos[0] = ( posX < blockWidth -1                         ? ( raster2id[rpos+1           ] - begSbb >= groupSize ? raster2id[rpos+1           ] : 0 ) : 0 );
+            cpos[1] = ( posX < blockWidth -2                         ? ( raster2id[rpos+2           ] - begSbb >= groupSize ? raster2id[rpos+2           ] : 0 ) : 0 );
+            cpos[2] = ( posX < blockWidth -1 && posY < blockHeight-1 ? ( raster2id[rpos+1+blockWidth] - begSbb >= groupSize ? raster2id[rpos+1+blockWidth] : 0 ) : 0 );
+            cpos[3] = ( posY < blockHeight-1                         ? ( raster2id[rpos+  blockWidth] - begSbb >= groupSize ? raster2id[rpos+  blockWidth] : 0 ) : 0 );
+            cpos[4] = ( posY < blockHeight-2                         ? ( raster2id[rpos+2*blockWidth] - begSbb >= groupSize ? raster2id[rpos+2*blockWidth] : 0 ) : 0 );
+            for( nbOut.num = 0; true; )
+            {
+              int nk = -1;
+              for( int k = 0; k < 5; k++ )
+              {
+                if( cpos[k] != 0 && ( nk < 0 || cpos[k] < cpos[nk] ) )
+                {
+                  nk = k;
+                }
+              }
+              if( nk < 0 )
+              {
+                break;
+              }
+              nbOut.outPos[ nbOut.num++ ] = uint16_t( cpos[nk] );
+              cpos[nk] = 0;
+            }
+            for( int k = nbOut.num; k < 5; k++ )
+            {
+              nbOut.outPos[k] = 0;
+            }
+            nbOut.maxDist = ( scanId == 0 ? 0 : sId2NbOut[scanId-1].maxDist );
+            for( int k = 0; k < nbOut.num; k++ )
+            {
+              if( nbOut.outPos[k] > nbOut.maxDist )
+              {
+                nbOut.maxDist = nbOut.outPos[k];
+              }
+            }
+          }
+        }
+
+        // make it relative
+        for( unsigned scanId = 0; scanId < totalValues; scanId++ )
+        {
+          NbInfoOut& nbOut  = sId2NbOut[scanId];
+          const int  begSbb = scanId - ( scanId & (groupSize-1) ); // first pos in current subblock
+          for( int k = 0; k < nbOut.num; k++ )
+          {
+            nbOut.outPos[k] -= begSbb;
+          }
+          nbOut.maxDist -= scanId;
+        }
+      }
     }
   }
 
@@ -433,19 +620,9 @@ Void initROM()
       { 4, 4 }, { 4, 5 }, { 5, 4 }, { 4, 6 }, { 5, 5 }, { 6, 4 }, { 4, 7 }, { 5, 6 },
       { 6, 5 }, { 7, 4 }, { 5, 7 }, { 6, 6 }, { 7, 5 }, { 6, 7 }, { 7, 6 }, { 7, 7 }
     };
-
     for (int i = 0; i < 64; i++)
     {
       g_auiCoefTopLeftDiagScan8x8[blockWidthIdx][i] = g_auiXYDiagScan8x8[i][0] + g_auiXYDiagScan8x8[i][1] * blockWidth;
-    }
-  }
-
-  for (i = 17; i < 32; i++)
-  {
-    for (c = 0; c < 4; c++)
-    {
-      intraCubicFilter[i][c] = intraCubicFilter[32 - i][3 - c];
-      intraGaussFilter[i][c] = intraGaussFilter[32 - i][3 - c];
     }
   }
 }
@@ -471,6 +648,18 @@ Void destroyROM()
 
           delete[] g_scanOrderPosXY[groupTypeIndex][scanOrderIndex][blockWidthIdx][blockHeightIdx][1];
           g_scanOrderPosXY[groupTypeIndex][scanOrderIndex][blockWidthIdx][blockHeightIdx][1] = nullptr;
+
+          if( groupTypeIndex == SCAN_GROUPED_4x4 )
+          {
+            delete [] g_rasterPos2ScanId[scanOrderIndex][blockWidthIdx][blockHeightIdx];
+            g_rasterPos2ScanId[scanOrderIndex][blockWidthIdx][blockHeightIdx] = nullptr;
+
+            delete [] g_scanId2NbInfoSbb[scanOrderIndex][blockWidthIdx][blockHeightIdx];
+            g_scanId2NbInfoSbb[scanOrderIndex][blockWidthIdx][blockHeightIdx] = nullptr;
+
+            delete [] g_scanId2NbInfoOut[scanOrderIndex][blockWidthIdx][blockHeightIdx];
+            g_scanId2NbInfoOut[scanOrderIndex][blockWidthIdx][blockHeightIdx] = nullptr;
+          }
         }
       }
     }
@@ -482,7 +671,7 @@ Void destroyROM()
 
 
 
-void generateBlockSizeQuantScaling(SizeIndexInfo& sizeIdxInfo)
+void generateTrafoBlockSizeScaling(SizeIndexInfo& sizeIdxInfo)
 {
   for (SizeType y = 0; y < sizeIdxInfo.numHeights(); y++)
   {
@@ -490,10 +679,41 @@ void generateBlockSizeQuantScaling(SizeIndexInfo& sizeIdxInfo)
     {
       SizeType h = sizeIdxInfo.sizeFrom(y);
       SizeType w = sizeIdxInfo.sizeFrom(x);
-      double factor = sqrt(h) * sqrt(w) / (double)(1 << ((g_aucLog2[h] + g_aucLog2[w]) / 2));
+      // pWidth and pHeight are the nonPowerOf2Parts of width and heigh respectively
+      // a is 1 if log2(width)+log2(height) is an even number and 2 otherwise
+      // realFactor for the quantization   => sqrt(a*pWidth*pHeight)
+      // realFactor for the dequantization => sqrt(pWidth*pHeight/a)
+      //the cases are implemented to minimize the number of costly math operations and truncation errors
+      //NOTE => this only works for the widths and heights defined for the transforms in initROM!!!
+      int pWidth = w >> g_aucLog2OfPowerOf2Part[w], pHeight = h >> g_aucLog2OfPowerOf2Part[h];
+      int a = (g_aucLog2OfPowerOf2Part[h] + g_aucLog2OfPowerOf2Part[w]) % 2 == 0 ? 1 : 2;
+      double sqrt_a = a != 1 ? sqrt(a) : 1;
+      int log2a = g_aucLog2[a];
+      double realFactorQuant, realFactorDeQuant;
+      if (pWidth == pHeight)                //case sqrt(a*pWidth*pWidth)=sqrt(a*pWidth^2)=sqrt(a)*pWidth
+      {
+        realFactorQuant = pWidth*sqrt_a;
+        realFactorDeQuant = pWidth / sqrt_a;
+      }
+      else if (pWidth == 1 && pHeight != 1) //case sqrt(a*pWidth*pWidth)=sqrt(a*1*pHeight)=sqrt(a*pHeight)
+      {
+        realFactorQuant = sqrt(pHeight << log2a);
+        realFactorDeQuant = sqrt(pHeight >> log2a);
+      }
+      else if (pWidth != 1 && pHeight == 1) //case sqrt(a*pWidth*pWidth)=sqrt(a*pWidth*1)=sqrt(a*pWidth)
+      {
+        realFactorQuant = sqrt(pWidth << log2a);
+        realFactorDeQuant = sqrt(pWidth >> log2a);
+      }
+      else                                  //general case sqrt(a*pWidth*pWidth)
+      {
+        realFactorQuant = sqrt((pWidth*pHeight) << log2a);
+        realFactorDeQuant = sqrt((pWidth*pHeight) >> log2a);
+      }
+      //now we approximate the real factor to a fraction where the denominator can be implemented with shifts
+      g_BlockSizeTrafoScale[h][w][0] = (pWidth == 1 && pHeight == 1 && a == 1) ? 1 : (int)round((double)((1 << ADJ_QUANT_SHIFT))*realFactorQuant);
+      g_BlockSizeTrafoScale[h][w][1] = (pWidth == 1 && pHeight == 1 && a == 1) ? 1 : (int)round((double)((1 << ADJ_DEQUANT_SHIFT))*realFactorDeQuant);
 
-      g_BlockSizeQuantScale[h][w][0] = ((int)(factor + 0.9) != 1) ? (int)(factor * (double)(1 << ADJ_QUANT_SHIFT)) : 1;
-      g_BlockSizeQuantScale[h][w][1] = ((int)(factor + 0.9) != 1) ? (int)((double)(1 << ADJ_DEQUANT_SHIFT) / factor + 0.5) : 1;
     }
   }
 }
@@ -513,11 +733,10 @@ const Int g_invQuantScales[SCALING_LIST_REM_NUM] =
 };
 
 //--------------------------------------------------------------------------------------------------
-//structures
-
+//structures 
 //EMT transform sets
-Int g_aiTrSubsetIntra[3][2] = { { DST7, DCT8 }, { DST7, DST1 }, { DST7, DCT5 } };
-Int g_aiTrSubsetInter[4] = { DCT8, DST7 };
+const Int g_aiTrSubsetIntra[3][2] = { { DST7, DCT8 }, { DST7, DST1 }, { DST7, DCT5 } };
+const Int g_aiTrSubsetInter[4] = { DCT8, DST7 };
 
 const UChar g_aucTrSetVert[NUM_INTRA_MODE - 1] =
 {//0  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63 64 65 66
@@ -548,6 +767,19 @@ TMatrixCoeff g_aiTr32 [NUM_TRANS_TYPE][ 32][ 32];
 TMatrixCoeff g_aiTr64 [NUM_TRANS_TYPE][ 64][ 64];
 TMatrixCoeff g_aiTr128[NUM_TRANS_TYPE][128][128];
 
+TMatrixCoeff g_aiTr6  [NUM_TRANS_TYPE][  6][  6];
+TMatrixCoeff g_aiTr10 [NUM_TRANS_TYPE][ 10][ 10];
+TMatrixCoeff g_aiTr12 [NUM_TRANS_TYPE][ 12][ 12];
+TMatrixCoeff g_aiTr20 [NUM_TRANS_TYPE][ 20][ 20];
+TMatrixCoeff g_aiTr24 [NUM_TRANS_TYPE][ 24][ 24];
+TMatrixCoeff g_aiTr40 [NUM_TRANS_TYPE][ 40][ 40];
+TMatrixCoeff g_aiTr48 [NUM_TRANS_TYPE][ 48][ 48];
+TMatrixCoeff g_aiTr80 [NUM_TRANS_TYPE][ 80][ 80];
+TMatrixCoeff g_aiTr96 [NUM_TRANS_TYPE][ 96][ 96];
+#if THRESHOLDING
+TMatrixCoeff g_aiTr160[NUM_TRANS_TYPE][160][160];
+TMatrixCoeff g_aiTr192[NUM_TRANS_TYPE][192][192];
+#endif
 
 //--------------------------------------------------------------------------------------------------
 //coefficients
@@ -557,7 +789,11 @@ const UChar g_aucChromaScale[NUM_CHROMA_FORMAT][chromaQPMappingTableSize] =
 {
   //0, 1, 2, 3, 4, 5, 6, 7, 8, 9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57
   { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 },
+#if MEDIATEK_CHROMA_SCALE
+  { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,29,30,31,32,33,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,51,51,51,51 },
+#else
   { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,29,30,31,32,33,33,34,34,35,35,36,36,37,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51 },
+#endif
   { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,51,51,51,51,51,51 },
   { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,51,51,51,51,51,51 }
 };
@@ -612,7 +848,7 @@ extern const UChar g_intraMode33to65AngMapping[36] =
 //0, 1, 2, 3, 4, 5,  6,  7,  8,  9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, DM
 { 0, 1, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 34, 36, 38, 40, 42, 44, 46, 48, 50, 52, 54, 56, 58, 60, 62, 64, 66, DM_CHROMA_IDX };
 
-Int intraCubicFilter[32][4] = {
+const Int g_intraCubicFilter[32][4] = {
   {   0, 256,   0,   0 }, //  0 Integer-Pel
   {  -3, 252,   8,  -1 }, //  1
   {  -5, 247,  17,  -3 }, //  2
@@ -630,9 +866,24 @@ Int intraCubicFilter[32][4] = {
   { -17, 162, 126, -15 }, // 14
   { -16, 153, 135, -16 }, // 15
   { -16, 144, 144, -16 }, // 16 Half-Pel
+  { -16, 135, 153, -16 }, // 17
+  { -15, 126, 162, -17 }, // 18
+  { -14, 116, 170, -16 }, // 19
+  { -14, 107, 179, -16 }, // 20
+  { -13,  98, 187, -16 }, // 21
+  { -12,  89, 195, -16 }, // 22
+  { -11,  79, 203, -15 }, // 23
+  { -10,  70, 210, -14 }, // 24
+  {  -9,  61, 217, -13 }, // 25
+  {  -8,  52, 224, -12 }, // 26
+  {  -7,  43, 230, -10 }, // 27
+  {  -5,  34, 236,  -9 }, // 28
+  {  -4,  25, 242,  -7 }, // 29
+  {  -3,  17, 247,  -5 }, // 30
+  {  -1,   8, 252,  -3 }, // 31
 };
-Int intraGaussFilter[32][4] = {
-  {  47, 161,  47,   1 }, //  0 Integer-Pel
+const Int g_intraGaussFilter[32][4] = {
+  {  47, 162,  47,   0 }, //  0 Integer-Pel
   {  43, 161,  51,   1 }, //  1
   {  40, 160,  54,   2 }, //  2
   {  37, 159,  58,   2 }, //  3
@@ -649,20 +900,46 @@ Int intraGaussFilter[32][4] = {
   {  13, 127, 108,   8 }, // 14
   {  11, 123, 113,   9 }, // 15
   {  10, 118, 118,  10 }, // 16 Half-Pel
+  {   9, 113, 123,  11 }, // 17
+  {   8, 108, 127,  13 }, // 18
+  {   7, 104, 131,  14 }, // 19
+  {   6,  99, 135,  16 }, // 20
+  {   6,  94, 139,  17 }, // 21
+  {   5,  90, 142,  19 }, // 22
+  {   4,  85, 146,  21 }, // 23
+  {   4,  80, 149,  23 }, // 24
+  {   3,  76, 151,  26 }, // 25
+  {   3,  71, 154,  28 }, // 26
+  {   2,  67, 156,  31 }, // 27
+  {   2,  62, 158,  34 }, // 28
+  {   2,  58, 159,  37 }, // 29
+  {   2,  54, 160,  40 }, // 30
+  {   1,  51, 161,  43 }, // 31
 };
+
 
 // ====================================================================================================================
 // Decision tree templates
 // ====================================================================================================================
 
-
-const DecisionTreeTemplate g_qtbtSplitDTT = compile(
+const DecisionTreeTemplate g_mtSplitDTT = compile(
   decision( DTT_SPLIT_DO_SPLIT_DECISION,
   /*0*/ DTT_SPLIT_NO_SPLIT,
   /*1*/ decision( DTT_SPLIT_HV_DECISION,
-        /*0*/ DTT_SPLIT_BT_HORZ,
-        /*1*/ DTT_SPLIT_BT_VERT ) ) );
-
+        /*0*/ decision( DTT_SPLIT_H_IS_BT_12_DECISION,
+              /*0*/ decision( DTT_SPLIT_H_IS_SYM,
+                    /*0*/ decision( DTT_SPLIT_H_IS_14,
+                          /*0*/ DTT_SPLIT_BT_H_34,
+                          /*1*/ DTT_SPLIT_BT_H_14 ),
+                    /*1*/ DTT_SPLIT_TT_HORZ ),
+              /*1*/ DTT_SPLIT_BT_HORZ ),
+        /*1*/ decision( DTT_SPLIT_V_IS_BT_12_DECISION,
+              /*0*/ decision( DTT_SPLIT_V_IS_SYM,
+                    /*0*/ decision( DTT_SPLIT_V_IS_14,
+                          /*0*/ DTT_SPLIT_BT_V_34,
+                          /*1*/ DTT_SPLIT_BT_V_14 ),
+                    /*1*/ DTT_SPLIT_TT_VERT ),
+              /*1*/ DTT_SPLIT_BT_VERT ) ) ) );
 
 const DecisionTreeTemplate g_partSizeDTT = compile(
   decision( DTT_PS_IS_2Nx2N,
@@ -681,6 +958,56 @@ const DecisionTreeTemplate g_partSizeDTT = compile(
               /*1*/ DTT_PS_2NxN ) ),
   /*1*/ DTT_PS_2Nx2N ) );
 
+const DecisionTreeTemplate g_genBinSplitDTT = compile(
+  decision( DTT_GBS_DO_SPLIT,
+  /*0*/ DTT_GBS_DONT_SPLIT,
+  /*1*/ decision( DTT_GBS_DO_PERP_SPLIT,
+        /*0*/ DTT_GBS_PARL_SPLIT,
+        /*1*/ DTT_GBS_PERP_SPLIT ) ) );
+
+const DecisionTreeTemplate g_splitModifierDTT = compile(
+  //////////////////////////////////////////////////////////////////////////
+  // all but the 3/2 and 5/4 subtrees are used for log2 classes
+  decision( DTT_SM_IS_ASYM,
+  /*0*/ decision( DTT_SM_IS_x3,
+        /*0*/ decision( DTT_SM_IS_x5,
+              /*0*/ DTT_SM_12,
+              //////////////////////////////////////////////////////////////////////////
+              // the following subtree is used for 5/4 classes
+              /*1*/ decision( DTT_SM_IS_235,
+                    /*0*/ decision( DTT_SM_IS_15,
+                          /*0*/ DTT_SM_45,
+                          /*1*/ DTT_SM_15 ),
+                    /*1*/ decision( DTT_SM_IS_25,
+                          /*0*/ DTT_SM_35,
+                          /*1*/ DTT_SM_25 ) ) ),
+        //////////////////////////////////////////////////////////////////////////
+        // the following subtree is used for 3/2 classes
+        /*1*/ decision( DTT_SM_IS_13,
+              /*0*/ DTT_SM_23,
+              /*1*/ DTT_SM_13 ) ),
+        //////////////////////////////////////////////////////////////////////////
+        // back to log2 tree
+  /*1*/ decision( DTT_SM_IS_QUART,
+        /*0*/ decision( DTT_SM_IS_38,
+              /*0*/ DTT_SM_58,
+              /*1*/ DTT_SM_38 ),
+        /*1*/ decision( DTT_SM_IS_14,
+              /*0*/ DTT_SM_34,
+              /*1*/ DTT_SM_14 ) ) ) );
+
+const DecisionTreeTemplate g_intraLumaMpmDTT = compile(
+  decision( DTT_INTRA_MPM_ISGT_0,
+  /*0*/ DTT_INTRA_MPM_0,
+  /*1*/ decision( DTT_INTRA_MPM_ISGT_1,
+        /*0*/ DTT_INTRA_MPM_1,
+        /*1*/ decision( DTT_INTRA_MPM_ISGT_2,
+              /*0*/ DTT_INTRA_MPM_2,
+              /*1*/ decision( DTT_INTRA_MPM_ISGT_3,
+                    /*0*/ DTT_INTRA_MPM_3,
+                    /*1*/ decision( DTT_INTRA_MPM_4,
+                          /*0*/ DTT_INTRA_MPM_4,
+                          /*1*/ DTT_INTRA_MPM_5 ) ) ) ) ) );
 
 const int g_pdpcParam[5][6] = {
   { 33,   7,  33,   7,  30,  3 },
@@ -871,14 +1198,38 @@ const int g_pdpc_pred_param[5][35][6] = {
 // Misc.
 // ====================================================================================================================
 SizeIndexInfo*           gp_sizeIdxInfo = NULL;
-int                      g_BlockSizeQuantScale[MAX_CU_SIZE + 1][MAX_CU_SIZE + 1][2];
+int                      g_BlockSizeTrafoScale[MAX_CU_SIZE + 1][MAX_CU_SIZE + 1][2];
+#if THRESHOLDING
+SChar                    g_aucLog2    [MAX_TR_SIZE + 1];
+SChar                    g_aucNextLog2[MAX_TR_SIZE + 1];
+SChar                    g_aucPrevLog2[MAX_TR_SIZE + 1];
+#else
 SChar                    g_aucLog2    [MAX_CU_SIZE + 1];
 SChar                    g_aucNextLog2[MAX_CU_SIZE + 1];
 SChar                    g_aucPrevLog2[MAX_CU_SIZE + 1];
+#endif
 
 UnitScale g_miScaling( MIN_CU_LOG2, MIN_CU_LOG2 );
 
+#if THRESHOLDING
+SChar                    g_aucCeilOfLog2OfNonPowerOf2Part[MAX_TR_SIZE + 1];
+SChar                    g_aucLog2OfPowerOf2Part[MAX_TR_SIZE + 1];
+#else
+SChar                    g_aucCeilOfLog2OfNonPowerOf2Part[MAX_CU_SIZE + 1];
+SChar                    g_aucLog2OfPowerOf2Part[MAX_CU_SIZE + 1];
+#endif
 
+const SChar i2Log2Tab[257] =  //  8, .., .., .., 12, .., .., .., 16, .., .., .., 20, .., .., .., 24, .., .., .., 28, .., .., 31, ..
+{
+  0,  0,  2,  3,  4,  4,  5,  5,  6,  6,  6,  6,  7,  7,  7,  7,  8,  8,  8,  8,  8,  8,  8,  9,  9,  9,  9,  9,  9,  9,  9,  9,
+ 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11,
+ 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 13, 13, 13, 13, 13,
+ 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13,
+ 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14,
+ 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15,
+ 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15,
+ 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 16
+};
 
 // ====================================================================================================================
 // Scanning order & context model mapping
@@ -888,6 +1239,10 @@ UnitScale g_miScaling( MIN_CU_LOG2, MIN_CU_LOG2 );
 UInt* g_scanOrder     [SCAN_NUMBER_OF_GROUP_TYPES][SCAN_NUMBER_OF_TYPES][MAX_CU_SIZE / 2 + 1][MAX_CU_SIZE / 2 + 1];
 UInt* g_scanOrderPosXY[SCAN_NUMBER_OF_GROUP_TYPES][SCAN_NUMBER_OF_TYPES][MAX_CU_SIZE / 2 + 1][MAX_CU_SIZE / 2 + 1][2];
 UInt  g_auiCoefTopLeftDiagScan8x8[MAX_CU_SIZE / 2 + 1][64];
+
+unsigned*   g_rasterPos2ScanId[SCAN_NUMBER_OF_TYPES][MAX_CU_SIZE / 2 + 1][MAX_CU_SIZE / 2 + 1];
+NbInfoSbb*  g_scanId2NbInfoSbb[SCAN_NUMBER_OF_TYPES][MAX_CU_SIZE / 2 + 1][MAX_CU_SIZE / 2 + 1];
+NbInfoOut*  g_scanId2NbInfoOut[SCAN_NUMBER_OF_TYPES][MAX_CU_SIZE / 2 + 1][MAX_CU_SIZE / 2 + 1];
 
 const UInt ctxIndMap4x4[4 * 4] =
 {
@@ -905,6 +1260,13 @@ const UInt g_uiGroupIdx[MAX_TU_SIZE] = { 0,1,2,3,4,4,5,5,6,6,6,6,7,7,7,7,8,8,8,8
 const UInt g_auiGoRiceRange[MAX_GR_ORDER_RESIDUAL] =
 {
   6, 5, 6, COEF_REMAIN_BIN_REDUCTION, COEF_REMAIN_BIN_REDUCTION, COEF_REMAIN_BIN_REDUCTION, COEF_REMAIN_BIN_REDUCTION, COEF_REMAIN_BIN_REDUCTION, COEF_REMAIN_BIN_REDUCTION, COEF_REMAIN_BIN_REDUCTION
+};
+const UInt g_auiGoRiceTable[32] =
+{
+  0, 0, 0, 0,
+  1, 1, 1, 1, 1, 1,
+  2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2,
+  3, 3, 3, 3, 3, 3, 3, 3, 3, 3
 };
 
 const TChar *MatrixType[SCALING_LIST_SIZE_NUM][SCALING_LIST_NUM] =
@@ -1009,10 +1371,8 @@ const Int g_quantInterDefault8x8[8 * 8] =
   24,25,28,33,41,54,71,91
 };
 
-const UInt g_scalingListSize [SCALING_LIST_SIZE_NUM] = { 4, 16, 64, 256, 1024, 4096, 16384 };
-const UInt g_scalingListSizeX[SCALING_LIST_SIZE_NUM] = { 2,  4,  8,  16,   32,   64,   128 };
-
-Bool g_isEncoder = false;
+const UInt g_scalingListSize [SCALING_LIST_SIZE_NUM] = { 1, 4, 16, 64, 256, 1024, 4096, 16384 };
+const UInt g_scalingListSizeX[SCALING_LIST_SIZE_NUM] = { 1, 2,  4,  8,  16,   32,   64,   128 };
 
 const UChar g_NonMPM[257] = { 0, 0, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4,
 4, 4, 4, 4, 4, 4, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5,
@@ -1025,5 +1385,10 @@ const UChar g_NonMPM[257] = { 0, 0, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3, 4,
 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 8 };
 
+const int g_addHypWeight[HHI_MULTI_HYPOTHESEIS_NUM_WEIGHTS] = {
+   4,
+  -2,
+  -1,
+};
 
 //! \}

@@ -127,7 +127,6 @@ const TFilterCoeff InterpolationFilter::m_lumaFilterBilinear[LUMA_INTERPOLATION_
   {  8, 56, },
   {  4, 60, },
 };
-
 // ====================================================================================================================
 // Private member functions
 // ====================================================================================================================
@@ -349,7 +348,7 @@ Void InterpolationFilter::filter(const ClpRng& clpRng, Pel const *src, Int srcSt
       Pel val = ( sum + offset ) >> shift;
       if ( isLast )
       {
-        val = ClipPel( val, clpRng ); 
+        val = ClipPel( val, clpRng );
       }
       dst[col] = val;
     }

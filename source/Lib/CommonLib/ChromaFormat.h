@@ -59,6 +59,8 @@ static inline UInt        getNumberValidComponents  (const ChromaFormat fmt)    
 static inline UInt        getNumberValidChannels    (const ChromaFormat fmt)                       { return (fmt==CHROMA_400) ? 1 : MAX_NUM_CHANNEL_TYPE;               }
 static inline Bool        isChromaEnabled           (const ChromaFormat fmt)                       { return !(fmt==CHROMA_400);                                         }
 static inline ComponentID getFirstComponentOfChannel(const ChannelType id)                         { return (isLuma(id) ? COMPONENT_Y : COMPONENT_Cb);                  }
+static inline Bool        canUse1dPartitions        (const ComponentID id)                         { return (id == COMPONENT_Y);                                        }
+static inline Bool        canUse1dPartitions        (const ChannelType id)                         { return (id == CHANNEL_TYPE_LUMA);                                  }
 
 InputColourSpaceConversion stringToInputColourSpaceConvert(const std::string &value, const Bool bIsForward);
 std::string getListOfColourSpaceConverts(const Bool bIsForward);
@@ -101,7 +103,6 @@ static inline uint64_t getTotalFracBits(const UInt width, const UInt height, con
   return uint64_t( width * height * bitsPerSampleTimes2 ) << ( SCALE_BITS - 1 );
 }
 
-
 //------------------------------------------------
 
 // In HM, a CU only has one chroma intra prediction direction, that corresponds to the top left luma intra prediction
@@ -136,6 +137,7 @@ static inline UInt getMaxCUDepthOffset(const ChromaFormat chFmt, const UInt quad
   return (chFmt==CHROMA_422 && quadtreeTULog2MinSize>2) ? 1 : 0;
 }
 
+
 //======================================================================================================================
 //Intra prediction  ====================================================================================================
 //======================================================================================================================
@@ -150,7 +152,7 @@ static inline Bool filterIntraReferenceSamples (const ChannelType chType, const 
 
 static inline Int getTransformShift(const Int channelBitDepth, const Size size, const Int maxLog2TrDynamicRange)
 {
-  return maxLog2TrDynamicRange - channelBitDepth - ( ( g_aucLog2[size.width] + g_aucLog2[size.height] ) >> 1 );
+  return maxLog2TrDynamicRange - channelBitDepth - ((g_aucLog2OfPowerOf2Part[size.width] + g_aucLog2OfPowerOf2Part[size.height]) >> 1);
 }
 
 

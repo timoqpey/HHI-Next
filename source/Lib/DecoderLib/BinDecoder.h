@@ -107,5 +107,8 @@ typedef TBinDecoder<BinProbModel_Std>   BinDecoder_Std;
 typedef TBinDecoder<BinProbModel_JMP>   BinDecoder_JMP;
 typedef TBinDecoder<BinProbModel_JAW>   BinDecoder_JAW;
 typedef TBinDecoder<BinProbModel_JMPAW> BinDecoder_JMPAW;
+typedef TBinDecoder<BinProbModel_MP>    BinDecoder_MP;
+typedef TBinDecoder<BinProbModel_MPI>   BinDecoder_MPI;
+typedef TBinDecoder<BinProbModel_MPCW>  BinDecoder_MPCW;
 
 

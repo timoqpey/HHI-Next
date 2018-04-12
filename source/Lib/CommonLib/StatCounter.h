@@ -102,8 +102,8 @@ public:
   {
     os << m_counter;
     return os;
-  }  
-  
+  }
+
   void reset( T val )
   {
     m_counter = val;

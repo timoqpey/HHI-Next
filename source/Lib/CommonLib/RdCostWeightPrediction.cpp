@@ -595,6 +595,7 @@ Distortion RdCostWeightPrediction::xGetHADsw( const DistParam &rcDtParam )
 
   Distortion uiSum = 0;
 
+  CHECK( isNonLog2BlockSize( Size( iCols, iRows ) ), "Cannot process non-log2 size!" );
 
   if( ( iRows % 8 == 0) && (iCols % 8 == 0) )
   {

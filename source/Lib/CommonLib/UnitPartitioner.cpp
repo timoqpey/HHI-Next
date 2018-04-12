@@ -43,6 +43,221 @@
 #include "UnitTools.h"
 #include "Picture.h"
 
+PartSplit applyModifier( const PartSplit split, const SplitModifier mod )
+{
+  if( split == CU_QUAD_SPLIT )
+  {
+    CHECK( mod != SPLIT_MOD_12, "Only mod 1/2 is allowed for quad split" );
+    return split;
+  }
+
+  if( split == CU_HORZ_SPLIT )
+  {
+    switch( mod )
+    {
+    case SPLIT_MOD_12: return CU_HORZ_SPLIT;            break;
+    case SPLIT_MOD_14: return CU_HORZ_SPLIT_14;         break;
+    case SPLIT_MOD_34: return CU_HORZ_SPLIT_34;         break;
+    case SPLIT_MOD_38: return CU_HORZ_SPLIT_38;         break;
+    case SPLIT_MOD_58: return CU_HORZ_SPLIT_58;         break;
+    case SPLIT_MOD_13: return CU_HORZ_SPLIT_13;         break;
+    case SPLIT_MOD_23: return CU_HORZ_SPLIT_23;         break;
+    case SPLIT_MOD_15: return CU_HORZ_SPLIT_15;         break;
+    case SPLIT_MOD_25: return CU_HORZ_SPLIT_25;         break;
+    case SPLIT_MOD_35: return CU_HORZ_SPLIT_35;         break;
+    case SPLIT_MOD_45: return CU_HORZ_SPLIT_45;         break;
+    default: THROW( "Invalid split modifier " << mod ); break;
+    }
+  }
+  else
+  {
+    CHECK( split != CU_VERT_SPLIT, "Only horizontal and vertical split can be modified" );
+
+    switch( mod )
+    {
+    case SPLIT_MOD_12: return CU_VERT_SPLIT;            break;
+    case SPLIT_MOD_14: return CU_VERT_SPLIT_14;         break;
+    case SPLIT_MOD_34: return CU_VERT_SPLIT_34;         break;
+    case SPLIT_MOD_38: return CU_VERT_SPLIT_38;         break;
+    case SPLIT_MOD_58: return CU_VERT_SPLIT_58;         break;
+    case SPLIT_MOD_13: return CU_VERT_SPLIT_13;         break;
+    case SPLIT_MOD_23: return CU_VERT_SPLIT_23;         break;
+    case SPLIT_MOD_15: return CU_VERT_SPLIT_15;         break;
+    case SPLIT_MOD_25: return CU_VERT_SPLIT_25;         break;
+    case SPLIT_MOD_35: return CU_VERT_SPLIT_35;         break;
+    case SPLIT_MOD_45: return CU_VERT_SPLIT_45;         break;
+    default: THROW( "Invalid split modifier " << mod ); break;
+    }
+  }
+}
+
+PartSplit getBaseSplit( const PartSplit split )
+{
+  if( split == CU_DONT_SPLIT || split == CTU_LEVEL ) return split;
+  if( split == CU_QUAD_SPLIT ) return split;
+
+  switch( split )
+  {
+  case CU_HORZ_SPLIT:
+  case CU_HORZ_SPLIT_14:
+  case CU_HORZ_SPLIT_34:
+  case CU_HORZ_SPLIT_38:
+  case CU_HORZ_SPLIT_58:
+  case CU_HORZ_SPLIT_13:
+  case CU_HORZ_SPLIT_23:
+  case CU_HORZ_SPLIT_15:
+  case CU_HORZ_SPLIT_25:
+  case CU_HORZ_SPLIT_35:
+  case CU_HORZ_SPLIT_45:
+    return CU_HORZ_SPLIT;
+    break;
+  case CU_VERT_SPLIT:
+  case CU_VERT_SPLIT_14:
+  case CU_VERT_SPLIT_34:
+  case CU_VERT_SPLIT_38:
+  case CU_VERT_SPLIT_58:
+  case CU_VERT_SPLIT_13:
+  case CU_VERT_SPLIT_23:
+  case CU_VERT_SPLIT_15:
+  case CU_VERT_SPLIT_25:
+  case CU_VERT_SPLIT_35:
+  case CU_VERT_SPLIT_45:
+    return CU_VERT_SPLIT;
+    break;
+  default:
+    break;
+  }
+
+  THROW( "The split " << split << " has no bas split" );
+
+  return CU_DONT_SPLIT;
+}
+
+SplitModifier getModifier( const PartSplit split )
+{
+  switch( split )
+  {
+  case CU_QUAD_SPLIT:
+  case CU_HORZ_SPLIT:
+  case CU_VERT_SPLIT:
+    return SPLIT_MOD_12;
+    break;
+  case CU_HORZ_SPLIT_14:
+  case CU_VERT_SPLIT_14:
+    return SPLIT_MOD_14;
+    break;
+  case CU_HORZ_SPLIT_34:
+  case CU_VERT_SPLIT_34:
+    return SPLIT_MOD_34;
+    break;
+  case CU_HORZ_SPLIT_38:
+  case CU_VERT_SPLIT_38:
+    return SPLIT_MOD_38;
+    break;
+  case CU_HORZ_SPLIT_58:
+  case CU_VERT_SPLIT_58:
+    return SPLIT_MOD_58;
+    break;
+  case CU_HORZ_SPLIT_13:
+  case CU_VERT_SPLIT_13:
+    return SPLIT_MOD_13;
+    break;
+  case CU_HORZ_SPLIT_23:
+  case CU_VERT_SPLIT_23:
+    return SPLIT_MOD_23;
+    break;
+  case CU_HORZ_SPLIT_15:
+  case CU_VERT_SPLIT_15:
+    return SPLIT_MOD_15;
+    break;
+  case CU_HORZ_SPLIT_25:
+  case CU_VERT_SPLIT_25:
+    return SPLIT_MOD_25;
+    break;
+  case CU_HORZ_SPLIT_35:
+  case CU_VERT_SPLIT_35:
+    return SPLIT_MOD_35;
+    break;
+  case CU_HORZ_SPLIT_45:
+  case CU_VERT_SPLIT_45:
+    return SPLIT_MOD_45;
+    break;
+  default:
+    THROW( "The split does not contain a modifier " << split );
+    return NUM_SPLIT_MOD;
+  }
+}
+
+PartSplit getSplitSide( const SplitModifier mod )
+{
+  switch( mod )
+  {
+  case SPLIT_MOD_13:
+  case SPLIT_MOD_14:
+  case SPLIT_MOD_15:
+  case SPLIT_MOD_25:
+  case SPLIT_MOD_38:
+    return CU_L_SPLIT;
+    break;
+  case SPLIT_MOD_23:
+  case SPLIT_MOD_34:
+  case SPLIT_MOD_35:
+  case SPLIT_MOD_45:
+  case SPLIT_MOD_58:
+    return CU_R_SPLIT;
+    break;
+  default:
+    return  NUM_PART_SPLIT;
+  }
+}
+
+SizeClass getSizeClass( const unsigned size )
+{
+  unsigned lastLog2 = 1 << g_aucLog2[size];
+
+  if( size == lastLog2 )
+  {
+    return SIZE_LOG2;
+  }
+  else if( size == ( lastLog2 + ( lastLog2 >> 1 ) ) )
+  {
+    return SIZE_32_LOG2;
+  }
+  else if( size == ( lastLog2 + ( lastLog2 >> 2 ) ) )
+  {
+    return SIZE_54_LOG2;
+  }
+  else
+  {
+    THROW( "Invalid size: " << size );
+    return NUM_SIZE_CLASSES;
+  }
+}
+
+double getSplitRatio( const SplitModifier mod )
+{
+  switch( mod )
+  {
+  case SPLIT_MOD_12: return .5;   break;
+  case SPLIT_MOD_14: return .25;  break;
+  case SPLIT_MOD_34: return .75;  break;
+  case SPLIT_MOD_38: return .375; break;
+  case SPLIT_MOD_58: return .625; break;
+  case SPLIT_MOD_13: return .334; break; // for round-to-0 compatibility
+  case SPLIT_MOD_23: return .667; break; // for round-to-0 compatibility
+  case SPLIT_MOD_15: return .2;   break;
+  case SPLIT_MOD_25: return .4;   break;
+  case SPLIT_MOD_35: return .6;   break;
+  case SPLIT_MOD_45: return .8;   break;
+  default: THROW( "Invalid split modifier " << mod ); break;
+  }
+  return 0.0;
+}
+
+bool isPseudoSplit( const PartSplit split )
+{
+  return split >= NUM_PART_SPLIT;
+}
 
 PartLevel::PartLevel()
 : split               ( CU_DONT_SPLIT )
@@ -53,7 +268,9 @@ PartLevel::PartLevel()
 , implicitSplit       ( CU_DONT_SPLIT )
 , firstSubPartSplit   ( CU_DONT_SPLIT )
 , canQtSplit          ( true          )
+, pseudoSplit         ( CU_DONT_SPLIT )
 {
+  memset( canModify, 0, sizeof( canModify ) );
 }
 
 PartLevel::PartLevel( const PartSplit _split, const Partitioning& _parts )
@@ -65,7 +282,9 @@ PartLevel::PartLevel( const PartSplit _split, const Partitioning& _parts )
 , implicitSplit       ( CU_DONT_SPLIT )
 , firstSubPartSplit   ( CU_DONT_SPLIT )
 , canQtSplit          ( true          )
+, pseudoSplit         ( CU_DONT_SPLIT )
 {
+  memset( canModify, 0, sizeof( canModify ) );
 }
 
 PartLevel::PartLevel( const PartSplit _split, Partitioning&& _parts )
@@ -77,7 +296,9 @@ PartLevel::PartLevel( const PartSplit _split, Partitioning&& _parts )
 , implicitSplit       ( CU_DONT_SPLIT                        )
 , firstSubPartSplit   ( CU_DONT_SPLIT                        )
 , canQtSplit          ( true                                 )
+, pseudoSplit         ( CU_DONT_SPLIT                        )
 {
+  memset( canModify, 0, sizeof( canModify ) );
 }
 
 //////////////////////////////////////////////////////////////////////////
@@ -104,8 +325,26 @@ void Partitioner::setCUData( CodingUnit& cu )
 {
   cu.depth       = currDepth;
   cu.btDepth     = currBtDepth;
+  cu.mtDepth     = currMtDepth;
   cu.qtDepth     = currQtDepth;
   cu.splitSeries = getSplitSeries();
+}
+
+void Partitioner::copyState( const Partitioner& other )
+{
+  m_partStack = other.m_partStack;
+  currBtDepth = other.currBtDepth;
+  currQtDepth = other.currQtDepth;
+  currDepth   = other.currDepth;
+  currMtDepth = other.currMtDepth;
+  currGtDepth = other.currGtDepth;
+  currTrDepth = other.currTrDepth;
+  currImplicitBtDepth
+              = other.currImplicitBtDepth;
+  chType      = other.chType;
+#ifdef _DEBUG
+  m_currArea  = other.m_currArea;
+#endif
 }
 
 //////////////////////////////////////////////////////////////////////////
@@ -115,15 +354,17 @@ void Partitioner::setCUData( CodingUnit& cu )
 void AdaptiveDepthPartitioner::setMaxMinDepth( unsigned& minDepth, unsigned& maxDepth, const CodingStructure& cs ) const
 {
   unsigned          stdMinDepth = 0;
-  unsigned          stdMaxDepth = ( cs.sps->getSpsNext().getUseQTBT() ? g_aucLog2[cs.sps->getSpsNext().getCTUSize()] - g_aucLog2[cs.sps->getSpsNext().getMinQTSize( cs.slice->getSliceType(), cs.chType )] : cs.sps->getLog2DiffMaxMinCodingBlockSize() );
-  const Position    pos         = currArea().blocks[cs.chType].pos();
+  unsigned          stdMaxDepth = ( ( cs.sps->getSpsNext().getUseGenBinSplit() || cs.sps->getSpsNext().getUseQTBT() )
+                                        ? g_aucLog2[cs.sps->getSpsNext().getCTUSize()] - g_aucLog2[cs.sps->getSpsNext().getMinQTSize( cs.slice->getSliceType(), chType )]
+                                        : cs.sps->getLog2DiffMaxMinCodingBlockSize() );
+  const Position    pos         = currArea().blocks[chType].pos();
   const unsigned    curSliceIdx = cs.slice->getIndependentSliceIdx();
   const unsigned    curTileIdx  = cs.picture->tileMap->getTileIdxMap( currArea().lumaPos() );
 
-  const CodingUnit* cuLeft        = cs.getCURestricted( pos.offset( -1,                                                                           0 ), curSliceIdx, curTileIdx );
-  const CodingUnit* cuBelowLeft   = cs.getCURestricted( pos.offset( -1, cs.pcv->minCUHeight >> getChannelTypeScaleY( cs.chType, cs.pcv->chrFormat ) ), curSliceIdx, curTileIdx );  // should use actual block size instead of minCU size
-  const CodingUnit* cuAbove       = cs.getCURestricted( pos.offset(  0,                                                                          -1 ), curSliceIdx, curTileIdx );
-  const CodingUnit* cuAboveRight  = cs.getCURestricted( pos.offset( cs.pcv->minCUWidth >> getChannelTypeScaleX( cs.chType, cs.pcv->chrFormat ),  -1 ), curSliceIdx, curTileIdx );  // should use actual block size instead of minCU size
+  const CodingUnit* cuLeft        = cs.getCURestricted( pos.offset( -1,                                                                        0 ), curSliceIdx, curTileIdx, chType );
+  const CodingUnit* cuBelowLeft   = cs.getCURestricted( pos.offset( -1, cs.pcv->minCUHeight >> getChannelTypeScaleY( chType, cs.pcv->chrFormat ) ), curSliceIdx, curTileIdx, chType );  // should use actual block size instead of minCU size
+  const CodingUnit* cuAbove       = cs.getCURestricted( pos.offset(  0,                                                                       -1 ), curSliceIdx, curTileIdx, chType );
+  const CodingUnit* cuAboveRight  = cs.getCURestricted( pos.offset( cs.pcv->minCUWidth >> getChannelTypeScaleX( chType, cs.pcv->chrFormat ),  -1 ), curSliceIdx, curTileIdx, chType );  // should use actual block size instead of minCU size
 
   minDepth = stdMaxDepth;
   maxDepth = stdMinDepth;
@@ -190,7 +431,7 @@ void AdaptiveDepthPartitioner::setMaxMinDepth( unsigned& minDepth, unsigned& max
 //////////////////////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////
 
-Void HEVCPartitioner::initCtu( const UnitArea& ctuArea )
+Void HEVCPartitioner::initCtu( const UnitArea& ctuArea, const ChannelType _chType, const Slice& slice )
 {
 #if _DEBUG
   m_currArea  = ctuArea;
@@ -198,7 +439,9 @@ Void HEVCPartitioner::initCtu( const UnitArea& ctuArea )
   currDepth   = 0;
   currTrDepth = 0;
   currBtDepth = 0;
+  currMtDepth = 0;
   currQtDepth = 0;
+  chType      = _chType;
 
   m_partStack.clear();
   m_partStack.push_back( PartLevel( CTU_LEVEL, Partitioning{ ctuArea } ) );
@@ -252,7 +495,7 @@ bool HEVCPartitioner::canSplit( const PartSplit split, const CodingStructure &cs
     break;
   case CU_QUAD_SPLIT:
     {
-      unsigned minQtSize = cs.pcv->getMinQtSize( *cs.slice, cs.chType );
+      unsigned minQtSize = cs.pcv->getMinQtSize( *cs.slice, chType );
       if( currArea().lwidth() <=  minQtSize || currArea().lheight() <= minQtSize ) return false;
 
       return true;
@@ -261,6 +504,9 @@ bool HEVCPartitioner::canSplit( const PartSplit split, const CodingStructure &cs
   case CU_HORZ_SPLIT:
   case CU_VERT_SPLIT:
   case CU_BT_SPLIT:
+  case CU_MT_SPLIT:
+  case CU_TRIV_SPLIT:
+  case CU_TRIH_SPLIT:
     return false;
     break;
   default:
@@ -316,7 +562,7 @@ Void HEVCPartitioner::exitCurrSplit()
 
 Bool HEVCPartitioner::nextPart(const CodingStructure &cs, bool autoPop /*= false*/)
 {
-  const Position &prevPos = currArea().blocks[cs.chType].pos();
+  const Position &prevPos = currArea().blocks[chType].pos();
 
   unsigned currIdx = ++m_partStack.back().idx;
 
@@ -325,7 +571,7 @@ Bool HEVCPartitioner::nextPart(const CodingStructure &cs, bool autoPop /*= false
 
   if( currIdx == 1 )
   {
-    const CodingUnit* prevCU = cs.getCU( prevPos );
+    const CodingUnit* prevCU = cs.getCU( prevPos, chType );
     m_partStack.back().firstSubPartSplit = prevCU ? CU::getSplitAtDepth( *prevCU, currDepth ) : CU_DONT_SPLIT;
   }
 
@@ -362,7 +608,7 @@ bool HEVCPartitioner::hasNextPart()
 //////////////////////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////
 
-Void QTBTPartitioner::initCtu( const UnitArea& ctuArea )
+Void QTBTPartitioner::initCtu( const UnitArea& ctuArea, const ChannelType _chType, const Slice& slice )
 {
 #if _DEBUG
   m_currArea = ctuArea;
@@ -370,7 +616,10 @@ Void QTBTPartitioner::initCtu( const UnitArea& ctuArea )
   currDepth   = 0;
   currTrDepth = 0;
   currBtDepth = 0;
+  currMtDepth = 0;
   currQtDepth = 0;
+  currImplicitBtDepth = 0;
+  chType      = _chType;
 
   m_partStack.clear();
   m_partStack.push_back( PartLevel( CTU_LEVEL, Partitioning{ ctuArea } ) );
@@ -380,6 +629,7 @@ Void QTBTPartitioner::splitCurrArea( const PartSplit split, const CodingStructur
 {
   CHECKD( !canSplit( split, cs ), "Trying to apply a prohibited split!" );
 
+  bool isImplicit = isSplitImplicit( split, cs );
   bool canQtSplit = canSplit( CU_QUAD_SPLIT, cs );
 
   switch( split )
@@ -387,12 +637,19 @@ Void QTBTPartitioner::splitCurrArea( const PartSplit split, const CodingStructur
   case CU_QUAD_SPLIT:
     m_partStack.push_back( PartLevel( split, PartitionerImpl::getCUSubPartitions( currArea(), cs ) ) );
     break;
-  case TU_QUAD_SPLIT:
-    m_partStack.push_back( PartLevel( split, PartitionerImpl::getTUSubPartitions( currArea(), cs ) ) );
-    break;
+  case CU_HORZ_SPLIT_14:
+  case CU_VERT_SPLIT_14:
+  case CU_HORZ_SPLIT_34:
+  case CU_VERT_SPLIT_34:
+    CHECK( ( cs.sps->getSpsNext().getMTTMode() & 2 ) != 2, "1/4 and 3/4 splits are not allowed" );
   case CU_HORZ_SPLIT:
   case CU_VERT_SPLIT:
     CHECK( !cs.sps->getSpsNext().getUseQTBT(), "QTBT disabled" );
+    m_partStack.push_back( PartLevel( split, PartitionerImpl::getCUSubPartitions( currArea(), cs, split ) ) );
+    break;
+  case CU_TRIH_SPLIT:
+  case CU_TRIV_SPLIT:
+    CHECK( ( cs.sps->getSpsNext().getMTTMode() & 1 ) != 1, "Triple splits are not allowed" );
     m_partStack.push_back( PartLevel( split, PartitionerImpl::getCUSubPartitions( currArea(), cs, split ) ) );
     break;
   default:
@@ -414,15 +671,24 @@ Void QTBTPartitioner::splitCurrArea( const PartSplit split, const CodingStructur
     currTrDepth = 0;
   }
 
-  if( split == CU_HORZ_SPLIT || split == CU_VERT_SPLIT )
+  if( split == CU_HORZ_SPLIT || split == CU_VERT_SPLIT || split == CU_TRIH_SPLIT || split == CU_TRIV_SPLIT || split == CU_HORZ_SPLIT_14 || split == CU_HORZ_SPLIT_34 || split == CU_VERT_SPLIT_14 || split == CU_VERT_SPLIT_34 )
   {
     currBtDepth++;
+    if( isImplicit ) currImplicitBtDepth++;
+    currMtDepth++;
 
+    if( split == CU_TRIH_SPLIT || split == CU_TRIV_SPLIT )
+    {
+      // first and last part of triple split are equivalent to double bt split
+      currBtDepth++;
+    }
     m_partStack.back().canQtSplit = canQtSplit;
   }
   else
   {
     CHECK( currBtDepth > 0, "Cannot split a non-square area other than with a binary split" );
+    CHECK( currMtDepth > 0, "Cannot split a non-square area other than with a binary split" );
+    currMtDepth = 0;
     currBtDepth = 0;
     currQtDepth++;
   }
@@ -435,14 +701,22 @@ bool QTBTPartitioner::canSplit( const PartSplit split, const CodingStructure &cs
   // the minimal and maximal sizes are given in luma samples
   const CompArea area           = currArea().Y();
 
-  const unsigned maxBTD         = cs.pcv->getMaxBtDepth( *cs.slice, cs.chType );
-  const unsigned maxBtSize      = cs.pcv->getMaxBtSize( *cs.slice, cs.chType );
-  const unsigned minBtSize      = cs.pcv->getMinBtSize( *cs.slice, cs.chType );
-
+  const unsigned maxBTD         = cs.pcv->getMaxBtDepth( *cs.slice, chType ) + currImplicitBtDepth;
+  const unsigned maxBtSize      = cs.pcv->getMaxBtSize( *cs.slice, chType );
+  const unsigned minBtSize      = cs.pcv->getMinBtSize( *cs.slice, chType );
+  const unsigned maxTtSize      = cs.pcv->getMaxTtSize( *cs.slice, chType );
+  const unsigned minTtSize      = cs.pcv->getMinTtSize( *cs.slice, chType );
 
   const PartSplit prevSplit     = m_partStack.back().firstSubPartSplit;
   const PartSplit lastSplit     = m_partStack.back().split;
   const PartSplit perpSplit     = lastSplit == CU_HORZ_SPLIT ? CU_VERT_SPLIT : CU_HORZ_SPLIT;
+  const PartSplit perpTriSp     = lastSplit == CU_HORZ_SPLIT ? CU_TRIV_SPLIT : CU_TRIH_SPLIT;
+  const PartSplit parlSplit     = lastSplit == CU_TRIH_SPLIT ? CU_HORZ_SPLIT : CU_VERT_SPLIT;
+
+  if( isNonLog2BlockSize( currArea().Y() ) )
+  {
+    return false;
+  }
 
   switch( split )
   {
@@ -458,11 +732,11 @@ bool QTBTPartitioner::canSplit( const PartSplit split, const CodingStructure &cs
     // don't allow QT-splitting below a BT split
     PartSplit lastSplit = m_partStack.back().split;
     if( lastSplit != CTU_LEVEL && lastSplit != CU_QUAD_SPLIT )                  return false;
-    
+
     // allowing QT split even if a BT split is implied
     if( implicitSplit != CU_DONT_SPLIT )                                        return true;
 
-    unsigned minQtSize = cs.pcv->getMinQtSize( *cs.slice, cs.chType );
+    unsigned minQtSize = cs.pcv->getMinQtSize( *cs.slice, chType );
     if( currArea().lwidth() <= minQtSize || currArea().lheight() <= minQtSize ) return false;
 
     return true;
@@ -479,13 +753,39 @@ bool QTBTPartitioner::canSplit( const PartSplit split, const CodingStructure &cs
         return false;
       }
     }
+    if( ( lastSplit == CU_TRIH_SPLIT || lastSplit == CU_TRIV_SPLIT ) && currPartIdx() == 1 && split == parlSplit )
+    {
+      return false;
+    }
   }
+  case CU_TRIH_SPLIT:
+  case CU_TRIV_SPLIT:
+  {
+    if( !cs.slice->isIntra() && m_partStack.back().idx == 1 && implicitSplit == CU_DONT_SPLIT && ( lastSplit == CU_HORZ_SPLIT || lastSplit == CU_VERT_SPLIT ) )
+    {
+      if( split == perpTriSp && prevSplit == perpTriSp )
+      {
+        return false;
+      }
+    }
+  }
+  case CU_HORZ_SPLIT_14:
+  case CU_HORZ_SPLIT_34:
+  case CU_VERT_SPLIT_14:
+  case CU_VERT_SPLIT_34:
+
+    if( implicitSplit == split )                                   return true;
+    if( implicitSplit != CU_DONT_SPLIT && implicitSplit != split ) return false;
+
+  case CU_MT_SPLIT:
   case CU_BT_SPLIT:
   {
     if( !cs.sps->getSpsNext().getUseQTBT() )                  return false;
-    if( currBtDepth >= maxBTD )                               return false;
-    if( area.width <= minBtSize && area.height <= minBtSize ) return false;
-    if( area.width > maxBtSize || area.height > maxBtSize )   return false;
+    if( currMtDepth >= maxBTD )                               return false;
+    if(      ( area.width <= minBtSize && area.height <= minBtSize )
+        && ( ( area.width <= minTtSize && area.height <= minTtSize ) || cs.sps->getSpsNext().getMTTMode() == 0 ) ) return false;
+    if(      ( area.width > maxBtSize || area.height > maxBtSize )
+        && ( ( area.width > maxTtSize || area.height > maxTtSize ) || cs.sps->getSpsNext().getMTTMode() == 0 ) ) return false;
   }
   break;
   default:
@@ -502,6 +802,24 @@ bool QTBTPartitioner::canSplit( const PartSplit split, const CodingStructure &cs
     break;
   case CU_VERT_SPLIT:
     if( area.width <= minBtSize || area.width > maxBtSize )       return false;
+    break;
+  case CU_HORZ_SPLIT_14:
+  case CU_HORZ_SPLIT_34:
+    if( ( cs.sps->getSpsNext().getMTTMode() & 2 ) != 2 )          return false;
+    if( area.height <= 2 * minBtSize || area.height > maxBtSize ) return false;
+    break;
+  case CU_VERT_SPLIT_14:
+  case CU_VERT_SPLIT_34:
+    if( ( cs.sps->getSpsNext().getMTTMode() & 2 ) != 2 )          return false;
+    if( area.width <= 2 * minBtSize || area.width > maxBtSize )   return false;
+    break;
+  case CU_TRIH_SPLIT:
+    if( ( cs.sps->getSpsNext().getMTTMode() & 1 ) != 1 )          return false;
+    if( area.height <= 2 * minTtSize || area.height > maxTtSize ) return false;
+    break;
+  case CU_TRIV_SPLIT:
+    if( ( cs.sps->getSpsNext().getMTTMode() & 1 ) != 1 )          return false;
+    if( area.width <= 2 * minTtSize || area.width > maxTtSize )   return false;
     break;
   default:
     break;
@@ -534,7 +852,23 @@ PartSplit QTBTPartitioner::getImplicitSplit( const CodingStructure &cs )
     const bool isBlInPic = cs.picture->Y().contains( currArea().Y().bottomLeft() );
     const bool isTrInPic = cs.picture->Y().contains( currArea().Y().topRight() );
 
-    if( !isBlInPic || !isTrInPic )
+    const CompArea& area      = currArea().Y();
+    const unsigned maxBtSize  = cs.pcv->getMaxBtSize( *cs.slice, chType );
+    const bool isBtAllowed    = area.width <= maxBtSize && area.height <= maxBtSize;
+
+    if( !isBlInPic && !isTrInPic )
+    {
+      split = CU_QUAD_SPLIT;
+    }
+    else if( !isBlInPic && isBtAllowed )
+    {
+      split = CU_HORZ_SPLIT;
+    }
+    else if( !isTrInPic && isBtAllowed )
+    {
+      split = CU_VERT_SPLIT;
+    }
+    else if( !isBlInPic || !isTrInPic )
     {
       split = CU_QUAD_SPLIT;
     }
@@ -550,6 +884,7 @@ PartSplit QTBTPartitioner::getImplicitSplit( const CodingStructure &cs )
 Void QTBTPartitioner::exitCurrSplit()
 {
   PartSplit currSplit = m_partStack.back().split;
+  unsigned  currIdx = m_partStack.back().idx;
 
   m_partStack.pop_back();
 
@@ -559,12 +894,19 @@ Void QTBTPartitioner::exitCurrSplit()
   m_currArea = m_partStack.back().parts[m_partStack.back().idx];
 #endif
 
-  if( currSplit == CU_HORZ_SPLIT || currSplit == CU_VERT_SPLIT )
+  if( currSplit == CU_HORZ_SPLIT || currSplit == CU_VERT_SPLIT || currSplit == CU_TRIH_SPLIT || currSplit == CU_TRIV_SPLIT || currSplit == CU_HORZ_SPLIT_14 || currSplit == CU_HORZ_SPLIT_34 || currSplit == CU_VERT_SPLIT_14 || currSplit == CU_VERT_SPLIT_34 )
   {
     CHECK( !m_partStack.back().checkdIfImplicit, "Didn't check if the current split is implicit" );
     CHECK( currBtDepth == 0, "BT depth is '0', athough a BT split was performed" );
+    CHECK( currMtDepth == 0, "MT depth is '0', athough a BT split was performed" );
+    currMtDepth--;
+    if( m_partStack.back().isImplicit ) currImplicitBtDepth--;
     currBtDepth--;
-
+    if( ( currSplit == CU_TRIH_SPLIT || currSplit == CU_TRIV_SPLIT ) && currIdx != 1 )
+    {
+      CHECK( currBtDepth == 0, "BT depth is '0', athough a TT split was performed" );
+      currBtDepth--;
+    }
   }
   else
   {
@@ -577,7 +919,7 @@ Void QTBTPartitioner::exitCurrSplit()
 
 Bool QTBTPartitioner::nextPart( const CodingStructure &cs, bool autoPop /*= false*/ )
 {
-  const Position &prevPos = currArea().blocks[cs.chType].pos();
+  const Position &prevPos = currArea().blocks[chType].pos();
 
   unsigned currIdx = ++m_partStack.back().idx;
 
@@ -586,12 +928,18 @@ Bool QTBTPartitioner::nextPart( const CodingStructure &cs, bool autoPop /*= fals
 
   if( currIdx == 1 )
   {
-    const CodingUnit* prevCU = cs.getCU( prevPos );
+    const CodingUnit* prevCU = cs.getCU( prevPos, chType );
     m_partStack.back().firstSubPartSplit = prevCU ? CU::getSplitAtDepth( *prevCU, currDepth ) : CU_DONT_SPLIT;
   }
 
   if( currIdx < m_partStack.back().parts.size() )
   {
+    if( m_partStack.back().split == CU_TRIH_SPLIT || m_partStack.back().split == CU_TRIV_SPLIT )
+    {
+      // adapt the current bt depth
+      if( currIdx == 1 ) currBtDepth--;
+      else               currBtDepth++;
+    }
 #if _DEBUG
     m_currArea = m_partStack.back().parts[currIdx];
 #endif
@@ -609,6 +957,1038 @@ bool QTBTPartitioner::hasNextPart()
   return ( ( m_partStack.back().idx + 1 ) < m_partStack.back().parts.size() );
 }
 
+//////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////
+// GenBinSplitPartitioner
+//////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////
+
+//////////////////////////////////////////////////////////////////////////
+// Structures defining prohibited part level combinations
+//////////////////////////////////////////////////////////////////////////
+
+#define PROHIBIT_ALL        -2
+#define PROHIBIT_SAME_DIR   -3
+#define PROHIBIT_PERP_DIR   -4
+#define MAX_PROHIBIT_FRAMES  3
+#define INTER_FRAME         -5
+
+#define PROHIBIT_REDUNDANT_SPLITS 1
+
+struct ProhibitedSplitFrame
+{
+  int split;
+  int mod;
+  int idx;
+  int firstPartSplit;
+  int firstPartMod;
+};
+
+struct ProhibitedSplit
+{
+  int sliceType;
+  int split;
+  int mod;
+
+  static_vector<ProhibitedSplitFrame, MAX_PROHIBIT_FRAMES> splitStack;
+};
+
+static std::vector<ProhibitedSplit> prohibitedSplits;
+
+static void initProhibitedSplits( const Slice& slice )
+{
+  const SPSNext& spsNext = slice.getSPS()->getSpsNext();
+
+  if( spsNext.getMaxBTDepth() >= 3 )
+  {
+    prohibitedSplits.push_back( ProhibitedSplit{ INTER_FRAME,  PROHIBIT_PERP_DIR, SPLIT_MOD_12, { ProhibitedSplitFrame{ PROHIBIT_SAME_DIR, SPLIT_MOD_12, 1, PROHIBIT_PERP_DIR, SPLIT_MOD_12 } } } ); // is the same as 1/3 split followed by 1/2 split on the second part
+    prohibitedSplits.push_back( ProhibitedSplit{ INTER_FRAME,  PROHIBIT_PERP_DIR, SPLIT_MOD_12, { ProhibitedSplitFrame{ PROHIBIT_PERP_DIR, SPLIT_MOD_12, 1, PROHIBIT_PERP_DIR, SPLIT_MOD_12 }, ProhibitedSplitFrame{ CU_QUAD_SPLIT, SPLIT_MOD_12, PROHIBIT_ALL, PROHIBIT_ALL, PROHIBIT_ALL } } } ); // is the same as 1/4 split followed by 2/3 split on the second part
+  }
+
+  if( spsNext.getGbsForceSplitToLog2() && !spsNext.getGbsNonLog2CUs() )
+  {
+    prohibitedSplits.push_back( ProhibitedSplit{ PROHIBIT_ALL, PROHIBIT_ALL, SPLIT_MOD_34, {} } );
+  }
+
+  // prohibit redundant parallel configurations
+  prohibitedSplits.push_back( ProhibitedSplit{ PROHIBIT_ALL, PROHIBIT_SAME_DIR, SPLIT_MOD_12, { ProhibitedSplitFrame{ PROHIBIT_ALL, SPLIT_MOD_23, 0, PROHIBIT_ALL,      PROHIBIT_ALL } } } ); // is the same as 1/3 split followed by 1/2 split on the second part
+  prohibitedSplits.push_back( ProhibitedSplit{ PROHIBIT_ALL, PROHIBIT_SAME_DIR, SPLIT_MOD_13, { ProhibitedSplitFrame{ PROHIBIT_ALL, SPLIT_MOD_34, 0, PROHIBIT_ALL,      PROHIBIT_ALL } } } ); // is the same as 1/4 split followed by 2/3 split on the second part
+  prohibitedSplits.push_back( ProhibitedSplit{ PROHIBIT_ALL, PROHIBIT_SAME_DIR, SPLIT_MOD_23, { ProhibitedSplitFrame{ PROHIBIT_ALL, SPLIT_MOD_34, 0, PROHIBIT_ALL,      PROHIBIT_ALL } } } ); // is the same as 1/2 split followed by 1/2 split on the second part
+
+  if( spsNext.getGbsAllowEights() )
+  {
+    prohibitedSplits.push_back( ProhibitedSplit{ PROHIBIT_ALL, PROHIBIT_SAME_DIR, SPLIT_MOD_13, { ProhibitedSplitFrame{ PROHIBIT_ALL, SPLIT_MOD_35, 0, PROHIBIT_ALL,      PROHIBIT_ALL } } } ); // is the same as 1/5 split followed by 1/2 split on the second part
+    prohibitedSplits.push_back( ProhibitedSplit{ PROHIBIT_ALL, PROHIBIT_SAME_DIR, SPLIT_MOD_23, { ProhibitedSplitFrame{ PROHIBIT_ALL, SPLIT_MOD_35, 0, PROHIBIT_ALL,      PROHIBIT_ALL } } } ); // is the same as 2/5 split followed by 1/3 split on the second part
+    prohibitedSplits.push_back( ProhibitedSplit{ PROHIBIT_ALL, PROHIBIT_SAME_DIR, SPLIT_MOD_12, { ProhibitedSplitFrame{ PROHIBIT_ALL, SPLIT_MOD_25, 0, PROHIBIT_ALL,      PROHIBIT_ALL } } } ); // is the same as 1/5 split followed by 1/4 split on the second part
+    prohibitedSplits.push_back( ProhibitedSplit{ PROHIBIT_ALL, PROHIBIT_SAME_DIR, SPLIT_MOD_12, { ProhibitedSplitFrame{ PROHIBIT_ALL, SPLIT_MOD_45, 0, PROHIBIT_ALL,      PROHIBIT_ALL } } } ); // is the same as 2/5 split followed by 2/3 split on the second part
+    prohibitedSplits.push_back( ProhibitedSplit{ PROHIBIT_ALL, PROHIBIT_SAME_DIR, SPLIT_MOD_45, { ProhibitedSplitFrame{ PROHIBIT_ALL, SPLIT_MOD_58, 0, PROHIBIT_ALL,      PROHIBIT_ALL } } } ); // is the same as 1/2 split followed by 1/4 split on the second part
+    prohibitedSplits.push_back( ProhibitedSplit{ PROHIBIT_ALL, PROHIBIT_SAME_DIR, SPLIT_MOD_35, { ProhibitedSplitFrame{ PROHIBIT_ALL, SPLIT_MOD_58, 0, PROHIBIT_ALL,      PROHIBIT_ALL } } } ); // is the same as 3/8 split followed by 2/5 split on the second part
+    prohibitedSplits.push_back( ProhibitedSplit{ PROHIBIT_ALL, PROHIBIT_SAME_DIR, SPLIT_MOD_14, { ProhibitedSplitFrame{ PROHIBIT_ALL, SPLIT_MOD_45, 0, PROHIBIT_ALL,      PROHIBIT_ALL } } } ); // is the same as 1/5 split followed by 3/4 split on the second part
+    prohibitedSplits.push_back( ProhibitedSplit{ PROHIBIT_ALL, PROHIBIT_SAME_DIR, SPLIT_MOD_34, { ProhibitedSplitFrame{ PROHIBIT_ALL, SPLIT_MOD_45, 0, PROHIBIT_ALL,      PROHIBIT_ALL } } } ); // is the same as 3/5 split followed by 1/2 split on the second part
+
+    prohibitedSplits.push_back( ProhibitedSplit{ PROHIBIT_ALL, PROHIBIT_SAME_DIR, SPLIT_MOD_15, { ProhibitedSplitFrame{ PROHIBIT_ALL, SPLIT_MOD_38, 1, PROHIBIT_ALL,      PROHIBIT_ALL } } } ); // is the same as 1/2 split followed by 3/4 split on the first part
+  }
+
+  prohibitedSplits.push_back( ProhibitedSplit{ PROHIBIT_ALL, PROHIBIT_SAME_DIR, SPLIT_MOD_13, { ProhibitedSplitFrame{ PROHIBIT_ALL, SPLIT_MOD_14, 1, PROHIBIT_ALL,      PROHIBIT_ALL } } } ); // is the same as 1/2 split followed by 1/2 split on the first part
+
+  if( spsNext.getGbsAllowEights() )
+  {
+    prohibitedSplits.push_back( ProhibitedSplit{ PROHIBIT_ALL, PROHIBIT_SAME_DIR, SPLIT_MOD_34, { ProhibitedSplitFrame{ PROHIBIT_SAME_DIR, SPLIT_MOD_23, 0, PROHIBIT_ALL, PROHIBIT_ALL }, ProhibitedSplitFrame{ PROHIBIT_ALL, SPLIT_MOD_14, 1, PROHIBIT_ALL, PROHIBIT_ALL } } } ); // is the same as 5/8 split followed by 2/3 split on the second part and 2/5 in the first
+  }
+
+  prohibitedSplits.push_back( ProhibitedSplit{ PROHIBIT_ALL, PROHIBIT_SAME_DIR, SPLIT_MOD_13, { ProhibitedSplitFrame{ PROHIBIT_SAME_DIR, SPLIT_MOD_12, 1, PROHIBIT_ALL, PROHIBIT_ALL }, ProhibitedSplitFrame{ PROHIBIT_ALL, SPLIT_MOD_14, 1, PROHIBIT_ALL, PROHIBIT_ALL } } } ); // is the same as 3/4 split followed by 1/3 split on first part and then 3/4 on second
+  prohibitedSplits.push_back( ProhibitedSplit{ PROHIBIT_ALL, PROHIBIT_SAME_DIR, SPLIT_MOD_34, { ProhibitedSplitFrame{ PROHIBIT_SAME_DIR, SPLIT_MOD_13, 1, PROHIBIT_ALL, PROHIBIT_ALL }, ProhibitedSplitFrame{ PROHIBIT_ALL, SPLIT_MOD_34, 0, PROHIBIT_ALL, PROHIBIT_ALL } } } ); // is the same as 1/4 split followed by 1/2 split on second part and then 1/3 on second
+  prohibitedSplits.push_back( ProhibitedSplit{ PROHIBIT_ALL, PROHIBIT_SAME_DIR, SPLIT_MOD_34, { ProhibitedSplitFrame{ PROHIBIT_SAME_DIR, SPLIT_MOD_23, 0, PROHIBIT_ALL, PROHIBIT_ALL }, ProhibitedSplitFrame{ PROHIBIT_ALL, SPLIT_MOD_14, 1, PROHIBIT_ALL, PROHIBIT_ALL } } } ); // is the same as 3/4 split followed by 1/3 split on first part and then 3/4 on second
+
+
+  // prohibit redundant perpendicular configuration
+
+  // (1/2 comes before all other splits)
+  prohibitedSplits.push_back( ProhibitedSplit{ PROHIBIT_ALL, PROHIBIT_PERP_DIR, SPLIT_MOD_12, { ProhibitedSplitFrame{ PROHIBIT_ALL, SPLIT_MOD_14, 1, PROHIBIT_PERP_DIR, SPLIT_MOD_12 } } } );
+  prohibitedSplits.push_back( ProhibitedSplit{ PROHIBIT_ALL, PROHIBIT_PERP_DIR, SPLIT_MOD_12, { ProhibitedSplitFrame{ PROHIBIT_ALL, SPLIT_MOD_34, 1, PROHIBIT_PERP_DIR, SPLIT_MOD_12 } } } );
+
+  prohibitedSplits.push_back( ProhibitedSplit{ PROHIBIT_ALL, PROHIBIT_PERP_DIR, SPLIT_MOD_12, { ProhibitedSplitFrame{ PROHIBIT_ALL, SPLIT_MOD_13, 1, PROHIBIT_PERP_DIR, SPLIT_MOD_12 } } } );
+  prohibitedSplits.push_back( ProhibitedSplit{ PROHIBIT_ALL, PROHIBIT_PERP_DIR, SPLIT_MOD_12, { ProhibitedSplitFrame{ PROHIBIT_ALL, SPLIT_MOD_23, 1, PROHIBIT_PERP_DIR, SPLIT_MOD_12 } } } );
+
+  if( spsNext.getGbsAllowEights() )
+  {
+    prohibitedSplits.push_back( ProhibitedSplit{ PROHIBIT_ALL, PROHIBIT_PERP_DIR, SPLIT_MOD_12, { ProhibitedSplitFrame{ PROHIBIT_ALL, SPLIT_MOD_15, 1, PROHIBIT_PERP_DIR, SPLIT_MOD_12 } } } );
+    prohibitedSplits.push_back( ProhibitedSplit{ PROHIBIT_ALL, PROHIBIT_PERP_DIR, SPLIT_MOD_12, { ProhibitedSplitFrame{ PROHIBIT_ALL, SPLIT_MOD_25, 1, PROHIBIT_PERP_DIR, SPLIT_MOD_12 } } } );
+    prohibitedSplits.push_back( ProhibitedSplit{ PROHIBIT_ALL, PROHIBIT_PERP_DIR, SPLIT_MOD_12, { ProhibitedSplitFrame{ PROHIBIT_ALL, SPLIT_MOD_35, 1, PROHIBIT_PERP_DIR, SPLIT_MOD_12 } } } );
+    prohibitedSplits.push_back( ProhibitedSplit{ PROHIBIT_ALL, PROHIBIT_PERP_DIR, SPLIT_MOD_12, { ProhibitedSplitFrame{ PROHIBIT_ALL, SPLIT_MOD_45, 1, PROHIBIT_PERP_DIR, SPLIT_MOD_12 } } } );
+  }
+
+  // (1/4, 3/4 comes before  comes before all splits other than 1/2)
+  prohibitedSplits.push_back( ProhibitedSplit{ PROHIBIT_ALL, PROHIBIT_PERP_DIR, SPLIT_MOD_14, { ProhibitedSplitFrame{ PROHIBIT_ALL, SPLIT_MOD_34, 1, PROHIBIT_PERP_DIR, SPLIT_MOD_14 } } } );
+
+  prohibitedSplits.push_back( ProhibitedSplit{ PROHIBIT_ALL, PROHIBIT_PERP_DIR, SPLIT_MOD_14, { ProhibitedSplitFrame{ PROHIBIT_ALL, SPLIT_MOD_13, 1, PROHIBIT_PERP_DIR, SPLIT_MOD_14 } } } );
+  prohibitedSplits.push_back( ProhibitedSplit{ PROHIBIT_ALL, PROHIBIT_PERP_DIR, SPLIT_MOD_14, { ProhibitedSplitFrame{ PROHIBIT_ALL, SPLIT_MOD_23, 1, PROHIBIT_PERP_DIR, SPLIT_MOD_14 } } } );
+
+  if( spsNext.getGbsAllowEights() )
+  {
+    prohibitedSplits.push_back( ProhibitedSplit{ PROHIBIT_ALL, PROHIBIT_PERP_DIR, SPLIT_MOD_14, { ProhibitedSplitFrame{ PROHIBIT_ALL, SPLIT_MOD_15, 1, PROHIBIT_PERP_DIR, SPLIT_MOD_14 } } } );
+    prohibitedSplits.push_back( ProhibitedSplit{ PROHIBIT_ALL, PROHIBIT_PERP_DIR, SPLIT_MOD_14, { ProhibitedSplitFrame{ PROHIBIT_ALL, SPLIT_MOD_25, 1, PROHIBIT_PERP_DIR, SPLIT_MOD_14 } } } );
+    prohibitedSplits.push_back( ProhibitedSplit{ PROHIBIT_ALL, PROHIBIT_PERP_DIR, SPLIT_MOD_14, { ProhibitedSplitFrame{ PROHIBIT_ALL, SPLIT_MOD_35, 1, PROHIBIT_PERP_DIR, SPLIT_MOD_14 } } } );
+    prohibitedSplits.push_back( ProhibitedSplit{ PROHIBIT_ALL, PROHIBIT_PERP_DIR, SPLIT_MOD_14, { ProhibitedSplitFrame{ PROHIBIT_ALL, SPLIT_MOD_45, 1, PROHIBIT_PERP_DIR, SPLIT_MOD_14 } } } );
+  }
+
+  prohibitedSplits.push_back( ProhibitedSplit{ PROHIBIT_ALL, PROHIBIT_PERP_DIR, SPLIT_MOD_34, { ProhibitedSplitFrame{ PROHIBIT_ALL, SPLIT_MOD_13, 1, PROHIBIT_PERP_DIR, SPLIT_MOD_34 } } } );
+  prohibitedSplits.push_back( ProhibitedSplit{ PROHIBIT_ALL, PROHIBIT_PERP_DIR, SPLIT_MOD_34, { ProhibitedSplitFrame{ PROHIBIT_ALL, SPLIT_MOD_23, 1, PROHIBIT_PERP_DIR, SPLIT_MOD_34 } } } );
+
+  if( spsNext.getGbsAllowEights() )
+  {
+    prohibitedSplits.push_back( ProhibitedSplit{ PROHIBIT_ALL, PROHIBIT_PERP_DIR, SPLIT_MOD_34, { ProhibitedSplitFrame{ PROHIBIT_ALL, SPLIT_MOD_15, 1, PROHIBIT_PERP_DIR, SPLIT_MOD_34 } } } );
+    prohibitedSplits.push_back( ProhibitedSplit{ PROHIBIT_ALL, PROHIBIT_PERP_DIR, SPLIT_MOD_34, { ProhibitedSplitFrame{ PROHIBIT_ALL, SPLIT_MOD_25, 1, PROHIBIT_PERP_DIR, SPLIT_MOD_34 } } } );
+    prohibitedSplits.push_back( ProhibitedSplit{ PROHIBIT_ALL, PROHIBIT_PERP_DIR, SPLIT_MOD_34, { ProhibitedSplitFrame{ PROHIBIT_ALL, SPLIT_MOD_35, 1, PROHIBIT_PERP_DIR, SPLIT_MOD_34 } } } );
+    prohibitedSplits.push_back( ProhibitedSplit{ PROHIBIT_ALL, PROHIBIT_PERP_DIR, SPLIT_MOD_34, { ProhibitedSplitFrame{ PROHIBIT_ALL, SPLIT_MOD_45, 1, PROHIBIT_PERP_DIR, SPLIT_MOD_34 } } } );
+  }
+
+  // (1/3, 2/3 comes before  comes before all splits other than 1/2, 1/4 and 3/4)
+  prohibitedSplits.push_back( ProhibitedSplit{ PROHIBIT_ALL, PROHIBIT_PERP_DIR, SPLIT_MOD_13, { ProhibitedSplitFrame{ PROHIBIT_ALL, SPLIT_MOD_23, 1, PROHIBIT_PERP_DIR, SPLIT_MOD_13 } } } );
+
+  if( spsNext.getGbsAllowEights() )
+  {
+    prohibitedSplits.push_back( ProhibitedSplit{ PROHIBIT_ALL, PROHIBIT_PERP_DIR, SPLIT_MOD_13, { ProhibitedSplitFrame{ PROHIBIT_ALL, SPLIT_MOD_15, 1, PROHIBIT_PERP_DIR, SPLIT_MOD_13 } } } );
+    prohibitedSplits.push_back( ProhibitedSplit{ PROHIBIT_ALL, PROHIBIT_PERP_DIR, SPLIT_MOD_13, { ProhibitedSplitFrame{ PROHIBIT_ALL, SPLIT_MOD_25, 1, PROHIBIT_PERP_DIR, SPLIT_MOD_13 } } } );
+    prohibitedSplits.push_back( ProhibitedSplit{ PROHIBIT_ALL, PROHIBIT_PERP_DIR, SPLIT_MOD_13, { ProhibitedSplitFrame{ PROHIBIT_ALL, SPLIT_MOD_35, 1, PROHIBIT_PERP_DIR, SPLIT_MOD_13 } } } );
+    prohibitedSplits.push_back( ProhibitedSplit{ PROHIBIT_ALL, PROHIBIT_PERP_DIR, SPLIT_MOD_13, { ProhibitedSplitFrame{ PROHIBIT_ALL, SPLIT_MOD_45, 1, PROHIBIT_PERP_DIR, SPLIT_MOD_13 } } } );
+
+    prohibitedSplits.push_back( ProhibitedSplit{ PROHIBIT_ALL, PROHIBIT_PERP_DIR, SPLIT_MOD_23, { ProhibitedSplitFrame{ PROHIBIT_ALL, SPLIT_MOD_15, 1, PROHIBIT_PERP_DIR, SPLIT_MOD_23 } } } );
+    prohibitedSplits.push_back( ProhibitedSplit{ PROHIBIT_ALL, PROHIBIT_PERP_DIR, SPLIT_MOD_23, { ProhibitedSplitFrame{ PROHIBIT_ALL, SPLIT_MOD_25, 1, PROHIBIT_PERP_DIR, SPLIT_MOD_23 } } } );
+    prohibitedSplits.push_back( ProhibitedSplit{ PROHIBIT_ALL, PROHIBIT_PERP_DIR, SPLIT_MOD_23, { ProhibitedSplitFrame{ PROHIBIT_ALL, SPLIT_MOD_35, 1, PROHIBIT_PERP_DIR, SPLIT_MOD_23 } } } );
+    prohibitedSplits.push_back( ProhibitedSplit{ PROHIBIT_ALL, PROHIBIT_PERP_DIR, SPLIT_MOD_23, { ProhibitedSplitFrame{ PROHIBIT_ALL, SPLIT_MOD_45, 1, PROHIBIT_PERP_DIR, SPLIT_MOD_23 } } } );
+
+    // x/5 split ordering
+    prohibitedSplits.push_back( ProhibitedSplit{ PROHIBIT_ALL, PROHIBIT_PERP_DIR, SPLIT_MOD_15, { ProhibitedSplitFrame{ PROHIBIT_ALL, SPLIT_MOD_25, 1, PROHIBIT_PERP_DIR, SPLIT_MOD_15 } } } );
+    prohibitedSplits.push_back( ProhibitedSplit{ PROHIBIT_ALL, PROHIBIT_PERP_DIR, SPLIT_MOD_15, { ProhibitedSplitFrame{ PROHIBIT_ALL, SPLIT_MOD_35, 1, PROHIBIT_PERP_DIR, SPLIT_MOD_15 } } } );
+    prohibitedSplits.push_back( ProhibitedSplit{ PROHIBIT_ALL, PROHIBIT_PERP_DIR, SPLIT_MOD_15, { ProhibitedSplitFrame{ PROHIBIT_ALL, SPLIT_MOD_45, 1, PROHIBIT_PERP_DIR, SPLIT_MOD_15 } } } );
+
+    prohibitedSplits.push_back( ProhibitedSplit{ PROHIBIT_ALL, PROHIBIT_PERP_DIR, SPLIT_MOD_25, { ProhibitedSplitFrame{ PROHIBIT_ALL, SPLIT_MOD_35, 1, PROHIBIT_PERP_DIR, SPLIT_MOD_25 } } } );
+    prohibitedSplits.push_back( ProhibitedSplit{ PROHIBIT_ALL, PROHIBIT_PERP_DIR, SPLIT_MOD_25, { ProhibitedSplitFrame{ PROHIBIT_ALL, SPLIT_MOD_45, 1, PROHIBIT_PERP_DIR, SPLIT_MOD_25 } } } );
+
+    prohibitedSplits.push_back( ProhibitedSplit{ PROHIBIT_ALL, PROHIBIT_PERP_DIR, SPLIT_MOD_35, { ProhibitedSplitFrame{ PROHIBIT_ALL, SPLIT_MOD_45, 1, PROHIBIT_PERP_DIR, SPLIT_MOD_35 } } } );
+  }
+}
+
+GenBinSplitPartitioner::GenBinSplitPartitioner()
+{
+
+}
+
+bool GenBinSplitPartitioner::isProhibited( const PartSplit split, const SliceType sliceType ) const
+{
+  const PartSplit baseSplit = getBaseSplit( getActualSplitType( split ) );
+  const SplitModifier mod   = getModifier( split );
+  const PartSplit splitDir  = getPseudoSplitType( split );
+
+  for( const auto &ps : prohibitedSplits )
+  {
+    bool doCheck = false;
+
+    switch( ps.sliceType )
+    {
+    case PROHIBIT_ALL:
+      doCheck = true;
+      break;
+    case INTER_FRAME:
+      doCheck = sliceType != I_SLICE;
+      break;
+    default:
+      doCheck = ps.sliceType == sliceType;
+      break;
+    }
+
+    if( !doCheck ) continue;
+
+    switch( ps.split )
+    {
+    case PROHIBIT_ALL:
+      doCheck = true;
+      break;
+    case PROHIBIT_SAME_DIR:
+      doCheck = splitDir == CU_PARALLEL_SPLIT;
+      break;
+    case PROHIBIT_PERP_DIR:
+      doCheck = splitDir == CU_PERPENDICULAR_SPLIT;
+      break;
+    default:
+      doCheck = ps.split == baseSplit;
+      break;
+    }
+
+    if( !doCheck ) continue;
+
+    switch( ps.mod )
+    {
+    case PROHIBIT_ALL:
+      break;
+    default:
+      doCheck = ps.mod == mod;
+      break;
+    }
+
+    if( !doCheck ) continue;
+
+    const auto &prohibitedSplitStack = ps.splitStack;
+
+    int offset = 1;
+
+    bool isProhibited = offset < m_partStack.size();
+
+    while( isProhibited && offset <= prohibitedSplitStack.size() && offset < m_partStack.size() )
+    {
+      const auto &prohibitedFrame = prohibitedSplitStack[offset - 1];
+      const auto &splitFrame      = m_partStack         [m_partStack.size() - offset];
+
+      switch( prohibitedFrame.split )
+      {
+      case PROHIBIT_ALL:
+        isProhibited = true;
+        break;
+      case PROHIBIT_SAME_DIR:
+        isProhibited = splitFrame.pseudoSplit == CU_PARALLEL_SPLIT;
+        break;
+      case PROHIBIT_PERP_DIR:
+        isProhibited = splitFrame.pseudoSplit == CU_PERPENDICULAR_SPLIT;
+        break;
+      default:
+        isProhibited = getBaseSplit( splitFrame.split ) == prohibitedFrame.split;
+        break;
+      }
+
+      if( !isProhibited ) break;
+
+      switch( ps.mod )
+      {
+      case PROHIBIT_ALL:
+        break;
+      default:
+        isProhibited = getModifier( splitFrame.split ) == prohibitedFrame.mod;
+        break;
+      }
+
+      if( !isProhibited ) break;
+
+      if( prohibitedFrame.idx != PROHIBIT_ALL ) isProhibited = prohibitedFrame.idx == splitFrame.idx;
+
+      if( splitFrame.idx > 0 )
+      {
+        if( !isProhibited ) break;
+
+        const PartSplit subBaseSplit = getBaseSplit( splitFrame.firstSubPartSplit );
+        const SplitModifier subMod   = subBaseSplit == CU_DONT_SPLIT ? NUM_SPLIT_MOD  : getModifier( splitFrame.firstSubPartSplit );
+        const PartSplit subSplitDir  = subBaseSplit == CU_DONT_SPLIT ? NUM_PART_SPLIT : ( subBaseSplit == getBaseSplit( splitFrame.split ) ? CU_PARALLEL_SPLIT : CU_PERPENDICULAR_SPLIT );
+
+        switch( prohibitedFrame.firstPartSplit )
+        {
+        case PROHIBIT_ALL:
+          break;
+        case PROHIBIT_PERP_DIR:
+          isProhibited = subSplitDir == CU_PERPENDICULAR_SPLIT;
+          break;
+        case PROHIBIT_SAME_DIR:
+          isProhibited = subSplitDir == CU_PARALLEL_SPLIT;
+          break;
+        default:
+          isProhibited = subBaseSplit == prohibitedFrame.firstPartSplit;
+          break;
+        }
+
+        if( !isProhibited ) break;
+
+        switch( prohibitedFrame.firstPartMod )
+        {
+        case PROHIBIT_ALL:
+          break;
+        default:
+          isProhibited = subMod == prohibitedFrame.firstPartMod;
+          break;
+        }
+      }
+
+      if( !isProhibited ) break;
+
+      offset++;
+    }
+
+    if( isProhibited ) return true;
+  }
+
+  return false;
+}
+
+Void GenBinSplitPartitioner::initCtu( const UnitArea& ctuArea, const ChannelType _chType, const Slice& slice )
+{
+  if( prohibitedSplits.empty() )
+  {
+    initProhibitedSplits( slice );
+  }
+#if _DEBUG
+  m_currArea = ctuArea;
+#endif
+  currDepth   = 0;
+  currTrDepth = 0;
+  currBtDepth = 0;
+  currMtDepth = 0;
+  currGtDepth = 0;
+  currQtDepth = 0;
+  currImplicitBtDepth = 0;
+  chType      = _chType;
+
+  m_partStack.clear();
+  m_partStack.push_back( PartLevel( CTU_LEVEL, Partitioning{ ctuArea } ) );
+
+  m_isForceSplitToLog2 = slice.getSPS()->getSpsNext().getGbsForceSplitToLog2();
+  m_isNonLog2CUs       = slice.getSPS()->getSpsNext().getGbsNonLog2CUs();
+}
+
+Void GenBinSplitPartitioner::splitCurrArea( const PartSplit split, const CodingStructure& cs )
+{
+  CHECKD( !canSplit( split, cs ), "Trying to apply a prohibited split!" );
+
+  bool isImplicit             = isSplitImplicit   ( split, cs );
+  const PartSplit pseudoSplit = getPseudoSplitType( split );
+  const PartSplit actualSplit = getActualSplitType( split );
+  const SplitModifier mod     = getModifier       ( split );
+
+  bool canQtSplit = canSplit( CU_QUAD_SPLIT, cs );
+
+  switch( actualSplit )
+  {
+  case CU_HORZ_SPLIT:
+  case CU_VERT_SPLIT:
+  case CU_HORZ_SPLIT_14:
+  case CU_VERT_SPLIT_14:
+  case CU_HORZ_SPLIT_34:
+  case CU_VERT_SPLIT_34:
+  case CU_HORZ_SPLIT_38:
+  case CU_VERT_SPLIT_38:
+  case CU_HORZ_SPLIT_58:
+  case CU_VERT_SPLIT_58:
+  case CU_HORZ_SPLIT_13:
+  case CU_VERT_SPLIT_13:
+  case CU_HORZ_SPLIT_23:
+  case CU_VERT_SPLIT_23:
+  case CU_HORZ_SPLIT_15:
+  case CU_VERT_SPLIT_15:
+  case CU_HORZ_SPLIT_25:
+  case CU_VERT_SPLIT_25:
+  case CU_HORZ_SPLIT_35:
+  case CU_VERT_SPLIT_35:
+  case CU_HORZ_SPLIT_45:
+  case CU_VERT_SPLIT_45:
+    m_partStack.push_back( PartLevel( actualSplit, PartitionerImpl::getGBSPartitions( currArea(), actualSplit ) ) );
+    m_partStack.back().pseudoSplit = pseudoSplit;
+    break;
+  case CU_QUAD_SPLIT:
+    m_partStack.push_back( PartLevel( actualSplit, PartitionerImpl::getCUSubPartitions( currArea(), cs, split ) ) );
+    m_partStack.back().pseudoSplit = pseudoSplit;
+    break;
+  default:
+    THROW( "Unknown split mode" );
+    break;
+  }
+
+  currDepth++;
+
+#if _DEBUG
+  m_currArea = m_partStack.back().parts.front();
+#endif
+
+  if( split == CU_QUAD_SPLIT )
+  {
+    currQtDepth++;
+  }
+  else
+  {
+    currMtDepth++;
+    currBtDepth++;
+
+    if( !m_isNonLog2CUs && isNonLog2BlockSize( currArea().Y() ) )
+    {
+      currMtDepth--;
+      currBtDepth--;
+    }
+
+    if( isImplicit ) currImplicitBtDepth++;
+    if( mod != SPLIT_MOD_12 )
+    {
+      currGtDepth++;
+    }
+
+    m_partStack.back().canQtSplit = canQtSplit;
+  }
+}
+
+bool GenBinSplitPartitioner::canSplit( const PartSplit split, const CodingStructure &cs )
+{
+  return canSplit( split, cs, true );
+}
+
+bool GenBinSplitPartitioner::canSplit( const PartSplit split, const CodingStructure &cs, const bool checkMods )
+{
+  const CompArea area = currArea().Y();
+  const PartSplit implicitSplit = getImplicitSplit( cs );
+
+  if( split == CU_QUAD_SPLIT )
+  {
+    // don't allow QT-splitting below a BT split
+    PartSplit lastSplit = m_partStack.back().split;
+    if( lastSplit != CTU_LEVEL && lastSplit != CU_QUAD_SPLIT )                  return false;
+    // allowing QT split even if a BT split is implied
+    if( implicitSplit != CU_DONT_SPLIT )                                        return true;
+    // check minimal allowed QT size
+    unsigned minQtSize = cs.pcv->getMinQtSize( *cs.slice, chType );
+    if( currArea().lwidth() <= minQtSize || currArea().lheight() <= minQtSize ) return false;
+
+    return true;
+  }
+
+  const unsigned maxBTD       = cs.pcv->getMaxBtDepth( *cs.slice, chType ) + currImplicitBtDepth;
+  const unsigned maxBtSize    = cs.pcv->getMaxBtSize ( *cs.slice, chType );
+  const unsigned minBtSize    = cs.pcv->getMinBtSize ( *cs.slice, chType );
+
+  const PartSplit actualSplit = getBaseSplit( getActualSplitType( split ) );
+  const unsigned  splitSize   = actualSplit == CU_HORZ_SPLIT ? area.height : area.width;
+  const unsigned  unsplitSize = actualSplit == CU_VERT_SPLIT ? area.height : area.width;
+
+  if( area.width > maxBtSize || area.height > maxBtSize )
+  {
+    if( split == CU_DONT_SPLIT && implicitSplit == CU_DONT_SPLIT )
+    {
+      return area.width == area.height;
+    }
+    else
+    {
+      return false;
+    }
+  }
+
+  if( implicitSplit != CU_DONT_SPLIT )
+  {
+    if( getBaseSplit( implicitSplit ) == actualSplit )
+    {
+      return true;
+    }
+    else
+    {
+      return false;
+    }
+  }
+
+  if( split == CU_DONT_SPLIT )
+  {
+    if( m_isNonLog2CUs )
+    {
+      return true;
+    }
+    else
+    {
+      return !isNonLog2BlockSize( area );
+    }
+  }
+
+  if( m_isForceSplitToLog2 )
+  {
+    if( isNonLog2Size( unsplitSize ) )
+    {
+      return false;
+    }
+  }
+
+  if( !m_isNonLog2CUs )
+  {
+    if( isNonLog2Size( unsplitSize ) && !isNonLog2Size( splitSize ) && currBtDepth + 1 >= maxBTD )
+    {
+      return false;
+    }
+    else if( isNonLog2Size( splitSize ) && currBtDepth >= maxBTD )
+    {
+      return true;
+    }
+  }
+
+  if( currBtDepth >= maxBTD )
+  {
+    return false;
+  }
+
+  if( splitSize <= minBtSize ) return false;
+
+  if( split != CU_DONT_SPLIT && isNonLog2Size( splitSize ) )
+  {
+    if( getSizeClass( splitSize ) == SIZE_32_LOG2 )
+    {
+      if( ( splitSize / 3 ) < minBtSize ) return false;
+    }
+    else
+    {
+      CHECK( getSizeClass( splitSize ) != SIZE_54_LOG2, "Invalid size class" );
+      if( ( splitSize / 5 ) < minBtSize ) return false;
+    }
+  }
+
+  if( !checkMods ) return true;
+
+  // check if at least on modifier is allowed
+  for( int modId = 0; modId < NUM_SPLIT_MOD; modId++ )
+  {
+    const SplitModifier mod = SplitModifier( modId );
+    if( canModify( split, mod, cs ) ) return true;
+  }
+
+  return false;
+}
+
+bool GenBinSplitPartitioner::canModify( const PartSplit split, const SplitModifier mod, const CodingStructure &cs )
+{
+  const PartSplit splitDir    = getPseudoSplitType( split );
+  const int       splitDirIdx = splitDir == CU_PERPENDICULAR_SPLIT ? 0 : 1;
+
+  if( m_partStack.back().canModify[splitDirIdx][mod] == 0 )
+  {
+    const bool ret = canModifyImpl( split, mod, cs );
+    m_partStack.back().canModify[splitDirIdx][mod] = ret ? 2 : 1;
+    return ret;
+  }
+  else
+  {
+    return m_partStack.back().canModify[splitDirIdx][mod] == 2;
+  }
+}
+
+bool GenBinSplitPartitioner::canModifyImpl( const PartSplit split, const SplitModifier mod, const CodingStructure &cs )
+{
+  CHECKD( !canSplit( split, cs, false ), "Cannot apply a modifier to a prohibited split" );
+
+  if( split == CU_QUAD_SPLIT )
+  {
+    return mod == SPLIT_MOD_12;
+  }
+
+  const PartSplit implicitSplit = getImplicitSplit( cs );
+
+  const CompArea area           = currArea().Y();
+
+  const unsigned maxBTD         = cs.pcv->getMaxBtDepth ( *cs.slice, chType ) + currImplicitBtDepth;
+  const unsigned maxBtSize      = cs.pcv->getMaxBtSize  ( *cs.slice, chType );
+  const unsigned minBtSize      = cs.pcv->getMinBtSize  ( *cs.slice, chType );
+  const unsigned maxAsymSize    = cs.pcv->getMaxAsymSize( *cs.slice, chType );
+
+  const PartSplit baseSplit     = getBaseSplit( getActualSplitType( split ) );
+  const PartSplit splitDir      = getPseudoSplitType( split );
+  const unsigned splitSize      = baseSplit == CU_HORZ_SPLIT ? area.height : area.width;
+
+  if( area.width > maxBtSize || area.height > maxBtSize )
+  {
+    // simulate quad splits up to the maximal BT size
+    return split == CU_QUAD_SPLIT && mod == SPLIT_MOD_12;
+  }
+
+  if( implicitSplit != CU_DONT_SPLIT )
+  {
+    return   mod == getModifier( implicitSplit ) && splitDir == getPseudoSplitType( implicitSplit );
+  }
+
+  switch( mod )
+  {
+  case SPLIT_MOD_38:
+  case SPLIT_MOD_58:
+    if( !cs.sps->getSpsNext().getGbsAllowEights() )   return false;
+    if( ( area.height > maxAsymSize || area.width > maxAsymSize ) )
+                                                      return false;
+    if( !( splitSize >= 8 * minBtSize ) )             return false;
+    if( getSizeClass( splitSize ) != SIZE_LOG2 )      return false;
+    break;
+  case SPLIT_MOD_14:
+  case SPLIT_MOD_34:
+    if( !cs.sps->getSpsNext().getGbsAllowFourths() )  return false;
+    if( ( area.height > maxAsymSize || area.width > maxAsymSize ) )
+                                                      return false;
+    if( !( splitSize >= 4 * minBtSize ) )             return false;
+    if( getSizeClass( splitSize ) != SIZE_LOG2 )      return false;
+    break;
+  case SPLIT_MOD_12:
+    if( !( splitSize >= 2 * minBtSize ) )             return false;
+    if( cs.sps->getSpsNext().getGbsNonLog2Halving() )
+    {
+      if( m_isForceSplitToLog2 && getSizeClass( splitSize ) != SIZE_LOG2 )
+      {
+        return false;
+      }
+      if( !m_isNonLog2CUs && currBtDepth + 1 >= maxBTD && getSizeClass( splitSize ) != SIZE_LOG2 )
+      {
+        return false;
+      }
+      if( ( splitSize >= 8 * minBtSize ) )
+      {
+        if( !( getSizeClass( splitSize / 2 ) == SIZE_54_LOG2 || getSizeClass( splitSize / 2 ) == SIZE_32_LOG2 || getSizeClass( splitSize / 2 ) == SIZE_LOG2 ) )
+        {
+          return false;
+        }
+      }
+      else if( ( splitSize >= 4 * minBtSize ) )
+      {
+        if( !( getSizeClass( splitSize / 2 ) == SIZE_32_LOG2 || getSizeClass( splitSize / 2 ) == SIZE_LOG2 ) )
+        {
+          return false;
+        }
+      }
+      else
+      {
+        if( getSizeClass( splitSize / 2 ) != SIZE_LOG2 ) return false;
+      }
+    }
+    else if( getSizeClass( splitSize ) != SIZE_LOG2 )    return false;
+    break;
+  case SPLIT_MOD_13:
+  case SPLIT_MOD_23:
+    if( getSizeClass( splitSize ) != SIZE_32_LOG2 )      return false;
+    break;
+  case SPLIT_MOD_25:
+  case SPLIT_MOD_35:
+    // TODO: fix this to ensure the option does what its called!
+    if(/* m_isForceSplitToLog2 ||*/ ( !m_isNonLog2CUs && currBtDepth + 1 >= maxBTD ) )
+                                                         return false;
+  case SPLIT_MOD_15:
+  case SPLIT_MOD_45:
+    if( getSizeClass( splitSize ) != SIZE_54_LOG2 )      return false;
+    break;
+  default:
+    THROW( "Invalid modifier " << mod );
+    break;
+  }
+
+  if( isProhibited( applyModifier( baseSplit, mod ), cs.slice->getSliceType() ) )
+                                                         return false;
+
+  return true;
+}
+
+Void GenBinSplitPartitioner::exitCurrSplit()
+{
+  const SplitModifier currMod     = getModifier       ( m_partStack.back().split );
+  const bool wasNonLog2Area       = isNonLog2BlockSize( ( m_partStack.back().idx >= m_partStack.back().parts.size() ? m_partStack.back().parts.back() : currArea() ).Y() );
+
+  m_partStack.pop_back();
+
+  CHECK( currDepth == 0, "depth is '0', although a split was performed" );
+  currDepth--;
+#if _DEBUG
+  m_currArea = m_partStack.back().parts[m_partStack.back().idx];
+#endif
+
+  if( currMtDepth != 0 || wasNonLog2Area )
+  {
+    if( !wasNonLog2Area || m_isNonLog2CUs )
+    {
+      currMtDepth--;
+      currBtDepth--;
+    }
+
+    if( currMod != SPLIT_MOD_12 )
+    {
+      CHECK( currGtDepth == 0, "currGtDepth is not 0!" );
+      currGtDepth--;
+    }
+    if( m_partStack.back().isImplicit )
+    {
+      CHECK( currImplicitBtDepth == 0, "Exiting a BT split that was not performed" );
+      currImplicitBtDepth--;
+    }
+  }
+  else
+  {
+    CHECK( currQtDepth == 0, "Exiting QT split, but QTD=0 already!" );
+    CHECK( currMtDepth != 0, "Exiting QT split, but BTD!=0!")
+    currQtDepth--;
+  }
+}
+
+bool GenBinSplitPartitioner::isSplitImplicit( const PartSplit split, const CodingStructure &cs )
+{
+  return split == getImplicitSplit( cs );
+}
+
+PartSplit GenBinSplitPartitioner::getImplicitSplit( const CodingStructure &cs )
+{
+  if( m_partStack.back().checkdIfImplicit )
+  {
+    return m_partStack.back().implicitSplit;
+  }
+
+  PartSplit split = CU_DONT_SPLIT;
+
+  if( currArea().lwidth() > cs.sps->getMaxTrSize() || currArea().lheight() > cs.sps->getMaxTrSize() )
+  {
+    split = getActualSplitType( CU_PERPENDICULAR_SPLIT );
+  }
+
+  if( split == CU_DONT_SPLIT )
+  {
+    const bool isBlInPic = cs.picture->cs->area.Y().contains( currArea().Y().bottomLeft() );
+    const bool isTrInPic = cs.picture->cs->area.Y().contains( currArea().Y().topRight() );
+
+    if( !isBlInPic && isTrInPic )
+    {
+      split = CU_HORZ_SPLIT;
+    }
+    else if( isBlInPic && !isTrInPic )
+    {
+       split = CU_VERT_SPLIT;
+    }
+    if( !isBlInPic || !isTrInPic )
+    {
+      const unsigned maxBtSize = cs.pcv->getMaxBtSize( *cs.slice, chType );
+
+      if( split != CU_DONT_SPLIT && currArea().lwidth() <= maxBtSize && currArea().lheight() <= maxBtSize )
+      {
+        // set those values to be able to evaluate canSplit and canModify with endless recursion
+        m_partStack.back().isImplicit       = false;
+        m_partStack.back().implicitSplit    = CU_DONT_SPLIT;
+        m_partStack.back().checkdIfImplicit = true;
+
+        if( !canSplit( getBaseSplit( split ), cs ) || !canModify( getBaseSplit( split ), getModifier( split ), cs ) )
+        {
+          if( getModifier( split ) != SPLIT_MOD_12 && canSplit( getBaseSplit( split ), cs ) && canModify( getBaseSplit( split ), SPLIT_MOD_12, cs ) )
+          {
+            split = getBaseSplit( split );
+          }
+          else
+          {
+            split = CU_QUAD_SPLIT;
+          }
+        }
+      }
+      else
+      {
+        split = CU_QUAD_SPLIT;
+      }
+    }
+  }
+
+  m_partStack.back().checkdIfImplicit = true;
+  m_partStack.back().isImplicit       = split != CU_DONT_SPLIT;
+  m_partStack.back().implicitSplit    = split;
+
+  return split;
+}
+
+Bool GenBinSplitPartitioner::nextPart( const CodingStructure &cs, bool autoPop /*= false*/ )
+{
+  const Position &prevPos = currArea().blocks[chType].pos();
+
+  const CodingUnit *prevCU = cs.getCU( prevPos, chType );
+
+  const bool wasNonLog2 = isNonLog2BlockSize( currArea().Y() );
+
+  unsigned currIdx = ++m_partStack.back().idx;
+
+  m_partStack.back().checkdIfImplicit  = false;
+  m_partStack.back().isImplicit        = false;
+  m_partStack.back().firstSubPartSplit = prevCU ? CU::getSplitAtDepth( *prevCU, currDepth ) : CU_DONT_SPLIT;
+
+  memset( m_partStack.back().canModify, 0, sizeof( m_partStack.back().canModify ) );
+
+  if( currIdx < m_partStack.back().parts.size() )
+  {
+#if _DEBUG
+    m_currArea = m_partStack.back().parts[currIdx];
+#endif
+
+    const bool isNonLog2 = isNonLog2BlockSize( currArea().Y() );
+
+    if( !m_isNonLog2CUs )
+    {
+      if( wasNonLog2 && !isNonLog2 )
+      {
+        currMtDepth++;
+        currBtDepth++;
+      }
+      else if( !wasNonLog2 && isNonLog2 )
+      {
+        currMtDepth--;
+        currBtDepth--;
+      }
+    }
+
+    return true;
+  }
+  else
+  {
+    if( autoPop ) exitCurrSplit();
+    return false;
+  }
+}
+
+bool GenBinSplitPartitioner::hasNextPart()
+{
+  return ( ( m_partStack.back().idx + 1 ) < m_partStack.back().parts.size() );
+}
+
+void GenBinSplitPartitioner::copyState( const Partitioner& other )
+{
+  Partitioner::copyState( other );
+
+  const GenBinSplitPartitioner* gbsp = dynamic_cast<const GenBinSplitPartitioner*>( &other );
+
+  m_isForceSplitToLog2 = gbsp->m_isForceSplitToLog2;
+  m_isNonLog2CUs       = gbsp->m_isNonLog2CUs;
+}
+
+PartSplit GenBinSplitPartitioner::getPseudoSplitType( const PartSplit split ) const
+{
+  if( split == CU_QUAD_SPLIT )
+  {
+    return CU_QUAD_SPLIT;
+  }
+
+  if( isPseudoSplit( split ) )
+  {
+    return split;
+  }
+
+  if( split == CU_DONT_SPLIT || split == CTU_LEVEL )
+  {
+    return split;
+  }
+
+  if( getBaseSplit( m_partStack.back().split ) == CU_HORZ_SPLIT )
+  {
+    switch( split )
+    {
+    case CU_HORZ_SPLIT:
+    case CU_HORZ_SPLIT_14:
+    case CU_HORZ_SPLIT_34:
+    case CU_HORZ_SPLIT_38:
+    case CU_HORZ_SPLIT_58:
+    case CU_HORZ_SPLIT_13:
+    case CU_HORZ_SPLIT_23:
+    case CU_HORZ_SPLIT_15:
+    case CU_HORZ_SPLIT_25:
+    case CU_HORZ_SPLIT_35:
+    case CU_HORZ_SPLIT_45:
+      return CU_PARALLEL_SPLIT;
+    default:
+      return CU_PERPENDICULAR_SPLIT;
+    }
+  }
+  else
+  {
+    switch( split )
+    {
+    case CU_VERT_SPLIT:
+    case CU_VERT_SPLIT_14:
+    case CU_VERT_SPLIT_34:
+    case CU_VERT_SPLIT_38:
+    case CU_VERT_SPLIT_58:
+    case CU_VERT_SPLIT_13:
+    case CU_VERT_SPLIT_23:
+    case CU_VERT_SPLIT_15:
+    case CU_VERT_SPLIT_25:
+    case CU_VERT_SPLIT_35:
+    case CU_VERT_SPLIT_45:
+      return CU_PARALLEL_SPLIT;
+    default:
+      return CU_PERPENDICULAR_SPLIT;
+    }
+  }
+
+  THROW( "Reached an unreachable statement" );
+}
+
+PartSplit GenBinSplitPartitioner::getActualSplitType( const PartSplit split ) const
+{
+  if( split == CU_QUAD_SPLIT )
+  {
+    return CU_QUAD_SPLIT;
+  }
+
+  if( !isPseudoSplit( split ) )
+  {
+    return split;
+  }
+
+  if( split == CU_DONT_SPLIT )
+  {
+    return split;
+  }
+
+  if( split == CU_PARALLEL_SPLIT )
+  {
+    if( getBaseSplit( m_partStack.back().split ) == CU_HORZ_SPLIT )
+    {
+      return CU_HORZ_SPLIT;
+    }
+    else
+    {
+      return CU_VERT_SPLIT;
+    }
+  }
+  else
+  {
+    if( getBaseSplit( m_partStack.back().split ) == CU_HORZ_SPLIT )
+    {
+      return CU_VERT_SPLIT;
+    }
+    else
+    {
+      return CU_HORZ_SPLIT;
+    }
+  }
+
+  THROW( "Reached an unreachable statement" );
+}
+
+int GenBinSplitPartitioner::getSplitSize( const PartSplit split, const Size& area ) const
+{
+  const PartSplit splitDir = getBaseSplit( getActualSplitType( split ) );
+
+  if( splitDir == CU_HORZ_SPLIT )
+  {
+    return area.height;
+  }
+  else
+  {
+    return area.width;
+  }
+}
+
+int GenBinSplitPartitioner::getUnsplitSize( const PartSplit split, const Size& area ) const
+{
+  const PartSplit splitDir = getBaseSplit( getActualSplitType( split ) );
+
+  if( splitDir == CU_HORZ_SPLIT )
+  {
+    return area.width;
+  }
+  else
+  {
+    return area.height;
+  }
+}
+
+
+Void TU1dPartitioner::splitCurrArea( const PartSplit split, const CodingStructure& cs )
+{
+  switch( split )
+  {
+  case TU_1D_HORZ_SPLIT:
+  case TU_1D_VERT_SPLIT:
+  case TU_1D_VERT_SPLIT_REVERSE_ORDER:
+  case TU_1D_HORZ_SPLIT_REVERSE_ORDER:
+  {
+    const UnitArea &area = currArea();
+    m_partStack.push_back( PartLevel() );
+    m_partStack.back().split = split;
+    PartitionerImpl::getTU1DSubPartitions( m_partStack.back().parts, area, cs, split );
+    break;
+  }
+  default:
+    THROW( "Unknown 1-D split mode" );
+    break;
+  }
+
+  currDepth  ++;
+  currTrDepth++; // we need this to identify the level. since the 1d partitions are forbidden if the RQT is on, there area no compatibility issues
+
+#if _DEBUG
+  m_currArea = m_partStack.back().parts.front();
+#endif
+
+}
+
+Void TU1dPartitioner::exitCurrSplit()
+{
+  PartSplit currSplit = m_partStack.back().split;
+
+  m_partStack.pop_back();
+
+  CHECK( currDepth == 0, "depth is '0', although a split was performed" );
+
+  currDepth  --;
+  currTrDepth--;
+
+#if _DEBUG
+  m_currArea = m_partStack.back().parts[m_partStack.back().idx];
+#endif
+
+  CHECK( !( currSplit == TU_1D_HORZ_SPLIT || currSplit == TU_1D_VERT_SPLIT || currSplit == TU_1D_HORZ_SPLIT_REVERSE_ORDER || currSplit == TU_1D_VERT_SPLIT_REVERSE_ORDER ), "Unknown 1D partition type!" );
+}
+
+Bool TU1dPartitioner::nextPart(const CodingStructure &cs, bool autoPop /*= false*/)
+{
+  unsigned currIdx = ++m_partStack.back().idx;
+
+  m_partStack.back().checkdIfImplicit = false;
+  m_partStack.back().isImplicit       = false;
+
+  if( currIdx < m_partStack.back().parts.size() )
+  {
+#if _DEBUG
+    m_currArea = m_partStack.back().parts[m_partStack.back().idx];
+#endif
+    return true;
+  }
+  else
+  {
+    if( autoPop ) exitCurrSplit();
+    return false;
+  }
+}
+
+bool TU1dPartitioner::hasNextPart()
+{
+  return ( ( m_partStack.back().idx + 1 ) < m_partStack.back().parts.size() );
+}
 
 //////////////////////////////////////////////////////////////////////////
 // PartitionerFactory
@@ -619,6 +1999,11 @@ Partitioner* PartitionerFactory::get( const Slice& slice )
   if( slice.getSPS()->getSpsNext().getUseQTBT() )
   {
     return new QTBTPartitioner;
+  }
+  else
+  if( slice.getSPS()->getSpsNext().getUseGenBinSplit() )
+  {
+    return new GenBinSplitPartitioner;
   }
   else
   {
@@ -987,6 +2372,139 @@ Partitioning PartitionerImpl::getCUSubPartitions( const UnitArea &cuArea, const 
 
     return sub;
   }
+  else if( splitType == CU_TRIH_SPLIT )
+  {
+    Partitioning sub;
+
+    sub.resize( 3, cuArea );
+
+    for( int i = 0; i < 3; i++ )
+    {
+      for( auto &blk : sub[i].blocks )
+      {
+        blk.height >>= 1;
+        if( ( i + 1 ) & 1 ) blk.height >>= 1;
+        if( i == 1 )        blk.y       +=     blk.height / 2;
+        if( i == 2 )        blk.y       += 3 * blk.height;
+      }
+
+      CHECK( sub[i].lumaSize().height < MIN_TU_SIZE, "the cs split causes the block to be smaller than the minimal TU size" );
+    }
+
+    return sub;
+  }
+  else if( splitType == CU_TRIV_SPLIT )
+  {
+    Partitioning sub;
+
+    sub.resize( 3, cuArea );
+
+    for( int i = 0; i < 3; i++ )
+    {
+      for( auto &blk : sub[i].blocks )
+      {
+        blk.width >>= 1;
+
+        if( ( i + 1 ) & 1 ) blk.width >>= 1;
+        if( i == 1 )        blk.x      +=     blk.width / 2;
+        if( i == 2 )        blk.x      += 3 * blk.width;
+      }
+
+      CHECK( sub[i].lumaSize().width < MIN_TU_SIZE, "the cs split causes the block to be smaller than the minimal TU size" );
+    }
+
+    return sub;
+  }
+  else if( splitType == CU_HORZ_SPLIT_14 )
+  {
+    Partitioning sub;
+
+    sub.resize( 2, cuArea );
+
+    for( UInt i = 0; i < 2; i++ )
+    {
+      for( auto &blk : sub[i].blocks )
+      {
+        blk.height >>= 2;
+
+        if( i == 1 )
+        {
+          blk.y      += blk.height;
+          blk.height *= 3;
+        }
+      }
+
+      CHECK( sub[i].lumaSize().height < MIN_TU_SIZE, "the cs split causes the block to be smaller than the minimal TU size" );
+    }
+
+    return sub;
+  }
+  else if( splitType == CU_VERT_SPLIT_14 )
+  {
+    Partitioning sub;
+
+    sub.resize( 2, cuArea );
+
+    for( UInt i = 0; i < 2; i++ )
+    {
+      for( auto &blk : sub[i].blocks )
+      {
+        blk.width >>= 2;
+
+        if( i == 1 )
+        {
+          blk.x     += blk.width;
+          blk.width *= 3;
+        }
+      }
+
+      CHECK( sub[i].lumaSize().width < MIN_TU_SIZE, "the split causes the block to be smaller than the minimal TU size" );
+    }
+
+    return sub;
+  }
+  else if( splitType == CU_HORZ_SPLIT_34 )
+  {
+    Partitioning sub;
+
+    sub.resize( 2, cuArea );
+
+    for( UInt i = 0; i < 2; i++ )
+    {
+      for( auto &blk : sub[i].blocks )
+      {
+        blk.height >>= 2;
+
+        if( i == 0 ) blk.height *= 3;
+        if( i == 1 ) blk.y      += 3 * blk.height;
+      }
+
+      CHECK( sub[i].lumaSize().height < MIN_TU_SIZE, "the cs split causes the block to be smaller than the minimal TU size" );
+    }
+
+    return sub;
+  }
+  else if( splitType == CU_VERT_SPLIT_34 )
+  {
+    Partitioning sub;
+
+    sub.resize( 2, cuArea );
+
+    for( UInt i = 0; i < 2; i++ )
+    {
+      for( auto &blk : sub[i].blocks )
+      {
+        blk.width >>= 2;
+
+        if( i == 0 ) blk.width *= 3;
+        if( i == 1 ) blk.x     += 3 * blk.width;
+      }
+
+      CHECK( sub[i].lumaSize().width < MIN_TU_SIZE, "the split causes the block to be smaller than the minimal TU size" );
+    }
+
+    return sub;
+  }
   else
   {
     THROW( "Unknown CU sub-partitioning" );
@@ -994,6 +2512,75 @@ Partitioning PartitionerImpl::getCUSubPartitions( const UnitArea &cuArea, const 
   }
 }
 
+Partitioning PartitionerImpl::getGBSPartitions( const UnitArea &cuArea, const PartSplit _splitType )
+{
+  const PartSplit splitType = getBaseSplit( _splitType );
+  const SplitModifier mod   = getModifier ( _splitType );
+
+  unsigned blkDiv         = 2;
+  unsigned firstPartMul   = 1;
+  unsigned secondPartMul  = 1;
+
+  switch( mod )
+  {
+  case SPLIT_MOD_12: blkDiv = 2; firstPartMul = 1; secondPartMul = 1; break;
+  case SPLIT_MOD_14: blkDiv = 4; firstPartMul = 1; secondPartMul = 3; break;
+  case SPLIT_MOD_34: blkDiv = 4; firstPartMul = 3; secondPartMul = 1; break;
+  case SPLIT_MOD_38: blkDiv = 8; firstPartMul = 3; secondPartMul = 5; break;
+  case SPLIT_MOD_58: blkDiv = 8; firstPartMul = 5; secondPartMul = 3; break;
+  case SPLIT_MOD_13: blkDiv = 3; firstPartMul = 1; secondPartMul = 2; break;
+  case SPLIT_MOD_23: blkDiv = 3; firstPartMul = 2; secondPartMul = 1; break;
+  case SPLIT_MOD_15: blkDiv = 5; firstPartMul = 1; secondPartMul = 4; break;
+  case SPLIT_MOD_25: blkDiv = 5; firstPartMul = 2; secondPartMul = 3; break;
+  case SPLIT_MOD_35: blkDiv = 5; firstPartMul = 3; secondPartMul = 2; break;
+  case SPLIT_MOD_45: blkDiv = 5; firstPartMul = 4; secondPartMul = 1; break;
+  default:
+    THROW( "Invalid modifier " << mod );
+    break;
+  }
+
+  CHECK( blkDiv != firstPartMul + secondPartMul, "Invalid modifier values" );
+
+  Partitioning sub( 2, cuArea );
+
+  if( splitType == CU_HORZ_SPLIT )
+  {
+    for( UInt i = 0; i < 2; i++ )
+    {
+      for( auto &blk : sub[i].blocks )
+      {
+        blk.height /= blkDiv;
+
+        if( i == 0 ) {                                     blk.height *= firstPartMul;  }
+        if( i == 1 ) { blk.y += firstPartMul * blk.height; blk.height *= secondPartMul; }
+      }
+
+      CHECK( sub[i].lumaSize().height < MIN_TU_SIZE, "the cs split causes the block to be smaller than the minimal TU size" );
+    }
+  }
+  else if( splitType == CU_VERT_SPLIT )
+  {
+    for( UInt i = 0; i < 2; i++ )
+    {
+      for( auto &blk : sub[i].blocks )
+      {
+        blk.width /= blkDiv;
+
+        if( i == 0 ) {                                    blk.width *= firstPartMul;  }
+        if( i == 1 ) { blk.x += firstPartMul * blk.width; blk.width *= secondPartMul; }
+      }
+
+      CHECK( sub[i].lumaSize().width < MIN_TU_SIZE, "the split causes the block to be smaller than the minimal TU size" );
+    }
+  }
+  else
+  {
+    THROW( "Unknown CU sub-partitioning" );
+    return Partitioning();
+  }
+
+  return sub;
+}
 
 Partitioning PartitionerImpl::getTUSubPartitions(const UnitArea &tuArea, const CodingStructure &cs)
 {
@@ -1063,4 +2650,131 @@ Partitioning PartitionerImpl::getTUSubPartitions(const UnitArea &tuArea, const C
     }
   }
   return std::move(ret);
+}
+
+void PartitionerImpl::getTU1DSubPartitions( Partitioning &sub, const UnitArea &tuArea, const CodingStructure &cs, const PartSplit splitType )
+{
+  bool canSplit = true;
+
+  if( splitType == TU_1D_HORZ_SPLIT || splitType == TU_1D_HORZ_SPLIT_REVERSE_ORDER )
+  {
+    canSplit = tuArea.lumaSize().height > 1;
+  }
+  else if( splitType == TU_1D_VERT_SPLIT || splitType == TU_1D_VERT_SPLIT_REVERSE_ORDER )
+  {
+    canSplit = tuArea.lumaSize().width > 1;
+  }
+  else
+  {
+    THROW( "getTU1DSubPartitions can only use a split type equal to TU_1D_HORZ_SPLIT, TU_1D_VERT_SPLIT, TU_1D_HORZ_SPLIT_REVERSE_ORDER or TU_1D_VERT_SPLIT_REVERSE_ORDER" );
+  }
+
+
+  if( !canSplit )
+  {
+    sub.resize( 0 );
+  }
+
+  if( splitType == TU_1D_HORZ_SPLIT )
+  {
+    sub.resize( tuArea.lumaSize().height );
+
+    for( UInt i = 0; i < tuArea.lumaSize().height; i++ )
+    {
+      sub[i] = tuArea;
+      CompArea& blkY = sub[i].blocks[COMPONENT_Y];
+
+      blkY.height = 1;
+      blkY.y += i;
+
+      //we only partition luma, so there is going to be only one chroma tu at the beginning
+      if( i < tuArea.lumaSize().height - 1 )
+      {
+        CompArea& blkCb = sub[i].blocks[COMPONENT_Cb];
+        CompArea& blkCr = sub[i].blocks[COMPONENT_Cr];
+        blkCb = CompArea();
+        blkCr = CompArea();
+      }
+
+      CHECK( sub[i].lumaSize().height < 1, "the cs split causes the block to be smaller than the minimal TU size" );
+    }
+  }
+  else if( splitType == TU_1D_HORZ_SPLIT_REVERSE_ORDER )
+  {
+    sub.resize( tuArea.lumaSize().height );
+    int offset = tuArea.lumaSize().height - 1;
+
+    for( UInt i = 0; i < tuArea.lumaSize().height; i++ )
+    {
+      sub[i] = tuArea;
+      CompArea& blkY = sub[i].blocks[COMPONENT_Y];
+
+      blkY.height = 1;
+      blkY.y += offset - i;
+
+      //we only partition luma, so there is going to be only one chroma tu at the beginning
+      if( i < tuArea.lumaSize().height - 1 )
+      {
+        CompArea& blkCb = sub[i].blocks[COMPONENT_Cb];
+        CompArea& blkCr = sub[i].blocks[COMPONENT_Cr];
+        blkCb = CompArea();
+        blkCr = CompArea();
+      }
+
+      CHECK( sub[i].lumaSize().height < 1, "the cs split causes the block to be smaller than the minimal TU size" );
+    }
+  }
+  else if( splitType == TU_1D_VERT_SPLIT )
+  {
+    sub.resize( tuArea.lumaSize().width );
+
+    for( UInt i = 0; i < tuArea.lumaSize().width; i++ )
+    {
+      sub[i] = tuArea;
+      CompArea& blkY = sub[i].blocks[COMPONENT_Y];
+
+      blkY.width = 1;
+      blkY.x += i;
+
+      //we only partition luma, so there is going to be only one chroma tu at the beginning
+      if( i < tuArea.lumaSize().width - 1 )
+      {
+        CompArea& blkCb = sub[i].blocks[COMPONENT_Cb];
+        CompArea& blkCr = sub[i].blocks[COMPONENT_Cr];
+        blkCb = CompArea();
+        blkCr = CompArea();
+      }
+
+      CHECK( sub[i].lumaSize().width < 1, "the split causes the block to be smaller than the minimal TU size" );
+    }
+  }
+  else if( splitType == TU_1D_VERT_SPLIT_REVERSE_ORDER )
+  {
+    sub.resize( tuArea.lumaSize().width );
+    int offset = tuArea.lumaSize().width - 1;
+
+    for( UInt i = 0; i < tuArea.lumaSize().width; i++ )
+    {
+      sub[i] = tuArea;
+      CompArea& blkY = sub[i].blocks[COMPONENT_Y];
+
+      blkY.width = 1;
+      blkY.x += offset - i;
+
+      //we only partition luma, so there is going to be only one chroma tu at the beginning
+      if( i < tuArea.lumaSize().width - 1 )
+      {
+        CompArea& blkCb = sub[i].blocks[COMPONENT_Cb];
+        CompArea& blkCr = sub[i].blocks[COMPONENT_Cr];
+        blkCb = CompArea();
+        blkCr = CompArea();
+      }
+
+      CHECK( sub[i].lumaSize().width < 1, "the split causes the block to be smaller than the minimal TU size" );
+    }
+  }
+  else
+  {
+    THROW( "Unknown TU sub-partitioning" );
+  }
 }

@@ -155,11 +155,30 @@ Void RdCost::init()
   m_iCostScale                 = 0;
 }
 
+
+#if HHI_SPLIT_PARALLELISM
+
+void RdCost::copyState( const RdCost& other )
+{
+  m_costMode      = other.m_costMode;
+  m_dLambda       = other.m_dLambda;
+  m_DistScale     = other.m_DistScale;
+  memcpy( m_distortionWeight, other.m_distortionWeight, sizeof( m_distortionWeight ) );
+  m_mvPredictor   = other.m_mvPredictor;
+  m_motionLambda  = other.m_motionLambda;
+  m_iCostScale    = other.m_iCostScale;
+  m_useQtbt       = other.m_useQtbt;
+  m_useGBS        = other.m_useGBS;
+  memcpy( m_dLambdaMotionSAD, other.m_dLambdaMotionSAD, sizeof( m_dLambdaMotionSAD ) );
+}
+#endif
+
 Void RdCost::setDistParam( DistParam &rcDP, const CPelBuf &org, const Pel* piRefY, Int iRefStride, Int bitDepth, ComponentID compID, Int subShiftMode, Int step, Bool useHadamard )
 {
   rcDP.bitDepth   = bitDepth;
   rcDP.compID     = compID;
   rcDP.isQtbt     = m_useQtbt;
+  rcDP.isGBS      = m_useGBS;
 
   // set Original & Curr Pointer / Stride
   rcDP.org        = org;
@@ -240,6 +259,7 @@ Void RdCost::setDistParam( DistParam &rcDP, const CPelBuf &org, const Pel* piRef
 Void RdCost::setDistParam( DistParam &rcDP, const CPelBuf &org, const CPelBuf &cur, Int bitDepth, ComponentID compID, Bool useHadamard )
 {
   rcDP.isQtbt       = m_useQtbt;
+  rcDP.isGBS        = m_useGBS;
   rcDP.org          = org;
   rcDP.cur          = cur;
   rcDP.step         = 1;
@@ -285,22 +305,22 @@ Void RdCost::setDistParam( DistParam &rcDP, const Pel* pOrg, const Pel* piRefY, 
   rcDP.bitDepth   = bitDepth;
   rcDP.compID     = compID;
   rcDP.isQtbt     = m_useQtbt;
-  
+
   rcDP.org.buf    = pOrg;
   rcDP.org.stride = iOrgStride;
   rcDP.org.width  = width;
   rcDP.org.height = height;
-  
+
   rcDP.cur.buf    = piRefY;
   rcDP.cur.stride = iRefStride;
   rcDP.cur.width  = width;
   rcDP.cur.height = height;
-  
+
   rcDP.step       = step;
   rcDP.maximumDistortionForEarlyExit = std::numeric_limits<Distortion>::max();
-  
+
   CHECK( useHadamard || rcDP.useMR || subShiftMode > 0, "only used in xDirectMCCost with these default parameters (so far...)" );
-  
+
   if( width == 12 )
   {
     rcDP.distFunc = m_afpDistortFunc[ DF_SAD12 ];
@@ -324,6 +344,7 @@ Distortion RdCost::getDistPart( const CPelBuf &org, const CPelBuf &cur, Int bitD
   DistParam cDtParam;
 
   cDtParam.isQtbt     = m_useQtbt;
+  cDtParam.isGBS      = m_useGBS;
   cDtParam.org        = org;
   cDtParam.cur        = cur;
   cDtParam.step       = 1;
@@ -1668,8 +1689,6 @@ Distortion RdCost::xGetMRSAD48( const DistParam &rcDtParam )
   return ( uiSum >> DISTORTION_PRECISION_ADJUSTMENT(rcDtParam.bitDepth-8) );
 }
 
-
-
 // --------------------------------------------------------------------------------------------------------------------
 // SSE
 // --------------------------------------------------------------------------------------------------------------------
@@ -2699,7 +2718,7 @@ Distortion RdCost::xGetHADs( const DistParam &rcDtParam )
 
   Distortion uiSum = 0;
 
-  if( rcDtParam.isQtbt && iCols > iRows && ( iRows & 7 ) == 0 && ( iCols & 15 ) == 0 )
+  if( ( rcDtParam.isQtbt || rcDtParam.isGBS ) && iCols > iRows && ( iRows & 7 ) == 0 && ( iCols & 15 ) == 0 )
   {
     for( y = 0; y < iRows; y += 8 )
     {
@@ -2711,7 +2730,7 @@ Distortion RdCost::xGetHADs( const DistParam &rcDtParam )
       piCur += iStrideCur * 8;
     }
   }
-  else if( rcDtParam.isQtbt && iCols < iRows && ( iCols & 7 ) == 0 && ( iRows & 15 ) == 0 )
+  else if( ( rcDtParam.isQtbt || rcDtParam.isGBS ) && iCols < iRows && ( iCols & 7 ) == 0 && ( iRows & 15 ) == 0 )
   {
     for( y = 0; y < iRows; y += 16 )
     {
@@ -2723,7 +2742,7 @@ Distortion RdCost::xGetHADs( const DistParam &rcDtParam )
       piCur += iStrideCur * 16;
     }
   }
-  else if( rcDtParam.isQtbt && iCols > iRows && ( iRows & 3 ) == 0 && ( iCols & 7 ) == 0 )
+  else if( (rcDtParam.isQtbt || rcDtParam.isGBS ) && iCols > iRows && ( iRows & 3 ) == 0 && ( iCols & 7 ) == 0 )
   {
     for( y = 0; y < iRows; y += 4 )
     {
@@ -2735,7 +2754,7 @@ Distortion RdCost::xGetHADs( const DistParam &rcDtParam )
       piCur += iStrideCur * 4;
     }
   }
-  else if( rcDtParam.isQtbt && iCols < iRows && ( iCols & 3 ) == 0 && ( iRows & 7 ) == 0 )
+  else if( ( rcDtParam.isQtbt || rcDtParam.isGBS ) && iCols < iRows && ( iCols & 3 ) == 0 && ( iRows & 7 ) == 0 )
   {
     for( y = 0; y < iRows; y += 8 )
     {
@@ -2798,19 +2817,24 @@ Distortion RdCost::xGetHADs( const DistParam &rcDtParam )
   return ( uiSum >> DISTORTION_PRECISION_ADJUSTMENT( rcDtParam.bitDepth - 8 ) );
 }
 
+Pel orgCopy[MAX_CU_SIZE * MAX_CU_SIZE];
+
+#if _OPENMP
+#pragma omp threadprivate(orgCopy)
+#endif
 
 Distortion RdCost::xGetMRHADs( const DistParam &rcDtParam )
 {
   const Pel offset = rcDtParam.org.meanDiff( rcDtParam.cur );
 
-  PelBuf modOrg( const_cast< Pel* >( rcDtParam.org.buf ), rcDtParam.org.stride, rcDtParam.org );
+  PelBuf modOrg( orgCopy, rcDtParam.org );
 
+  modOrg.copyFrom( rcDtParam.org );
   modOrg.subtract( offset );
 
-  Distortion dist = m_afpDistortFunc[DF_HAD]( rcDtParam );
+  DistParam modDistParam = rcDtParam;
+  modDistParam.org = modOrg;
 
-  modOrg.subtract( -offset );
-
-  return dist;
+  return m_afpDistortFunc[DF_HAD]( modDistParam );
 }
 //! \}

@@ -3,7 +3,7 @@
  * and contributor rights, including patent rights, and no such rights are
  * granted under this license.
  *
- * Copyright (c) 2010-2015, ITU/ISO/IEC
+ * Copyright (c) 2010-2017, ITU/ISO/IEC
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -39,6 +39,8 @@
 #define __ADAPTIVELOOPFILTER__
 
 #include "CommonDef.h"
+
+
 #include "Picture.h"
 
 
@@ -90,8 +92,13 @@ public:
 
 #if GALF
   static const Int m_NUM_BITS            = 10;
+#if MCALF
+  static const Int m_NO_VAR_BINS         = 27;
+  static const Int m_NO_FILTERS          = 27;
+#else
   static const Int m_NO_VAR_BINS         = 25;
   static const Int m_NO_FILTERS          = 25;
+#endif
   static const Int m_MAX_SQR_FILT_LENGTH = ((m_FILTER_LENGTH*m_FILTER_LENGTH) / 2 + 1);
   static const Int m_SQR_FILT_LENGTH_9SYM = ((9 * 9) / 4 + 1);
   static const Int m_SQR_FILT_LENGTH_7SYM = ((7 * 7) / 4 + 1);
@@ -125,6 +132,11 @@ public:
 protected:
 #if JVET_C0038_NO_PREV_FILTERS
   static const Int m_ALFfilterCoeffFixed[m_NO_FILTERS*JVET_C0038_NO_PREV_FILTERS][21]; /// fixed filters used in ALF.
+#if MCALF
+  static const Int m_ALFfilterCoeffFixedPC[m_NO_FILTERS*JVET_C0038_NO_PREV_FILTERS][21]; /// fixed filters used in ALF.
+  static const Int m_ALFfilterCoeffFixedRCLC[m_NO_FILTERS*JVET_C0038_NO_PREV_FILTERS][21]; /// fixed filters used in ALF.
+  static const Int m_ALFfilterCoeffFixedRC[m_NO_FILTERS*JVET_C0038_NO_PREV_FILTERS][21]; /// fixed filters used in ALF.
+#endif
 #endif
   static const Int depthInt9x9Cut[21];
   static const Int depthInt7x7Cut[14];
@@ -192,6 +204,11 @@ protected:
 
 public:
 
+#if MCALF
+  Bool      m_copy;
+  Int      m_useClassifier;
+#endif
+
   bool      m_galf;
   unsigned  m_storedAlfParaNum[E0104_ALF_MAX_TEMPLAYERID];
   ALFParam  m_acStoredAlfPara[E0104_ALF_MAX_TEMPLAYERID][C806_ALF_TEMPPRED_NUM];
@@ -202,11 +219,23 @@ protected:
 
   Void reconstructFilterCoeffs(ALFParam* pcAlfParam,int **pfilterCoeffSym );
   Void getCurrentFilter(int **filterCoeffSym,ALFParam* pcAlfParam);
-  Void xFilterFrame  (PelUnitBuf& recSrcExt, PelUnitBuf& recDst, AlfFilterType filtType);
+  Void xFilterFrame  (PelUnitBuf& recSrcExt, PelUnitBuf& recDst, AlfFilterType filtType
+#if MCALF
+    , Int numClasses, Int selectedBins[], Int usePixelClassifier
+#endif
+    );
   Void xFilterBlkGalf(PelUnitBuf &recDst, const CPelUnitBuf& recSrcExt, const Area& blk, AlfFilterType filtType, const ComponentID compId);
   Void xFilterBlkAlf (PelBuf &recDst, const CPelBuf& recSrc, const Area& blk, AlfFilterType filtType);
 
   Void xClassify                 (Pel** classes, const CPelBuf& recSrcBuf, Int pad_size, Int fl);
+#if MCALF
+  Void xClassifyByPixelConfBlk(Pel** classes, const CPelBuf& srcLumaBuf, const Area& blk, Int numClasses, Int selectedBins[]);
+  Void xClassifyByRankingConfBlk(Pel** classes, const CPelBuf& srcLumaBuf, const Area& blk, Int numClasses, Int selectedBins[]);
+  Void xClassifyByPC(Pel** classes, const CPelBuf& srcLumaBuf, const Area& blk, Int numClasses);
+  Void xClassifyByPCBlk(Pel** classes, const CPelBuf& srcLumaBuf, const Area& blk, Int numClasses);
+  Void xClassifyByRC(Pel** classes, const CPelBuf& srcLumaBuf, const Area& blk, Int numClasses, bool classReduction = false);
+  Void xClassifyByRCBlk(Pel** classes, const CPelBuf& srcLumaBuf, const Area& blk, Int numClasses, bool classReduction = false);
+#endif
   Void xClassifyByGeoLaplacian   (Pel** classes, const CPelBuf& srcLumaBuf, Int pad_size, Int fl, const Area& blk);
   Void xClassifyByGeoLaplacianBlk(Pel** classes, const CPelBuf& srcLumaBuf, Int pad_size, Int fl, const Area& blk);
   Int  selectTransposeVarInd     (Int varInd, Int *transpose);
@@ -235,7 +264,11 @@ protected:
   Void calcVar(Pel **imgY_var, Pel *imgY_pad, int pad_size, int fl, int img_height, int img_width, int img_stride, int start_width = 0 , int start_height = 0 );
   Void xCalcVar(Pel **imgY_var, Pel *imgY_pad, int pad_size, int fl, int img_height, int img_width, int img_stride, int start_width , int start_height );
 
-  Void xCUAdaptive( CodingStructure& cs, const PelUnitBuf &recExtBuf, PelUnitBuf &recBuf, ALFParam* pcAlfParam );
+  Void xCUAdaptive( CodingStructure& cs, const PelUnitBuf &recExtBuf, PelUnitBuf &recBuf, ALFParam* pcAlfParam
+#if MCALF
+    , Int numClasses, Int selectedBins[]
+#endif
+    );
 
   /// ALF for chroma component
   Void xALFChroma   ( ALFParam* pcAlfParam,const PelUnitBuf& recExtBuf, PelUnitBuf& recUnitBuf );
@@ -250,7 +283,8 @@ public:
   Void create( const Int iPicWidth, Int iPicHeight, const ChromaFormat chromaFormatIDC, const Int uiMaxCUWidth, const UInt uiMaxCUHeight, const UInt uiMaxCUDepth, const Int nInputBitDepth, const Int nInternalBitDepth, const Int numberOfCTUs );
   Void destroy ();
 
-  Void ALFProcess     ( CodingStructure& cs, ALFParam* pcAlfParam); ///< interface function for ALF process
+  Void ALFProcess     ( CodingStructure& cs, ALFParam* pcAlfParam
+                      ); ///< interface function for ALF process
 
   // alloc & free & set functions //TODO move to ALFParam class
   Void allocALFParam  ( ALFParam* pAlfParam );
@@ -268,11 +302,11 @@ public:
   Void predictALFCoeffChroma  ( ALFParam* pAlfParam );                  ///< prediction of chroma ALF coefficients
   Void initVarForChroma(ALFParam* pcAlfParam, Bool bUpdatedDCCoef);
 
-  Bool refreshAlfTempPred(NalUnitType nalu, Int poc);
+  Void refreshAlfTempPred();
 
   static Int ALFTapHToTapV     ( Int tapH );
   static Int ALFTapHToNumCoeff ( Int tapH );
   static Int ALFFlHToFlV       ( Int flH  );
 };
-#endif
 
+#endif

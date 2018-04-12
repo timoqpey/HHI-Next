@@ -42,7 +42,10 @@
 #include "CommonLib/IntraPrediction.h"
 #include "CommonLib/Picture.h"
 #include "CommonLib/UnitTools.h"
-#include "CommonLib/BilateralFilter.h"
+#include "CommonLib/DiffusionFilter.h"
+#if THRESHOLDING
+#include "CommonLib/Thresholding.h"
+#endif
 
 #include "CommonLib/dtrace_buffer.h"
 
@@ -60,54 +63,61 @@ DecCu::DecCu()
 
 DecCu::~DecCu()
 {
+  m_bilateralFilter.destroy();
 }
 
-Void DecCu::init( TrQuant* pcTrQuant, IntraPrediction* pcIntra, InterPrediction* pcInter)
+#if THRESHOLDING
+Void DecCu::init( TrQuant* pcTrQuant, IntraPrediction* pcIntra, InterPrediction* pcInter, DiffusionFilter* diffFilter, Thresholding* pcThresholding )
+#else
+Void DecCu::init( TrQuant* pcTrQuant, IntraPrediction* pcIntra, InterPrediction* pcInter, DiffusionFilter* diffFilter )
+#endif
 {
-  m_pcTrQuant     = pcTrQuant;
-  m_pcIntraPred   = pcIntra;
-  m_pcInterPred   = pcInter;
+  m_pcTrQuant       = pcTrQuant;
+  m_pcIntraPred     = pcIntra;
+  m_pcInterPred     = pcInter;
+  m_DiffusionFilter = diffFilter;
+#if THRESHOLDING
+  m_pcThresholding  = pcThresholding;
+#endif
+
+  m_bilateralFilter .create();
 }
 
 // ====================================================================================================================
 // Public member functions
 // ====================================================================================================================
 
-/**
- Decoding process for a CTU.
- \param    pCtu                      [in/out] pointer to CTU data structure
- */
 Void DecCu::decompressCtu( CodingStructure& cs, const UnitArea& ctuArea )
 {
-  for( auto &currCU : cs.traverseCUs( CS::getArea( cs, ctuArea ) ) )
+  const int maxNumChannelType = cs.pcv->chrFormat != CHROMA_400 && CS::isDualITree( cs ) ? 2 : 1;
+
+  for( int ch = 0; ch < maxNumChannelType; ch++ )
   {
-    switch( currCU.predMode )
+    const ChannelType chType = ChannelType( ch );
+
+    for( auto &currCU : cs.traverseCUs( CS::getArea( cs, ctuArea, chType ), chType ) )
     {
-    case MODE_INTER:
-      xDeriveCUMV( currCU );
-      xReconInter( currCU );
-      break;
-    case MODE_INTRA:
-      xReconIntraQT( currCU );
-      break;
-    default:
-      THROW("Invalid prediction mode");
-      break;
+      switch( currCU.predMode )
+      {
+      case MODE_INTER:
+        xDeriveCUMV( currCU );
+        xReconInter( currCU );
+        break;
+      case MODE_INTRA:
+        xReconIntraQT( currCU );
+        break;
+      default:
+        THROW( "Invalid prediction mode" );
+        break;
+      }
+
+      if( CU::isLosslessCoded( currCU ) && !currCU.ipcm )
+      {
+        xFillPCMBuffer( currCU );
+      }
+
+      DTRACE_BLOCK_REC( cs.picture->getRecoBuf( currCU ), currCU, currCU.predMode );
     }
-
-    if( CU::isLosslessCoded( currCU ) && !currCU.ipcm )
-    {
-      xFillPCMBuffer( currCU );
-    }
-
-    DTRACE_BLOCK_REC( cs.picture->getRecoBuf( currCU ), currCU, currCU.predMode );
-  }
-
-  if( cs.pcv->chrFormat != CHROMA_400 && CS::isDualITree( cs ) && cs.chType != CHANNEL_TYPE_CHROMA )
-  {
-    cs.chType = CHANNEL_TYPE_CHROMA;
-    decompressCtu( cs, ctuArea );
-    cs.chType = CHANNEL_TYPE_LUMA;
   }
 }
 
@@ -122,34 +132,62 @@ Void DecCu::xIntraRecBlk( TransformUnit& tu, const ComponentID compID )
     return;
   }
 
-        CodingStructure &cs= *tu.cs;
-  const CompArea &area     = tu.blocks[compID];
-  const SPS &sps           = *cs.sps;
+        CodingStructure &cs = *tu.cs;
+  const CompArea &area      = tu.blocks[compID];
+  const SPS &sps            = *cs.sps;
 
-  const ChannelType chType = toChannelType( compID );
+  const ChannelType chType  = toChannelType( compID );
 
-        PelBuf piPred      = cs.getPredBuf( area );
+        PelBuf piPred       = cs.getPredBuf( area );
 
-  const PredictionUnit &pu = *tu.cs->getPU( area.pos(), chType );
-
-  const UInt uiChFinalMode = PU::getFinalIntraMode( pu, chType );
+        PredictionUnit &pu  = *tu.cs->getPU( area.pos(), chType );
+  const UInt uiChFinalMode  = PU::getFinalIntraMode( pu, chType );
 
   //===== init availability pattern =====
-  const bool bUseFilteredPredictions = IntraPrediction::useFilteredIntraRefSamples( compID, pu, true, tu );
 
+  const bool bUseFilteredPredictions = IntraPrediction::useFilteredIntraRefSamples( compID, pu, true, tu );
   m_pcIntraPred->initIntraPatternChType( *tu.cu, area, bUseFilteredPredictions );
 
   //===== get prediction signal =====
   if( compID != COMPONENT_Y && PU::isLMCMode( uiChFinalMode ) )
   {
-    const PredictionUnit& pu = cs.pcv->noRQT && cs.pcv->only2Nx2N ? *tu.cu->firstPU : *( tu.cs->getPU( tu.block( compID ), CHANNEL_TYPE_CHROMA ) );
+    const PredictionUnit& pu = cs.pcv->noRQT && cs.pcv->only2Nx2N ? *tu.cu->firstPU : *tu.cs->getPU( tu.block( compID ), CHANNEL_TYPE_CHROMA );
     m_pcIntraPred->xGetLumaRecPixels( pu, area );
     m_pcIntraPred->predIntraChromaLM( compID, piPred, pu, area, uiChFinalMode );
   }
   else
   {
-    PelBuf piOrg;
-    m_pcIntraPred->predIntraAng( compID, piOrg, piPred, pu, bUseFilteredPredictions );
+    if( sps.getSpsNext().getUseIntraFTM() && pu.FTMRegIdx > 0 && compID == COMPONENT_Y )
+    {
+      // FTM intra mode, available only for luma
+      m_pcIntraPred->predIntraFastTM( piPred, pu, compID, area.x, area.y );
+    }
+    else if( sps.getSpsNext().getUseIntra_NN() && pu.cu->intra_NN && isLuma( compID ) )
+    {
+      m_pcIntraPred->jointPreparationForNNIntraPrediction( pu );
+      pu.intraNN_Mode_True = m_pcIntraPred->getFinalNNMode( uiChFinalMode );
+      m_pcIntraPred->predIntraNNModel( compID, piPred, pu );
+    }
+    else
+    {
+      const bool isFirstPartition = (tu.cu->mode1dPartitions && canUse1dPartitions( compID ) && (area.width == 1 || area.height == 1)) ? CU::isFirst1dPartition( *tu.cu, area, compID ) : true;
+
+      m_pcIntraPred->predIntraAng( compID, piPred, pu, bUseFilteredPredictions, isFirstPartition );
+    }
+    if (pu.cu->diffFilterIdx && pu.cs->sps->getSpsNext().getDiffusionFilterEnabled() && compID == COMPONENT_Y)
+    {
+      CHECK(!CU::isDiffIdxPresent(*pu.cu), "!CU::isDiffIdxPresent(cu)");
+      m_DiffusionFilter->applyDiffusion(compID, *pu.cu, tu.blocks[compID], piPred, piPred);
+    }
+#if THRESHOLDING
+    if( tu.thresholding && compID == COMPONENT_Y )
+    {
+      m_pcThresholding->getNumberValidThrs( COMPONENT_Y, tu, piPred );
+      m_pcThresholding->applyThresholding ( COMPONENT_Y, tu, piPred );
+      DTRACE_CCRC(g_trace_ctx, D_CRC, cs, piPred, COMPONENT_Y, &(tu.blocks[compID]));
+    }
+#endif
+
     if( compID == COMPONENT_Cr && sps.getSpsNext().getUseLMChroma() )
     {
       const CPelBuf pResiCb = cs.getResiBuf( tu.Cb() );
@@ -179,20 +217,27 @@ Void DecCu::xIntraRecBlk( TransformUnit& tu, const ComponentID compID )
 
   PelBuf pReco = cs.getRecoBuf( area );
 
-  cs.setDecomp( area );
+  if( !tu.cu->mode1dPartitions || !canUse1dPartitions( compID ) )
+  {
+    cs.setDecomp( area );
+  }
+  else if( tu.cu->mode1dPartitions && canUse1dPartitions( compID ) && CU::isFirst1dPartition( *tu.cu, tu.blocks[compID], compID ) )
+  {
+    cs.setDecomp( tu.cu->blocks[compID] );
+  }
 
 #if KEEP_PRED_AND_RESI_SIGNALS
   pReco.reconstruct( piPred, piResi, tu.cu->cs->slice->clpRng( compID ) );
 #else
   piPred.reconstruct( piPred, piResi, tu.cu->cs->slice->clpRng( compID ) );
 #endif
-
-  if( sps.getSpsNext().getUseBIF() && isLuma(compID) && TU::getCbf(tu, compID) && (tu.cu->qp > 17)/* && (16 > std::min(tu.lumaSize().width, tu.lumaSize().height) )*/ )
+  if( !tu.cu->mode1dPartitions || !canUse1dPartitions( compID ) )
+  if( sps.getSpsNext().getUseBIF() && isLuma( compID ) && TU::getCbf( tu, compID ) && ( tu.cu->qp > 17 ) )
   {
 #if KEEP_PRED_AND_RESI_SIGNALS
-    BilateralFilter::instance()->bilateralFilterIntra( pReco, tu.cu->qp );
+    m_bilateralFilter.bilateralFilterIntra( pReco, tu.cu->qp );
 #else
-    BilateralFilter::instance()->bilateralFilterIntra( piPred, tu.cu->qp );
+    m_bilateralFilter.bilateralFilterIntra( piPred, tu.cu->qp );
 #endif
   }
 
@@ -292,12 +337,6 @@ DecCu::xIntraRecQT(CodingUnit &cu, const ChannelType chType)
       for( UInt compID = COMPONENT_Cb; compID < numValidComp; compID++ )
       {
         xIntraRecBlk( currTU, ComponentID( compID ) );
-#if ENABLE_CHROMA_422
-        if( cu.cs->pcv->multiBlock422 )
-        {
-          xIntraRecBlk( currTU, ComponentID( compID + SCND_TBLOCK_OFFSET ) );
-        }
-#endif
       }
     }
   }
@@ -329,6 +368,20 @@ Void DecCu::xReconInter(CodingUnit &cu)
   m_pcInterPred->motionCompensation( cu );
   m_pcInterPred->subBlockOBMC      ( cu );
 
+  if( cu.diffFilterIdx )
+  {
+    PelBuf predY = cu.cs->getPredBuf( cu ).Y();
+    m_DiffusionFilter->applyDiffusion( COMPONENT_Y, cu, cu.blocks[COMPONENT_Y], predY, predY );
+  }
+
+#if THRESHOLDING    
+  if( cu.firstTU->thresholding )
+  {
+    PelBuf predY = cu.cs->getPredBuf( cu ).Y();
+    m_pcThresholding->getNumberValidThrs( COMPONENT_Y, *cu.firstTU, predY );
+    m_pcThresholding->applyThresholding ( COMPONENT_Y, *cu.firstTU, predY );
+  }
+#endif
   // inter recon
   xDecodeInterTexture(cu);
 
@@ -371,7 +424,7 @@ Void DecCu::xDecodeInterTU( TransformUnit & currTU, const ComponentID compID )
     if( cs.sps->getSpsNext().getUseBIF() && isLuma(compID) && (currTU.cu->qp > 17) && (16 > std::min(currTU.lumaSize().width, currTU.lumaSize().height) ) )
     {
       const CPelBuf predBuf  = cs.getPredBuf(area);
-      BilateralFilter::instance()->bilateralFilterInter( resiBuf, predBuf, currTU.cu->qp, cs.slice->clpRng(compID) );
+      m_bilateralFilter.bilateralFilterInter( resiBuf, predBuf, currTU.cu->qp, cs.slice->clpRng(compID) );
     }
   }
   else
@@ -388,7 +441,8 @@ Void DecCu::xDecodeInterTU( TransformUnit & currTU, const ComponentID compID )
 
 Void DecCu::xDecodeInterTexture(CodingUnit &cu)
 {
-  if (!cu.rootCbf) {
+  if( !cu.rootCbf )
+  {
     return;
   }
 
@@ -401,12 +455,6 @@ Void DecCu::xDecodeInterTexture(CodingUnit &cu)
     for( auto& currTU : CU::traverseTUs( cu ) )
     {
       xDecodeInterTU( currTU, compID );
-#if ENABLE_CHROMA_422
-      if( cu.cs->pcv->multiBlock422 && compID != COMPONENT_Y )
-      {
-        xDecodeInterTU( currTU, ComponentID( compID + SCND_TBLOCK_OFFSET ) );
-      }
-#endif
     }
   }
 }
@@ -417,8 +465,20 @@ Void DecCu::xDeriveCUMV( CodingUnit &cu )
   {
     MergeCtx mrgCtx;
 
+    const unsigned imvShift = pu.cu->imv << 1;
+    for( auto &mhData : pu.addHypData )
+    {
+      mhData.mvd <<= imvShift;
+      const Mv mvp = PU::getMultiHypMVP( pu, mhData );
+      mhData.mv = mvp + mhData.mvd;
+    }
+
     if( pu.mergeFlag )
     {
+      CHECK(cu.skip && !pu.addHypData.empty(),"additional hypotheseis signalled in SKIP mode");
+      // save signalled add hyp data, to put it at the end after merging
+      auto addHypData = std::move( pu.addHypData );
+      pu.addHypData.clear();
       if( pu.frucMrgMode )
       {
         pu.mergeType = MRG_TYPE_FRUC;
@@ -463,6 +523,7 @@ Void DecCu::xDeriveCUMV( CodingUnit &cu )
 
           if( cu.cs->pps->getLog2ParallelMergeLevelMinus2() && cu.partSize != SIZE_2Nx2N && cu.lumaSize().width <= 8 )
           {
+            CHECK( pu.mergeRefPicList != REF_PIC_LIST_X, "Invalid merge reference list" );
             if( !mrgCtx.hasMergedCandList )
             {
               // temporarily set size to 2Nx2N
@@ -480,6 +541,7 @@ Void DecCu::xDeriveCUMV( CodingUnit &cu )
             PU::getInterMergeCandidates( pu, mrgCtx );
           }
 
+          PU::restrictInterMergeCandidatesForRefPicList( mrgCtx, pu.mergeRefPicList, *cu.slice );
           mrgCtx.setMergeInfo( pu, pu.mergeIdx );
 
           if( pu.interDir == 3 /* PRED_BI */ && PU::isBipredRestriction(pu) )
@@ -487,11 +549,14 @@ Void DecCu::xDeriveCUMV( CodingUnit &cu )
             pu.mv    [REF_PIC_LIST_1] = Mv(0, 0);
             pu.refIdx[REF_PIC_LIST_1] = -1;
             pu.interDir               =  1;
+            pu.addHypData.clear();
           }
 
           PU::spanMotionInfo( pu, mrgCtx );
         }
       }
+      // put saved additional hypotheseis to the end
+      pu.addHypData.insert( pu.addHypData.end(), std::make_move_iterator(addHypData.begin()), std::make_move_iterator(addHypData.end()) );
     }
     else
     {
@@ -563,7 +628,13 @@ Void DecCu::xDeriveCUMV( CodingUnit &cu )
         PU::spanMotionInfo( pu, mrgCtx );
       }
     }
+#if MCTS_ENC_CHECK
+
+    if( pu.cs->pps->getMctsOneRegionPerTileFlag() && !m_pcInterPred->checkTMctsMv( pu ) )
+    {
+      THROW( "pu motion vector across tile boundaries\n" );
+    }
+#endif
   }
 }
-
 //! \}

@@ -237,6 +237,51 @@ public:
   }
 };
 
+class SizeIndexInfoWithNonLog2 : public SizeIndexInfo
+{
+public:
+  SizeIndexInfoWithNonLog2(){}
+  ~SizeIndexInfoWithNonLog2(){};
+
+  void init( SizeType maxSize )
+  {
+    // Init to default value
+    for( int i = 0; i <= maxSize; i++ )
+    {
+      m_sizeToIdxTab.push_back( std::numeric_limits<SizeType>::max() );
+    }
+
+    for( int i = 0, n = 0; i <= maxSize; i++ )
+    {
+      if( i == ( 1 << n ) )
+      {
+        // Log2 sizes
+        m_sizeToIdxTab[i] = i;
+
+        // 3/4, 1/4 sizes
+        if( n >= 3 )
+        {
+          int size34 = ( 3 * ( 1 << ( n - 2 ) ) );
+          int size14 = ( 1 << ( n - 2 ) );
+          m_sizeToIdxTab[size34] = size34;
+          m_sizeToIdxTab[size14] = size14;
+        }
+
+        // 5/8, 3/8 sizes
+        if( n >= 4 )
+        {
+          int size58 = ( 5 * ( 1 << ( n - 3 ) ) );
+          int size38 = ( 3 * ( 1 << ( n - 3 ) ) );
+          m_sizeToIdxTab[size58] = size58;
+          m_sizeToIdxTab[size38] = size38;
+        }
+        n++;
+      }
+    }
+
+    SizeIndexInfo::xInit();
+  }
+};
 
 
 #endif

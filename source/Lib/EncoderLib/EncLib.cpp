@@ -44,7 +44,9 @@
 #include "CommonLib/Picture.h"
 #include "CommonLib/CommonDef.h"
 #include "CommonLib/ChromaFormat.h"
-
+#if HHI_SPLIT_PARALLELISM
+#include <omp.h>
+#endif
 
 //! \ingroup EncoderLib
 //! \{
@@ -53,16 +55,18 @@
 // Constructor / destructor / create / destroy
 // ====================================================================================================================
 
+
+
 EncLib::EncLib()
   : m_spsMap( MAX_NUM_SPS )
   , m_ppsMap( MAX_NUM_PPS )
+  , m_AUWriterIf( nullptr )
 {
   m_iPOCLast          = -1;
   m_iNumPicRcvd       =  0;
   m_uiNumAllPicCoded  =  0;
 
   m_iMaxRefPicNum     = 0;
-  g_isEncoder         = true;
 
 #if HHI_SIMD_OPT_BUFFER
   g_pelBufOP.initPelBufOpsX86();
@@ -79,17 +83,49 @@ Void EncLib::create ()
   initROM();
 
 
+
+
   // create processing unit classes
   m_cGOPEncoder.        create( );
   m_cSliceEncoder.      create( getSourceWidth(), getSourceHeight(), m_chromaFormatIDC, m_maxCUWidth, m_maxCUHeight, m_maxTotalCUDepth );
+#if HHI_SPLIT_PARALLELISM || HHI_WPP_PARALLELISM
+#if HHI_SPLIT_PARALLELISM
+  m_numCuEncStacks  = m_numSplitThreads == 1 ? 1 : NUM_RESERVERD_SPLIT_JOBS;
+#else
+  m_numCuEncStacks  = 1;
+#endif
+#if HHI_WPP_PARALLELISM
+  m_numCuEncStacks *= ( m_numWppThreads + m_numWppExtraLines );
+#endif
+
+  m_cCuEncoder      = new EncCu              [m_numCuEncStacks];
+  m_bilateralFilter = new BilateralFilter    [m_numCuEncStacks];
+  m_cInterSearch    = new InterSearch        [m_numCuEncStacks];
+  m_cIntraSearch    = new IntraSearch        [m_numCuEncStacks];
+  m_DiffusionFilter = new DiffusionFilter    [m_numCuEncStacks];
+#if THRESHOLDING
+  m_Thresholding    = new ThresholdingSearch [m_numCuEncStacks];
+#endif
+  m_cTrQuant        = new TrQuant            [m_numCuEncStacks];
+  m_CABACEncoder    = new CABACEncoder       [m_numCuEncStacks];
+  m_cRdCost         = new RdCost             [m_numCuEncStacks];
+  m_CtxCache        = new CtxCache           [m_numCuEncStacks];
+
+  for( int jId = 0; jId < m_numCuEncStacks; jId++ )
+  {
+    m_cCuEncoder[jId].         create( this );
+    m_bilateralFilter[jId].    create();
+  }
+#else
   m_cCuEncoder.         create( this );
+  m_bilateralFilter.    create();
+#endif
+  const UInt widthInCtus   = (getSourceWidth()  + m_maxCUWidth  - 1)  / m_maxCUWidth;
+  const UInt heightInCtus  = (getSourceHeight() + m_maxCUHeight - 1) / m_maxCUHeight;
+  const UInt numCtuInFrame = widthInCtus * heightInCtus;
 
   if (m_bUseSAO)
   {
-    const UInt widthInCtus  = (getSourceWidth()  + m_maxCUWidth - 1)  / m_maxCUWidth;
-    const UInt heightInCtus = (getSourceHeight() + m_maxCUHeight - 1) / m_maxCUHeight;
-    const UInt numCtuInFrame = widthInCtus * heightInCtus;
-
     m_cEncSAO.create( getSourceWidth(), getSourceHeight(), m_chromaFormatIDC, m_maxCUWidth, m_maxCUHeight, m_maxTotalCUDepth, m_log2SaoOffsetScale[CHANNEL_TYPE_LUMA], m_log2SaoOffsetScale[CHANNEL_TYPE_CHROMA] );
     m_cEncSAO.createEncData(getSaoCtuBoundary(), numCtuInFrame);
   }
@@ -98,10 +134,6 @@ Void EncLib::create ()
 
   if( m_ALF )
   {
-    const UInt widthInCtus   = (getSourceWidth()  + m_maxCUWidth  - 1) / m_maxCUWidth;
-    const UInt heightInCtus  = (getSourceHeight() + m_maxCUHeight - 1) / m_maxCUHeight;
-    const UInt numCtuInFrame = widthInCtus * heightInCtus;
-
     m_cEncALF.create( getSourceWidth(), getSourceHeight(), m_chromaFormatIDC, m_maxCUWidth, m_maxCUHeight, m_maxTotalCUDepth, m_bitDepth[CHANNEL_TYPE_LUMA], m_bitDepth[CHANNEL_TYPE_CHROMA], numCtuInFrame );
   }
 
@@ -110,6 +142,7 @@ Void EncLib::create ()
     m_cRateCtrl.init( m_framesToBeEncoded, m_RCTargetBitrate, (Int)( (Double)m_iFrameRate/m_temporalSubsampleRatio + 0.5), m_iGOPSize, m_iSourceWidth, m_iSourceHeight,
                       m_maxCUWidth, m_maxCUHeight,m_RCKeepHierarchicalBit, m_RCUseLCUSeparateModel, m_GOPList );
   }
+
 }
 
 Void EncLib::destroy ()
@@ -117,24 +150,59 @@ Void EncLib::destroy ()
   // destroy processing unit classes
   m_cGOPEncoder.        destroy();
   m_cSliceEncoder.      destroy();
+#if HHI_SPLIT_PARALLELISM || HHI_WPP_PARALLELISM
+  for( int jId = 0; jId < m_numCuEncStacks; jId++ )
+  {
+    m_cCuEncoder[jId].destroy();
+  }
+#else
   m_cCuEncoder.         destroy();
+#endif
   m_cEncALF.            destroy();
   m_cEncSAO.            destroyEncData();
   m_cEncSAO.            destroy();
   m_cLoopFilter.        destroy();
   m_cRateCtrl.          destroy();
+#if HHI_SPLIT_PARALLELISM || HHI_WPP_PARALLELISM
+  for( int jId = 0; jId < m_numCuEncStacks; jId++ )
+  {
+    m_cInterSearch[jId].   destroy();
+    m_cIntraSearch[jId].   destroy();
+    m_bilateralFilter[jId].destroy();
+  }
+#else
   m_cInterSearch.       destroy();
   m_cIntraSearch.       destroy();
+  m_bilateralFilter.    destroy();
+#endif
+
+#if HHI_SPLIT_PARALLELISM || HHI_WPP_PARALLELISM
+  delete[] m_cCuEncoder;
+  delete[] m_bilateralFilter;
+  delete[] m_cInterSearch;
+  delete[] m_cIntraSearch;
+  delete[] m_DiffusionFilter;
+#if THRESHOLDING
+  delete[] m_Thresholding;
+#endif
+  delete[] m_cTrQuant;
+  delete[] m_CABACEncoder;
+  delete[] m_cRdCost;
+  delete[] m_CtxCache;
+#endif
+
+
 
 
   // destroy ROM
   destroyROM();
-
   return;
 }
 
-Void EncLib::init(Bool isFieldCoding)
+Void EncLib::init( Bool isFieldCoding, AUWriterIf* auWriterIf )
 {
+  m_AUWriterIf = auWriterIf;
+
   SPS &sps0=*(m_spsMap.allocatePS(0)); // NOTE: implementations that use more than 1 SPS need to be aware of activation issues.
   PPS &pps0=*(m_ppsMap.allocatePS(0));
 
@@ -142,11 +210,19 @@ Void EncLib::init(Bool isFieldCoding)
   xInitSPS(sps0);
   xInitVPS(m_cVPS, sps0);
 
+#if HHI_SPLIT_PARALLELISM
+  if( omp_get_dynamic() )
+  {
+    omp_set_dynamic( false );
+  }
+  omp_set_nested( true );
+#endif
+
   if( sps0.getSpsNext().getCABACEngineMode() == 2 || sps0.getSpsNext().getCABACEngineMode() == 3 )
   {
-    m_CABACEncoder.checkInit( &sps0 );
+    m_CABACDataStore.checkInit( &sps0 );
   }
-  m_HLSWriter.init( m_CABACEncoder );
+  m_HLSWriter.init( m_CABACDataStore );
 
 #if U0132_TARGET_BITS_SATURATION
   if (m_RCCpbSaturationEnabled)
@@ -154,39 +230,96 @@ Void EncLib::init(Bool isFieldCoding)
     m_cRateCtrl.initHrdParam(sps0.getVuiParameters()->getHrdParameters(), m_iFrameRate, m_RCInitialCpbFullness);
   }
 #endif
+#if HHI_SPLIT_PARALLELISM || HHI_WPP_PARALLELISM
+  for( int jId = 0; jId < m_numCuEncStacks; jId++ )
+  {
+    m_cRdCost[jId].setCostMode ( m_costMode );
+    m_cRdCost[jId].setUseQtbt  ( m_QTBT );
+    m_cRdCost[jId].setUseGBS   ( m_GenBinSplit );
+  }
+#else
   m_cRdCost.setCostMode ( m_costMode );
   m_cRdCost.setUseQtbt  ( m_QTBT );
+  m_cRdCost.setUseGBS   ( m_GenBinSplit );
+#endif
 
   // initialize PPS
   xInitPPS(pps0, sps0);
   xInitRPS(sps0, isFieldCoding);
 
-  // TODO: WARNING: xInitScalingLists() calls a TrQuant member function, but TrQuant is not initialized yet.
-
 #if ER_CHROMA_QP_WCG_PPS
-//   xInitScalingLists(sps0, pps0);
-// 
   if (m_wcgChromaQpControl.isEnabled())
   {
     PPS &pps1=*(m_ppsMap.allocatePS(1));
     xInitPPS(pps1, sps0);
-
-//     xInitScalingLists(sps0, pps1);
   }
 #endif
 
   // initialize processing unit classes
   m_cGOPEncoder.  init( this );
   m_cSliceEncoder.init( this, sps0 );
-  m_cCuEncoder.   init( this, sps0 );
-#if SHARP_LUMA_DELTA_QP
-  m_cCuEncoder.getModeCtrl()->setSliceEncoder(&m_cSliceEncoder);
+#if HHI_SPLIT_PARALLELISM || HHI_WPP_PARALLELISM
+  for( int jId = 0; jId < m_numCuEncStacks; jId++ )
+  {
+    // precache a few objects
+    for( int i = 0; i < 10; i++ )
+    {
+      auto x = m_CtxCache[jId].get();
+      m_CtxCache[jId].cache( x );
+    }
+
+    m_cCuEncoder[jId].init( this, sps0, jId );
+
+    // initialize transform & quantization class
+    m_cTrQuant[jId].init( jId == 0 ? nullptr : m_cTrQuant[0].getQuant(),
+                          1 << m_uiQuadtreeTULog2MaxSize,
+                          m_useRDOQ,
+                          m_useRDOQTS,
+#if T0196_SELECTIVE_RDOQ
+                          m_useSelectiveRDOQ,
+#endif
+                          sps0.getSpsNext().getAltResiCompId(),
+                          m_RDOQfn,
+                          true,
+                          m_useTransformSkipFast
+                          , m_Intra65Ang
+                          , m_GenBinSplit || m_QTBT
+                          , m_UseTCQ
+    );
+    m_DiffusionFilter[jId].init();
+
+    // initialize encoder search class
+    CABACWriter* cabacEstimator = m_CABACEncoder[jId].getCABACEstimator( &sps0 );
+    m_cIntraSearch[jId].init( this, &m_DiffusionFilter[jId],
+#if THRESHOLDING
+                              &m_Thresholding[jId],
 #endif
 
+                              &m_cTrQuant[jId],
+                              &m_cRdCost[jId],
+                              &m_bilateralFilter[jId],
+                              cabacEstimator,
+                              getCtxCache( jId ), m_maxCUWidth, m_maxCUHeight, m_maxTotalCUDepth );
+    m_cInterSearch[jId].init( this,
+                              &m_cTrQuant[jId],
+                              &m_bilateralFilter[jId],
+                              m_iSearchRange,
+                              m_bipredSearchRange,
+                              m_motionEstimationSearchMethod,
+                              m_maxCUWidth, m_maxCUHeight, m_maxTotalCUDepth, &m_cRdCost[jId], cabacEstimator, getCtxCache( jId ) );
+
+    // link temporary buffets from intra search with inter search to avoid unnecessary memory overhead
+    m_cInterSearch[jId].setTempBuffers( m_cIntraSearch[jId].getSplitCSBuf(), m_cIntraSearch[jId].getFullCSBuf(), m_cIntraSearch[jId].getSaveCSBuf() );
+#if THRESHOLDING
+    m_Thresholding[jId].init( &sps0 );
+#endif
+  }
+#else  // HHI_SPLIT_PARALLELISM || HHI_WPP_PARALLELISM
+  m_cCuEncoder.   init( this, sps0 );
+
   // initialize transform & quantization class
-
-
-  m_cTrQuant.init( 1 << m_uiQuadtreeTULog2MaxSize,
+  m_cTrQuant.init( nullptr,
+                   1 << m_uiQuadtreeTULog2MaxSize,
                    m_useRDOQ,
                    m_useRDOQTS,
 #if T0196_SELECTIVE_RDOQ
@@ -195,20 +328,38 @@ Void EncLib::init(Bool isFieldCoding)
                    sps0.getSpsNext().getAltResiCompId(),
                    m_RDOQfn,
                    true,
-                   m_useTransformSkipFast,
-                   m_Intra65Ang,
-                   m_QTBT
-                  );
+                   m_useTransformSkipFast
+                   , m_Intra65Ang
+                   , m_GenBinSplit || m_QTBT
+                   , m_UseTCQ
+  );
+  m_DiffusionFilter.init();
 
   // initialize encoder search class
   CABACWriter* cabacEstimator = m_CABACEncoder.getCABACEstimator(&sps0);
-  m_cIntraSearch.init( this, &m_cTrQuant, &m_cRdCost, cabacEstimator,
-                      getCtxCache(), m_maxCUWidth, m_maxCUHeight, m_maxTotalCUDepth );
-  m_cInterSearch.init( this, &m_cTrQuant, m_iSearchRange, m_bipredSearchRange, m_motionEstimationSearchMethod,
-                      m_maxCUWidth, m_maxCUHeight, m_maxTotalCUDepth, &m_cRdCost, cabacEstimator, getCtxCache() );
+  m_cIntraSearch.init( this, &m_DiffusionFilter,
+#if THRESHOLDING
+                       &m_Thresholding,
+#endif
+                       &m_cTrQuant,
+                       &m_cRdCost,
+                       &m_bilateralFilter,
+                       cabacEstimator,
+                       getCtxCache(), m_maxCUWidth, m_maxCUHeight, m_maxTotalCUDepth );
+  m_cInterSearch.init( this,
+                       &m_cTrQuant,
+                       &m_bilateralFilter,
+                       m_iSearchRange,
+                       m_bipredSearchRange,
+                       m_motionEstimationSearchMethod,
+                       m_maxCUWidth, m_maxCUHeight, m_maxTotalCUDepth, &m_cRdCost, cabacEstimator, getCtxCache() );
 
   // link temporary buffets from intra search with inter search to avoid unneccessary memory overhead
   m_cInterSearch.setTempBuffers( m_cIntraSearch.getSplitCSBuf(), m_cIntraSearch.getFullCSBuf(), m_cIntraSearch.getSaveCSBuf() );
+#if THRESHOLDING
+  m_Thresholding.init( &sps0 );
+#endif
+#endif // HHI_SPLIT_PARALLELISM || HHI_WPP_PARALLELISM
 
   m_iMaxRefPicNum = 0;
 
@@ -224,10 +375,9 @@ Void EncLib::init(Bool isFieldCoding)
     xInitScalingLists( sps0, pps0 );
   }
 
-// #if !ER_CHROMA_QP_WCG_PPS
-// 
-//   xInitScalingLists(sps0, pps0);
-// #endif
+#if HHI_WPP_PARALLELISM
+  m_entropyCodingSyncContextStateVec.resize( pps0.pcv->heightInCtus );
+#endif
 }
 
 Void EncLib::xInitScalingLists(SPS &sps, PPS &pps)
@@ -246,6 +396,13 @@ Void EncLib::xInitScalingLists(SPS &sps, PPS &pps)
   {
     quant->setFlatScalingList(maxLog2TrDynamicRange, sps.getBitDepths());
     quant->setUseScalingList(false);
+#if HHI_SPLIT_PARALLELISM || HHI_WPP_PARALLELISM
+    for( int jId = 1; jId < m_numCuEncStacks; jId++ )
+    {
+      getTrQuant( jId )->getQuant()->setFlatScalingList( maxLog2TrDynamicRange, sps.getBitDepths() );
+      getTrQuant( jId )->getQuant()->setUseScalingList( false );
+    }
+#endif
     sps.setScalingListPresentFlag(false);
     pps.setScalingListPresentFlag(false);
   }
@@ -257,6 +414,12 @@ Void EncLib::xInitScalingLists(SPS &sps, PPS &pps)
 
     quant->setScalingList(&(sps.getScalingList()), maxLog2TrDynamicRange, sps.getBitDepths());
     quant->setUseScalingList(true);
+#if HHI_SPLIT_PARALLELISM || HHI_WPP_PARALLELISM
+    for( int jId = 1; jId < m_numCuEncStacks; jId++ )
+    {
+      getTrQuant( jId )->getQuant()->setUseScalingList( true );
+    }
+#endif
   }
   else if(getUseScalingListId() == SCALING_LIST_FILE_READ)
   {
@@ -271,6 +434,12 @@ Void EncLib::xInitScalingLists(SPS &sps, PPS &pps)
 
     quant->setScalingList(&(sps.getScalingList()), maxLog2TrDynamicRange, sps.getBitDepths());
     quant->setUseScalingList(true);
+#if HHI_SPLIT_PARALLELISM || HHI_WPP_PARALLELISM
+    for( int jId = 1; jId < m_numCuEncStacks; jId++ )
+    {
+      getTrQuant( jId )->getQuant()->setUseScalingList( true );
+    }
+#endif
   }
   else
   {
@@ -331,8 +500,10 @@ Void EncLib::deletePicBuffer()
  \retval  accessUnitsOut      list of output access units
  \retval  iNumEncoded         number of encoded pictures
  */
-Void EncLib::encode( Bool flush, PelStorage* pcPicYuvOrg, PelStorage* cPicYuvTrueOrg, const InputColourSpaceConversion snrCSC, std::list<PelUnitBuf*>& rcListPicYuvRecOut, std::list<AccessUnit>& accessUnitsOut, Int& iNumEncoded )
+Void EncLib::encode( Bool flush, PelStorage* pcPicYuvOrg, PelStorage* cPicYuvTrueOrg, const InputColourSpaceConversion snrCSC, std::list<PelUnitBuf*>& rcListPicYuvRecOut,
+                     Int& iNumEncoded )
 {
+  //PROF_ACCUM_AND_START_NEW_SET( getProfilerPic(), P_GOP_LEVEL );
   if (pcPicYuvOrg != NULL)
   {
     // get original YUV
@@ -345,17 +516,18 @@ Void EncLib::encode( Bool flush, PelStorage* pcPicYuvOrg, PelStorage* cPicYuvTru
       ppsID=getdQPs()[ m_iPOCLast+1 ];
       ppsID+=(getSwitchPOC() != -1 && (m_iPOCLast+1 >= getSwitchPOC())?1:0);
     }
-    xGetNewPicBuffer( rcListPicYuvRecOut, pcPicCurr, ppsID );
+    xGetNewPicBuffer( rcListPicYuvRecOut,
+                      pcPicCurr, ppsID );
 #else
-    xGetNewPicBuffer( rcListPicYuvRecOut, pcPicCurr, -1 ); // Uses default PPS ID. However, could be modified, for example, to use a PPS ID as a function of POC (m_iPOCLast+1)
+    xGetNewPicBuffer( rcListPicYuvRecOut,
+                      pcPicCurr, -1 ); // Uses default PPS ID. However, could be modified, for example, to use a PPS ID as a function of POC (m_iPOCLast+1)
 #endif
 
     {
       const PPS *pPPS=(ppsID<0) ? m_ppsMap.getFirstPS() : m_ppsMap.getPS(ppsID);
       const SPS *pSPS=m_spsMap.getPS(pPPS->getSPSId());
 
-      pcPicCurr->m_bufs[PIC_ORIGINAL].swap( *pcPicYuvOrg );
-//      pcPicCurr->getOrigBuf().copyFrom( *pcPicYuvOrg );
+      pcPicCurr->M_BUFS( 0, PIC_ORIGINAL ).swap( *pcPicYuvOrg );
 
       pcPicCurr->finalInit( *pSPS, *pPPS );
     }
@@ -381,7 +553,8 @@ Void EncLib::encode( Bool flush, PelStorage* pcPicYuvOrg, PelStorage* cPicYuvTru
   }
 
   // compress GOP
-  m_cGOPEncoder.compressGOP(m_iPOCLast, m_iNumPicRcvd, m_cListPic, rcListPicYuvRecOut, accessUnitsOut, false, false, snrCSC, m_printFrameMSE);
+  m_cGOPEncoder.compressGOP( m_iPOCLast, m_iNumPicRcvd, m_cListPic, rcListPicYuvRecOut,
+                             false, false, snrCSC, m_printFrameMSE );
 
   if ( m_RCEnableRateControl )
   {
@@ -415,7 +588,8 @@ Void separateFields(Pel* org, Pel* dstField, UInt stride, UInt width, UInt heigh
 
 }
 
-Void EncLib::encode(Bool flush, PelStorage* pcPicYuvOrg, PelStorage* pcPicYuvTrueOrg, const InputColourSpaceConversion snrCSC, std::list<PelUnitBuf*>& rcListPicYuvRecOut, std::list<AccessUnit>& accessUnitsOut, Int& iNumEncoded, Bool isTff)
+Void EncLib::encode( Bool flush, PelStorage* pcPicYuvOrg, PelStorage* pcPicYuvTrueOrg, const InputColourSpaceConversion snrCSC, std::list<PelUnitBuf*>& rcListPicYuvRecOut,
+                     Int& iNumEncoded, Bool isTff )
 {
   iNumEncoded = 0;
 
@@ -441,14 +615,6 @@ Void EncLib::encode(Bool flush, PelStorage* pcPicYuvOrg, PelStorage* pcPicYuvTru
                          compBuf.height,
                          isTopField);
         }
-/*
-        separateFields( pcPicYuvTrueOrg->getAddr(component),
-                       pcField->getPicYuvTrueOrg()->getAddr(component),
-                       pcPicYuvTrueOrg->getStride(component),
-                       pcPicYuvTrueOrg->getWidth(component),
-                       pcPicYuvTrueOrg->getHeight(component),
-                       isTopField);
-*/
       }
 
       {
@@ -476,7 +642,8 @@ Void EncLib::encode(Bool flush, PelStorage* pcPicYuvOrg, PelStorage* pcPicYuvTru
     if ( m_iNumPicRcvd && ((flush&&fieldNum==1) || (m_iPOCLast/2)==0 || m_iNumPicRcvd==m_iGOPSize ) )
     {
       // compress GOP
-      m_cGOPEncoder.compressGOP(m_iPOCLast, m_iNumPicRcvd, m_cListPic, rcListPicYuvRecOut, accessUnitsOut, true, isTff, snrCSC, m_printFrameMSE);
+      m_cGOPEncoder.compressGOP( m_iPOCLast, m_iNumPicRcvd, m_cListPic, rcListPicYuvRecOut,
+                                 true, isTff, snrCSC, m_printFrameMSE );
 
       iNumEncoded += m_iNumPicRcvd;
       m_uiNumAllPicCoded += m_iNumPicRcvd;
@@ -484,6 +651,7 @@ Void EncLib::encode(Bool flush, PelStorage* pcPicYuvOrg, PelStorage* pcPicYuvTru
     }
   }
 }
+
 
 // ====================================================================================================================
 // Protected member functions
@@ -546,7 +714,6 @@ Void EncLib::xGetNewPicBuffer ( std::list<PelUnitBuf*>& rcListPicYuvRecOut, Pict
     rpcPic = new Picture;
 
     rpcPic->create( sps.getChromaFormatIdc(), Size( sps.getPicWidthInLumaSamples(), sps.getPicHeightInLumaSamples()), sps.getMaxCUWidth(), sps.getMaxCUWidth()+16, false );
-
     if ( getUseAdaptiveQP() )
     {
       const UInt iMaxDQPLayer = pps.getMaxCuDQPDepth()+1;
@@ -568,6 +735,7 @@ Void EncLib::xGetNewPicBuffer ( std::list<PelUnitBuf*>& rcListPicYuvRecOut, Pict
   m_iPOCLast++;
   m_iNumPicRcvd++;
 }
+
 
 Void EncLib::xInitVPS(VPS &vps, const SPS &sps)
 {
@@ -630,6 +798,7 @@ Void EncLib::xInitSPS(SPS &sps)
 
   sps.getSpsNext().setNextToolsEnabled      ( m_profile == Profile::NEXT );
   sps.getSpsNext().setUseQTBT               ( m_QTBT );
+  sps.getSpsNext().setUseGenBinSplit        ( m_GenBinSplit );
   sps.getSpsNext().setCTUSize               ( m_CTUSize );
   sps.getSpsNext().setMinQTSizes            ( m_uiMinQT );
   sps.getSpsNext().setUseLargeCTU           ( m_LargeCTU );
@@ -651,8 +820,11 @@ Void EncLib::xInitSPS(SPS &sps)
   sps.getSpsNext().setUseBIO                ( m_BIO );
   sps.getSpsNext().setDisableMotCompress    ( m_DisableMotionCompression );
   sps.getSpsNext().setLICMode               ( m_LICMode );
+  sps.getSpsNext().setMTTMode               ( m_MTTMode );
   sps.getSpsNext().setUseLMChroma           ( m_LMChroma ? true : false );
   sps.getSpsNext().setELMMode               ( m_LMChroma > 1 ? m_LMChroma - 1 : 0 );
+  sps.getSpsNext().setUseNextDQP            ( m_AltDQPCoding );
+  sps.getSpsNext().setSkipDQPinOddPOCs      ( m_skipDQPinOddPOCs );
   sps.getSpsNext().setUseIntraPDPC          ( m_IntraPDPC );
   sps.getSpsNext().setALFEnabled            ( 0 != m_ALF );
   sps.getSpsNext().setGALFEnabled           ( 2 == m_ALF );
@@ -664,14 +836,48 @@ Void EncLib::xInitSPS(SPS &sps)
   sps.getSpsNext().setFRUCRefineFilter      ( m_FRUCRefineFilter );
   sps.getSpsNext().setFRUCRefineRange       ( m_FRUCRefineRange );
   sps.getSpsNext().setFRUCSmallBlkRefineDepth(m_FRUCSmallBlkRefineDepth );
-  sps.getSpsNext().setUseCIPF               ( m_CIPF );
+  sps.getSpsNext().setCIPFMode              ( m_CIPF );
   sps.getSpsNext().setUseBIF                ( m_BIF );
   sps.getSpsNext().setUseAClip              ( m_AClip );
-  // set quantizer for adaptiv clipping
+  // set quantizer for adaptive clipping
   sps.getSpsNext().setAClipQuant            ( std::min(6,((m_bitDepth[CHANNEL_TYPE_LUMA] - std::max(m_inputBitDepth[CHANNEL_TYPE_LUMA],m_inputBitDepth[CHANNEL_TYPE_CHROMA]))/2)*2) );
   sps.getSpsNext().setUseDMVR               ( m_DMVR );
+  sps.getSpsNext().setGbsAllowFourths       ( m_gbsFourths );
+  sps.getSpsNext().setGbsAllowEights        ( m_gbsEights );
+  sps.getSpsNext().setGbsNonLog2Halving     ( m_gbsNonLog2Halving );
+  sps.getSpsNext().setGbsNonLog2CUs         ( m_gbsNonLog2CUs );
+  sps.getSpsNext().setGbsForceSplitToLog2   ( m_gbsForceSplitToLog2 );
+  sps.getSpsNext().setMaxAsymTSize          ( m_maxAsymTSize, m_maxAsymTSizeI, m_maxAsymTSizeIChroma );
+  sps.getSpsNext().setUseIntraBiFi          ( m_IntraBiFi );
+  sps.getSpsNext().setUseTCQ                ( m_UseTCQ );
+  sps.getSpsNext().setUseMode1dPartitions   ( m_mode1dPartitions );
   sps.getSpsNext().setUseMDMS               ( m_MDMS );
   sps.getSpsNext().setIntraPDPCMode         ( m_IntraPDPC );
+  sps.getSpsNext().setMaxNumAddHyps         ( m_maxNumAddHyps );
+  sps.getSpsNext().setNumAddHypWeights      ( m_numAddHypWeights );
+  sps.getSpsNext().setMaxNumAddHypRefFrames ( m_maxNumAddHypRefFrames );
+  sps.getSpsNext().setUseMDBP               ( m_MDBP );
+  sps.getSpsNext().setUseRestrictedMerge    ( m_restrictedMerge );
+  sps.getSpsNext().setUseIntraFTM           ( m_IntraFTM );
+  sps.getSpsNext().setRegionSizeParameter   ( m_RegionSizeParameter );
+  sps.getSpsNext().setFTMMode               ( m_FTMmode );
+  sps.getSpsNext().setFTMderivedParameters  ( sps.getSpsNext().getRegionSizeParameter() );
+  sps.getSpsNext().setUseIntra_NN           ( m_Intra_NN );
+  sps.getSpsNext().setUseIntraNNTrafos      ( m_useIntraNNTrafos );
+  sps.getSpsNext().setUseSetOfTrafos        ( m_UseSetOfTrafos );
+  sps.getSpsNext().setDiffusionFilterMode   ( m_DiffusionFilterMode );
+  sps.getSpsNext().setRestrDiffusionMode    ( m_RestrDiffusionMode );
+  sps.getSpsNext().setRestrIntraDiffusionMode ( m_RestrIntraDiffusionMode  );
+  sps.getSpsNext().setNumDiffusionFiltersIntra( m_NumDiffusionFiltersIntra );
+  sps.getSpsNext().setNumDiffusionFiltersInter( m_NumDiffusionFiltersInter );
+#if THRESHOLDING
+  sps.getSpsNext().setUseThresholding       ( m_thresholding );
+  sps.getSpsNext().setThresholdingMaxSize   ( m_thresholdingMaxSize[ 0 ], I_SLICE );
+  sps.getSpsNext().setThresholdingMaxSize   ( m_thresholdingMaxSize[ 1 ], B_SLICE );
+  sps.getSpsNext().setThresholdingMaxThrs   ( m_thresholdingMaxThrs[ 0 ], I_SLICE );
+  sps.getSpsNext().setThresholdingMaxThrs   ( m_thresholdingMaxThrs[ 1 ], B_SLICE );
+#endif
+  sps.getSpsNext().setUseIntraMRL           ( m_IntraMRL );
 
   // ADD_NEW_TOOL : (encoder lib) set tool enabling flags and associated parameters here
 
@@ -989,13 +1195,11 @@ Void EncLib::xInitPPS(PPS &pps, const SPS &sps)
     bUseDQP = true;
   }
 #endif
-#if HHI_HLM_USE_QPA
-  if (getUsePerceptQPA() && !bUseDQP) 
+  if (getUsePerceptQPA() && !bUseDQP)
   {
     CHECK( m_iMaxCuDQPDepth != 0, "max. delta-QP depth must be zero!" );
     bUseDQP = true;
   }
-#endif
 
   if (m_costMode==COST_SEQUENCE_LEVEL_LOSSLESS || m_costMode==COST_LOSSLESS_CODING)
   {
@@ -1037,7 +1241,7 @@ Void EncLib::xInitPPS(PPS &pps, const SPS &sps)
 
   {
     int baseQp = 26;
-    if( 16 == getGOPSize() ) 
+    if( 16 == getGOPSize() )
     {
       baseQp = getBaseQP()-24;
     }
@@ -1165,9 +1369,13 @@ Void EncLib::xInitPPS(PPS &pps, const SPS &sps)
     pps.setDependentSliceSegmentsEnabledFlag( true );
   }
 
+#if HHI_MCTS_FLAG && MCTS_ENC_CHECK
+  pps.setMctsOneRegionPerTileFlag( m_tmctsSEITileConstraint );
+
+#endif
   xInitPPSforTiles(pps);
 
-  pps.pcv = new PreCalcValues(sps, pps);
+  pps.pcv = new PreCalcValues( sps, pps, true );
 }
 
 //Function for initializing m_RPSList, a list of ReferencePictureSet, based on the GOPEntry objects read from the config file.
@@ -1490,7 +1698,7 @@ Int EncCfg::getQPForPicture(const UInt gopIndex, const Slice *pSlice) const
     qp = getBaseQP();
 
     // switch at specific qp and keep this qp offset
-    static int appliedSwitchDQQ = 0;
+    static int appliedSwitchDQQ = 0; /* TODO: MT */
     if( pSlice->getPOC() == getSwitchPOC() )
     {
       appliedSwitchDQQ = getSwitchDQP();

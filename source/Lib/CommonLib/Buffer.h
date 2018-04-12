@@ -1,4 +1,4 @@
- /* The copyright in this software is being made available under the BSD
+/* The copyright in this software is being made available under the BSD
  * License, included below. This software may be subject to other third party
  * and contributor rights, including patent rights, and no such rights are
  * granted under this license.
@@ -62,10 +62,10 @@ struct PelBufferOps
   template<X86_VEXT vext>
   void _initPelBufOpsX86();
 
-  void ( *addAvg4 )       ( const Pel* src0, int src0Stride, const Pel* src1, int src1Stride, Pel *dst, int dstStride, int width, int height, int shift, int offset, const ClpRng& clpRng );
-  void ( *addAvg8 )       ( const Pel* src0, int src0Stride, const Pel* src1, int src1Stride, Pel *dst, int dstStride, int width, int height, int shift, int offset, const ClpRng& clpRng );
-  void ( *reco4 )         ( const Pel* src0, int src0Stride, const Pel* src1, int src1Stride, Pel *dst, int dstStride, int width, int height, const ClpRng& clpRng );
-  void ( *reco8 )         ( const Pel* src0, int src0Stride, const Pel* src1, int src1Stride, Pel *dst, int dstStride, int width, int height, const ClpRng& clpRng );
+  void ( *addAvg4 )       ( const Pel* src0, int src0Stride, const Pel* src1, int src1Stride, Pel *dst, int dstStride, int width, int height,            int shift, int offset, const ClpRng& clpRng );
+  void ( *addAvg8 )       ( const Pel* src0, int src0Stride, const Pel* src1, int src1Stride, Pel *dst, int dstStride, int width, int height,            int shift, int offset, const ClpRng& clpRng );
+  void ( *reco4 )         ( const Pel* src0, int src0Stride, const Pel* src1, int src1Stride, Pel *dst, int dstStride, int width, int height,                                   const ClpRng& clpRng );
+  void ( *reco8 )         ( const Pel* src0, int src0Stride, const Pel* src1, int src1Stride, Pel *dst, int dstStride, int width, int height,                                   const ClpRng& clpRng );
   void ( *linTf4 )        ( const Pel* src0, int src0Stride,                                  Pel *dst, int dstStride, int width, int height, int scale, int shift, int offset, const ClpRng& clpRng, bool bClip );
   void ( *linTf8 )        ( const Pel* src0, int src0Stride,                                  Pel *dst, int dstStride, int width, int height, int scale, int shift, int offset, const ClpRng& clpRng, bool bClip );
 };
@@ -99,12 +99,12 @@ struct AreaBuf : public Size
   void reconstruct          ( const AreaBuf<const T> &pred, const AreaBuf<const T> &resi, const ClpRng& clpRng);
   void copyClip             ( const AreaBuf<const T> &src, const ClpRng& clpRng);
 
+  Void addHypothesisAndClip ( const AreaBuf<const T> &other, const int weight, const ClpRng& clpRng );
   void subtract             ( const AreaBuf<const T> &other );
   void extendSingleBorderPel();
   void extendBorderPel      (  unsigned margin );
-
-  void addAvg               ( const AreaBuf<const T> &other1, const AreaBuf<const T> &other2, const ClpRng& clpRng);
-  void removeHighFreq       ( const AreaBuf<T>& other, const bool bClip, const ClpRng& clpRng);
+  void addAvg               ( const AreaBuf<const T> &other1, const AreaBuf<const T> &other2, const ClpRng& clpRng );
+  void removeHighFreq       ( const AreaBuf<T>& other, const bool bClip, const ClpRng& clpRng, const int weight = 1 << (HHI_MULTI_HYPOTHESEIS_WEIGHT_BITS-1) );
   void updateHistogram      ( std::vector<int32_t>& hist ) const;
 
   T    meanDiff             ( const AreaBuf<const T> &other ) const;
@@ -115,6 +115,10 @@ struct AreaBuf : public Size
   void transposedFrom       ( const AreaBuf<const T> &other );
 
   void toLast               ( const ClpRng& clpRng );
+
+  template<int N>
+  T    average              ( unsigned x, unsigned y ) const;
+  void smoothWithRef        ( const AreaBuf<const T>& refBuf, const ClpRng& clpRng );
 
         T& at( const int &x, const int &y )          { return buf[y * stride + x]; }
   const T& at( const int &x, const int &y ) const    { return buf[y * stride + x]; }
@@ -143,6 +147,9 @@ typedef AreaBuf<const TCoeff> CCoeffBuf;
 
 typedef AreaBuf<      MotionInfo>  MotionBuf;
 typedef AreaBuf<const MotionInfo> CMotionBuf;
+
+typedef AreaBuf<      int>  IntBuf;
+typedef AreaBuf<const int> CIntBuf;
 
 #define SIZE_AWARE_PER_EL_OP( OP, INC )                     \
 if( ( width & 7 ) == 0 )                                    \
@@ -212,7 +219,7 @@ void AreaBuf<T>::fill(const T &val)
   {
     if( width == stride )
     {
-      ::memset( buf, reinterpret_cast< const int& >( val ), width * height * sizeof( T ) );
+      ::memset( buf, reinterpret_cast< const signed char& >( val ), width * height * sizeof( T ) );
     }
     else
     {
@@ -221,7 +228,7 @@ void AreaBuf<T>::fill(const T &val)
 
       for( unsigned y = 0; y < height; y++ )
       {
-        ::memset( dest, reinterpret_cast< const int& >( val ), line );
+        ::memset( dest, reinterpret_cast< const signed char& >( val ), line );
 
         dest += stride;
       }
@@ -316,6 +323,8 @@ void AreaBuf<T>::copyFrom( const AreaBuf<const T> &other )
   }
 }
 
+template<>
+Void AreaBuf<Pel>::addHypothesisAndClip(const AreaBuf<const Pel> &other, const int weight, const ClpRng& clpRng);
 
 template<typename T>
 void AreaBuf<T>::subtract( const AreaBuf<const T> &other )
@@ -386,8 +395,18 @@ template<>
 void AreaBuf<Pel>::toLast( const ClpRng& clpRng );
 
 template<typename T>
-void AreaBuf<T>::removeHighFreq( const AreaBuf<T>& other, const bool bClip, const ClpRng& clpRng )
+void AreaBuf<T>::removeHighFreq( const AreaBuf<T>& other, const bool bClip, const ClpRng& clpRng, const int weight )
 {
+  const int unity                 = 1 << HHI_MULTI_HYPOTHESEIS_WEIGHT_BITS;
+  const bool divisionNecessary    = ( unity % weight ) != 0;
+  const int iScaleDenominator     = divisionNecessary ? weight : 1;
+  const int iExtraFactor          = ( iScaleDenominator % 2 ) != 0 ? 2 : 1;
+  const int iRoundingOffset       = (abs(iScaleDenominator)*iExtraFactor)/2;
+  const int iEffectiveDenominator = iExtraFactor*iScaleDenominator;
+
+  const int iScaleOrgNumerator    = divisionNecessary ? unity : (unity/weight);
+  const int iScalePredNumerator   = divisionNecessary ? (unity-weight) : (iScaleOrgNumerator-1);  // iScaleOrgNumerator-1 = (unity-weight)/weight = unity/weight-weight/weight
+
   const T*  src       = other.buf;
   const int srcStride = other.stride;
 
@@ -398,16 +417,33 @@ void AreaBuf<T>::removeHighFreq( const AreaBuf<T>& other, const bool bClip, cons
   src += srcStride; \
   dst += dstStride; \
 
-#define REM_HF_OP_CLIP( ADDR ) dst[ADDR] = ClipPel<T>( 2 * dst[ADDR] - src[ADDR], clpRng )
-#define REM_HF_OP( ADDR )      dst[ADDR] =             2 * dst[ADDR] - src[ADDR]
+#define REM_HF_OP_CLIP( ADDR ) dst[ADDR] = ClipPel<T>( iScaleOrgNumerator * dst[ADDR] - iScalePredNumerator * src[ADDR], clpRng )
+#define REM_HF_OP( ADDR )      dst[ADDR] = iScaleDenominator * ( iScaleOrgNumerator * dst[ADDR] - iScalePredNumerator * src[ADDR] )
+#define REM_HF_OP_FRAC( ADDR )                                                                      \
+        {                                                                                           \
+          const T tmpDst = iScaleOrgNumerator * dst[ADDR] - iScalePredNumerator * src[ADDR];        \
+          const T absDst = std::abs( tmpDst );                                                      \
+          const T sgnDst = tmpDst < 0 ? T(-1) : T(1);                                               \
+          dst[ADDR] = sgnDst * ( iExtraFactor * absDst + iRoundingOffset ) / iEffectiveDenominator; \
+        }
 
   if( bClip )
   {
+    CHECK(iScaleDenominator != 1, "Multi Hyp: iScaleDenominator != 1");
+    CHECK(divisionNecessary, "Multi Hyp: divisionNecessary" );
     SIZE_AWARE_PER_EL_OP( REM_HF_OP_CLIP, REM_HF_INC );
+  }
+  else if( std::abs(iScaleDenominator) == 1 )
+  {
+    CHECK(divisionNecessary, "Multi Hyp: divisionNecessary" );
+    SIZE_AWARE_PER_EL_OP( REM_HF_OP,      REM_HF_INC );
   }
   else
   {
-    SIZE_AWARE_PER_EL_OP( REM_HF_OP,      REM_HF_INC );
+    CHECK(iScaleDenominator == 0, "Multi Hyp: iScaleDenominator == 0");
+    CHECK(!divisionNecessary, "Multi Hyp: !divisionNecessary" );
+    SIZE_AWARE_PER_EL_OP( REM_HF_OP_FRAC, REM_HF_INC );
+#undef REM_HF_OP_FRAC
   }
 
 #undef REM_HF_INC
@@ -528,6 +564,81 @@ void AreaBuf<T>::transposedFrom( const AreaBuf<const T> &other )
   }
 }
 
+template<typename T>
+template<int N>
+T AreaBuf<T>::average( unsigned x, unsigned y ) const
+{
+  Int s = 0;
+
+  for( int i = -N / 2; i <= N / 2; ++i )
+  {
+    const int ii = ( y + i + height ) % height;
+    const T* line = bufAt( 0, ii );
+    for( int j = -N / 2; j <= N / 2; ++j )
+    {
+      const int jj = ( x + j + width ) % width;
+      s += line[ jj ];
+    }
+  }
+
+  return static_cast<T>( ( s + ( N * N ) / 2 ) / ( N * N ) );
+}
+
+template<typename T>
+void AreaBuf<T>::smoothWithRef( const AreaBuf<const T>& refBuf, const ClpRng& clpRng )
+{
+  char* bmMbuf = ( char* ) alloca( area() * sizeof( char ) );
+  AreaBuf<char> bmM( bmMbuf, width, height );
+  bmM.fill( 0 );
+
+  bool activate = false;
+  for( unsigned h = 0; h < height; h++ )
+  {
+    for( unsigned w = 0; w < width; w++ )
+    {
+      const T refVal = refBuf.at( w, h );
+
+      if     ( refVal <= clpRng.min ) { bmM.at( w, h ) = -1; activate = true; }
+      else if( refVal >= clpRng.max ) { bmM.at( w, h ) = +1; activate = true; }
+    }
+  }
+
+  if( activate )
+  {
+    T* rBuf = ( T* ) alloca( area() * sizeof( T ) );
+    AreaBuf<T> r( rBuf, width, height );
+
+    r.copyFrom( *this );
+
+    const int cptmax = 4;
+          int cpt    = 0;
+          bool cont  = true;
+
+    while( cpt < cptmax && cont )
+    {
+      cont = false;
+
+      for( unsigned i = 0; i < height; i++ )
+      {
+        for( unsigned j = 0; j < width; j++ )
+        {
+          const T    avg   = average<3>( j, i );
+          const T   &val   = at        ( j, i );
+          const char bmVal = avg < val ? -1 : ( avg > val ? 1 : 2 ); // bmM can be [-1..1], so 2 deactivates it
+          if( bmM.at( j, i ) == bmVal )
+          {
+            r.at( j, i ) = avg;
+            cont         = true;
+          }
+        }
+      }
+
+      cpt++;
+
+      copyFrom( r );
+    }
+  }
+}
 
 #ifndef DONT_UNDEF_SIZE_AWARE_PER_EL_OP
 #undef SIZE_AWARE_PER_EL_OP
@@ -574,12 +685,15 @@ struct UnitBuf
   void fill                 ( const T &val );
   void copyFrom             ( const UnitBuf<const T> &other );
   void reconstruct          ( const UnitBuf<const T> &pred, const UnitBuf<const T> &resi, const ClpRngs& clpRngs );
+  Void addHypothesisAndClip ( const UnitBuf<const T> &other, const int weight, const ClpRngs& clpRngs );
   void copyClip             ( const UnitBuf<const T> &src, const ClpRngs& clpRngs );
   void subtract             ( const UnitBuf<const T> &other );
   void addAvg               ( const UnitBuf<const T> &other1, const UnitBuf<const T> &other2, const ClpRngs& clpRngs, const bool chromaOnly = false, const bool lumaOnly = false);
   void extendSingleBorderPel();
   void extendBorderPel      ( unsigned margin );
-  void removeHighFreq       ( const UnitBuf<T>& other, const bool bClip, const ClpRngs& clpRngs);
+  void removeHighFreq       ( const UnitBuf<T>& other, const bool bClip, const ClpRngs& clpRngs, const int weight = 1 << (HHI_MULTI_HYPOTHESEIS_WEIGHT_BITS-1));
+
+  void smoothWithRef        ( const UnitBuf<const T>& refBuf, const ClpRngs& clpRngs );
 
         UnitBuf<      T> subBuf (const UnitArea& subArea);
   const UnitBuf<const T> subBuf (const UnitArea& subArea) const;
@@ -612,6 +726,16 @@ void UnitBuf<T>::copyFrom( const UnitBuf<const T> &other )
 }
 
 
+template<typename T>
+Void UnitBuf<T>::addHypothesisAndClip(const UnitBuf<const T> &other, const int weight, const ClpRngs& clpRngs)
+{
+  CHECK(chromaFormat != other.chromaFormat, "Incompatible formats" );
+
+  for (unsigned i = 0; i < bufs.size(); i++)
+  {
+    bufs[i].addHypothesisAndClip(other.bufs[i], weight, clpRngs.comp[i]);
+  }
+}
 
 template<typename T>
 void UnitBuf<T>::subtract( const UnitBuf<const T> &other )
@@ -681,11 +805,11 @@ void UnitBuf<T>::extendBorderPel( unsigned margin )
 }
 
 template<typename T>
-void UnitBuf<T>::removeHighFreq( const UnitBuf<T>& other, const bool bClip, const ClpRngs& clpRngs)
+void UnitBuf<T>::removeHighFreq( const UnitBuf<T>& other, const bool bClip, const ClpRngs& clpRngs, const int weight)
 {
   for( unsigned i = 0; i < bufs.size(); i++ )
   {
-    bufs[i].removeHighFreq(other.bufs[i], bClip, clpRngs.comp[i] );
+    bufs[i].removeHighFreq(other.bufs[i], bClip, clpRngs.comp[i], weight );
   }
 }
 
@@ -722,6 +846,16 @@ const UnitBuf<const T> UnitBuf<T>::subBuf( const UnitArea& subArea ) const
   return subBuf;
 }
 
+template<typename T>
+void UnitBuf<T>::smoothWithRef( const UnitBuf<const T>& refBuf, const ClpRngs& clpRngs )
+{
+  for( int comp = 0; comp < bufs.size(); comp++ )
+  {
+    const ComponentID compID = ComponentID( comp );
+    get( compID ).smoothWithRef( refBuf.get( compID ), clpRngs.comp[compID] );
+  }
+}
+
 // ---------------------------------------------------------------------------
 // PelStorage struct (PelUnitBuf which allocates its own memory)
 // ---------------------------------------------------------------------------
@@ -742,6 +876,9 @@ struct PelStorage : public PelUnitBuf
 
          PelBuf getBuf( const CompArea &blk );
   const CPelBuf getBuf( const CompArea &blk ) const;
+
+         PelBuf getBuf( const ComponentID CompID );
+  const CPelBuf getBuf( const ComponentID CompID ) const;
 
          PelUnitBuf getBuf( const UnitArea &unit );
   const CPelUnitBuf getBuf( const UnitArea &unit ) const;

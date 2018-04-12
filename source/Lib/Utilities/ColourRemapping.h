@@ -60,7 +60,7 @@ class ColourRemapping
 private:
   SEIColourRemappingInfo*         m_pcSeiColourRemappingInfoPrevious;
 public:
-  ColourRemapping(); 
+  ColourRemapping();
   virtual ~ColourRemapping();
 
   Void outputColourRemapPic(Picture* pcPic, std::ofstream& outstream );
