@@ -309,9 +309,6 @@ Void InterPrediction::xPredInterBlk ( const ComponentID& compID, const Predictio
   int xFrac = _mv.hor & ( ( 1 << shiftHor ) - 1 );
   int yFrac = _mv.ver & ( ( 1 << shiftVer ) - 1 );
 
-  CHECKD( ( xFrac & 3 ) != 0, "Invalid fraction" );
-  CHECKD( ( yFrac & 3 ) != 0, "Invalid fraction" );
-
   PelBuf &dstBuf  = dstPic.bufs[compID];
   unsigned width  = dstBuf.width;
   unsigned height = dstBuf.height;
