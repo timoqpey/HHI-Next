@@ -52,11 +52,11 @@
 //! \ingroup EncoderLib
 //! \{
 
-class EncModeCtrl;
-
 // ====================================================================================================================
 // Class definition
 // ====================================================================================================================
+
+class EncModeCtrl;
 
 /// encoder search class
 class IntraSearch : public IntraPrediction, CrossComponentPrediction
@@ -74,8 +74,6 @@ private:
   CodingStructure ***m_pBestCS;
 
   CodingStructure **m_pSaveCS;
-
-  Pel             **m_pLMMFPredSaved;
 
 protected:
   // interface to option
@@ -96,8 +94,7 @@ public:
   IntraSearch();
   ~IntraSearch();
 
-  Void init                       (
-                                    EncCfg*        pcEncCfg,
+  Void init                       ( EncCfg*        pcEncCfg,
                                     TrQuant*       pcTrQuant,
                                     RdCost*        pcRdCost,
                                     CABACWriter*   CABACEstimator,
@@ -117,10 +114,9 @@ public:
 
 public:
 
-  Void estIntraPredLumaQT         (CodingUnit &cu, Partitioner& pm);
+  Void estIntraPredLumaQT         ( CodingUnit &cu, Partitioner& pm );
   Void estIntraPredChromaQT       (CodingUnit &cu, Partitioner& pm);
-
-  Void IPCMSearch                 (CodingStructure &cs);
+  Void IPCMSearch                 (CodingStructure &cs, Partitioner& partitioner);
 
 protected:
 
@@ -128,7 +124,7 @@ protected:
   // T & Q & Q-1 & T-1
   // -------------------------------------------------------------------------------------------------------------------
 
-  Void xEncPCM                    (CodingStructure &cs, const ComponentID &compID);
+  Void xEncPCM                    (CodingStructure &cs, Partitioner& partitioner, const ComponentID &compID);
 
   // -------------------------------------------------------------------------------------------------------------------
   // Intra search
@@ -145,14 +141,13 @@ protected:
 
   Void xIntraCodingTUBlock        (TransformUnit &tu, const ComponentID &compID, const Bool &checkCrossCPrediction, Distortion& ruiDist, const Int &default0Save1Load2 = 0, UInt* numSig = nullptr );
 
-  ChromaCbfs
-       xRecurIntraChromaCodingQT  (CodingStructure &cs, Partitioner& pm);
-#if HHI_RQT_INTRA_SPEEDUP
-  Void xRecurIntraCodingLumaQT    (CodingStructure &cs, Partitioner& pm, const Bool &checkFirst, int savedEmtIndex = -1);
-#else
-  Void xRecurIntraCodingLumaQT    (CodingStructure &cs, Partitioner& pm);
-#endif
+  ChromaCbfs xRecurIntraChromaCodingQT  (CodingStructure &cs, Partitioner& pm);
 
+  Void xRecurIntraCodingLumaQT    (CodingStructure &cs, Partitioner& pm);
+
+
+  void encPredIntraDPCM( const ComponentID &compID, PelBuf &pOrg, PelBuf &pDst, const UInt &uiDirMode );
+  static bool useDPCMForFirstPassIntraEstimation( const PredictionUnit &pu, const UInt &uiDirMode );
 };// END CLASS DEFINITION EncSearch
 
 //! \}

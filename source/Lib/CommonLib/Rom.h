@@ -57,7 +57,7 @@
 Void         initROM();
 Void         destroyROM();
 
-void         generateBlockSizeQuantScaling( SizeIndexInfo& sizeIdxInfo );
+void         generateTrafoBlockSizeScaling( SizeIndexInfo& sizeIdxInfo );
 
 // ====================================================================================================================
 // Data structure related table & variable
@@ -66,7 +66,6 @@ void         generateBlockSizeQuantScaling( SizeIndexInfo& sizeIdxInfo );
 // flexible conversion from relative to absolute index
 extern       UInt*  g_scanOrder     [SCAN_NUMBER_OF_GROUP_TYPES][SCAN_NUMBER_OF_TYPES][MAX_CU_SIZE / 2 + 1][MAX_CU_SIZE / 2 + 1];
 extern       UInt*  g_scanOrderPosXY[SCAN_NUMBER_OF_GROUP_TYPES][SCAN_NUMBER_OF_TYPES][MAX_CU_SIZE / 2 + 1][MAX_CU_SIZE / 2 + 1][2];
-extern       UInt   g_auiCoefTopLeftDiagScan8x8[ MAX_CU_SIZE / 2 + 1 ][64];
 
 extern const Int g_quantScales   [SCALING_LIST_REM_NUM];          // Q(QP%6)
 extern const Int g_invQuantScales[SCALING_LIST_REM_NUM];          // IQ(QP%6)
@@ -123,28 +122,12 @@ static const unsigned mpmCtx[NUM_INTRA_MODE] =
   3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3     // VER domain
 };
 
-extern Int intraCubicFilter[32][4];
-extern Int intraGaussFilter[32][4];
-
-extern const int g_pdpc_pred_param[5][35][6];
-extern const int g_pdpcParam[5][6];
 
 // ====================================================================================================================
 // Mode-Dependent DST Matrices
 // ====================================================================================================================
 
 extern const TMatrixCoeff g_as_DST_MAT_4 [TRANSFORM_NUMBER_OF_DIRECTIONS][4][4];
-
-extern Int g_aiTrSubsetIntra[3][2];
-extern Int g_aiTrSubsetInter[4];
-
-extern const UChar g_aucTrSetVert[NUM_INTRA_MODE - 1];
-extern const UChar g_aucTrSetHorz[NUM_INTRA_MODE - 1];
-
-extern const UChar g_aucTrSetVert35[35];
-extern const UChar g_aucTrSetHorz35[35];
-
-extern const UInt g_EmtSigNumThr;
 
 extern TMatrixCoeff g_aiTr2   [NUM_TRANS_TYPE][  2][  2];
 extern TMatrixCoeff g_aiTr4   [NUM_TRANS_TYPE][  4][  4];
@@ -153,14 +136,15 @@ extern TMatrixCoeff g_aiTr16  [NUM_TRANS_TYPE][ 16][ 16];
 extern TMatrixCoeff g_aiTr32  [NUM_TRANS_TYPE][ 32][ 32];
 extern TMatrixCoeff g_aiTr64  [NUM_TRANS_TYPE][ 64][ 64];
 extern TMatrixCoeff g_aiTr128 [NUM_TRANS_TYPE][128][128];
-
-extern const UChar  g_NsstLut           [NUM_INTRA_MODE-1];
-struct tabSinCos { Int c, s; };
-extern tabSinCos    g_tabSinCos         [NSST_HYGT_PTS];
-extern const UChar  g_nsstHyGTPermut4x4 [35][3][16];
-extern const Int    g_nsstHyGTPar4x4    [35][3][64];
-extern const UChar  g_nsstHyGTPermut8x8 [35][3][64];
-extern const Int    g_nsstHyGTPar8x8    [35][3][768];
+extern TMatrixCoeff g_aiTr6   [NUM_TRANS_TYPE][  6][  6];
+extern TMatrixCoeff g_aiTr10  [NUM_TRANS_TYPE][ 10][ 10];
+extern TMatrixCoeff g_aiTr12  [NUM_TRANS_TYPE][ 12][ 12];
+extern TMatrixCoeff g_aiTr20  [NUM_TRANS_TYPE][ 20][ 20];
+extern TMatrixCoeff g_aiTr24  [NUM_TRANS_TYPE][ 24][ 24];
+extern TMatrixCoeff g_aiTr40  [NUM_TRANS_TYPE][ 40][ 40];
+extern TMatrixCoeff g_aiTr48  [NUM_TRANS_TYPE][ 48][ 48];
+extern TMatrixCoeff g_aiTr80  [NUM_TRANS_TYPE][ 80][ 80];
+extern TMatrixCoeff g_aiTr96  [NUM_TRANS_TYPE][ 96][ 96];
 
 // ====================================================================================================================
 // Decision tree templates
@@ -172,44 +156,77 @@ enum SplitDecisionTree
   DTT_SPLIT_NO_SPLIT          = 1, // end-node
   DTT_SPLIT_BT_HORZ           = 2, // end-node - id same as CU_HORZ_SPLIT
   DTT_SPLIT_BT_VERT           = 3, // end-node - id same as CU_VERT_SPLIT
+  DTT_SPLIT_TT_HORZ           = 4, // end-node - id same as CU_TRIH_SPLIT
+  DTT_SPLIT_TT_VERT           = 5, // end-node - id same as CU_TRIV_SPLIT
+  DTT_SPLIT_BT_H_14           = 6,
+  DTT_SPLIT_BT_H_34           = 7,
+  DTT_SPLIT_BT_V_14           = 8,
+  DTT_SPLIT_BT_V_34           = 9,
   DTT_SPLIT_HV_DECISION,           // decision node
+  DTT_SPLIT_H_IS_BT_12_DECISION,   // decision node
+  DTT_SPLIT_V_IS_BT_12_DECISION,   // decision node
+  DTT_SPLIT_H_IS_SYM,              // decision node
+  DTT_SPLIT_H_IS_14,               // decision node
+  DTT_SPLIT_V_IS_SYM,              // decision node
+  DTT_SPLIT_V_IS_14,               // decision node
 };
 
+// decision tree for multi-type tree split decision
+extern const DecisionTreeTemplate g_mtSplitDTT;
 
 // decision tree for QTBT split
 extern const DecisionTreeTemplate g_qtbtSplitDTT;
 
-enum PartSizeDecisionTree
+enum GeneralizedBinSplitDecisionTree
 {
-  DTT_PS_2Nx2N  = 0,           // end-node - id same as in 'enum PartSize'
-  DTT_PS_2NxN   = 1,           // end-node - id same as in 'enum PartSize'
-  DTT_PS_Nx2N   = 2,           // end-node - id same as in 'enum PartSize'
-  DTT_PS_NxN    = 3,           // end-node - id same as in 'enum PartSize'
-  DTT_PS_2NxnU  = 4,           // end-node - id same as in 'enum PartSize'
-  DTT_PS_2NxnD  = 5,           // end-node - id same as in 'enum PartSize'
-  DTT_PS_nLx2N  = 6,           // end-node - id same as in 'enum PartSize'
-  DTT_PS_nRx2N  = 7,           // end-node - id same as in 'enum PartSize'
-  DTT_PS_IS_2Nx2N,             // decision node
-  DTT_PS_IS_2Nx,               // decision node
-  DTT_PS_IS_NOT_NxN,           // decision node
-  DTT_PS_IS_2NxN,              // decision node
-  DTT_PS_IS_Nx2N,              // decision node
-  DTT_PS_IS_nRx2N,             // decision node
-  DTT_PS_IS_2NxnD              // decision node
+  DTT_GBS_PERP_SPLIT,
+  DTT_GBS_PARL_SPLIT,
+  DTT_GBS_DONT_SPLIT,
+  DTT_GBS_DO_SPLIT,
+  DTT_GBS_DO_PERP_SPLIT,
+  DTT_GBS_DO_PARL_SPLIT
 };
 
-extern const DecisionTreeTemplate g_partSizeDTT;
+extern const DecisionTreeTemplate g_genBinSplitDTT;
 
+enum SplitModifierDecisionTree
+{
+  DTT_SM_12,
+  DTT_SM_14,
+  DTT_SM_34,
+  DTT_SM_38,
+  DTT_SM_58,
+  DTT_SM_13,
+  DTT_SM_23,
+  DTT_SM_15,
+  DTT_SM_25,
+  DTT_SM_35,
+  DTT_SM_45,
+  DTT_SM_IS_ASYM,
+  DTT_SM_IS_QUART,
+  DTT_SM_IS_14,
+  DTT_SM_IS_38,
+  DTT_SM_IS_x3,
+  DTT_SM_IS_13,
+  DTT_SM_IS_x5,
+  DTT_SM_IS_235,
+  DTT_SM_IS_15,
+  DTT_SM_IS_25
+};
+
+extern const DecisionTreeTemplate g_splitModifierDTT;
 
 // ====================================================================================================================
 // Misc.
 // ====================================================================================================================
 extern SizeIndexInfo* gp_sizeIdxInfo;
-extern int            g_BlockSizeQuantScale           [MAX_CU_SIZE + 1][MAX_CU_SIZE + 1][2];
+extern int            g_BlockSizeTrafoScale           [MAX_CU_SIZE + 1][MAX_CU_SIZE + 1][2];
 extern SChar          g_aucLog2                       [MAX_CU_SIZE + 1];
+extern SChar          g_aucCeilOfLog2OfNonPowerOf2Part[MAX_CU_SIZE + 1];
+extern SChar          g_aucLog2OfPowerOf2Part         [MAX_CU_SIZE + 1];
 extern SChar          g_aucNextLog2        [MAX_CU_SIZE + 1];
 extern SChar          g_aucPrevLog2        [MAX_CU_SIZE + 1];
-
+extern const SChar    i2Log2Tab[257];
 
 inline bool is34( const SizeType& size )
 {
@@ -221,6 +238,15 @@ inline bool is58( const SizeType& size )
   return ( size & ( ( Int64 ) 1 << ( g_aucLog2[size] - 2 ) ) );
 }
 
+inline bool isNonLog2BlockSize( const Size& size )
+{
+  return ( ( 1 << g_aucLog2[size.width] ) != size.width ) || ( ( 1 << g_aucLog2[size.height] ) != size.height );
+}
+
+inline bool isNonLog2Size( const SizeType& size )
+{
+  return ( ( 1 << g_aucLog2[size] ) != size );
+}
 
 extern UnitScale     g_miScaling; // scaling object for motion scaling
 
@@ -244,28 +270,7 @@ extern const UInt g_scalingListSizeX[SCALING_LIST_SIZE_NUM];
 
 extern MsgLevel g_verbosity;
 
-#include <stdarg.h>
-inline void msg( MsgLevel level, const char* fmt, ... )
-{
-  if( g_verbosity >= level )
-  {
-    va_list args;
-    va_start( args, fmt );
-    vfprintf( level == ERROR ? stderr : stdout, fmt, args );
-    va_end( args );
-  }
-}
 
-extern Bool g_isEncoder;
-
-extern Int g_aiLMDivTableLow[];
-extern Int g_aiLMDivTableHigh[];
-
-extern const Int g_aiMFLM_MinSize[];
-extern const Int g_aiMMLM_MinSize[];
-extern const Int g_aiNonLMPosThrs[];
-
-extern const UChar g_NonMPM[257];
 
 //! \}
 

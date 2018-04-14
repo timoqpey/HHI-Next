@@ -70,10 +70,13 @@ protected:
   Int           m_respectDefDispWindow;               ///< Only output content inside the default display window
   std::string   m_outputDecodedSEIMessagesFilename;   ///< filename to output decoded SEI messages to. If '-', then use stdout. If empty, do not output details.
   Bool          m_bClipOutputVideoToRec709Range;      ///< If true, clip the output video to the Rec 709 range on saving.
+#if MCTS_ENC_CHECK
+  Bool          m_tmctsCheck;
+#endif
 
 public:
   DecAppCfg();
-  virtual ~DecAppCfg(); 
+  virtual ~DecAppCfg();
 
   Bool  parseCfg        ( Int argc, TChar* argv[] );   ///< initialize option class from configuration
 };

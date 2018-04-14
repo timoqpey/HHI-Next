@@ -42,7 +42,6 @@
 #include "CommonLib/IntraPrediction.h"
 #include "CommonLib/Picture.h"
 #include "CommonLib/UnitTools.h"
-#include "CommonLib/BilateralFilter.h"
 
 #include "CommonLib/dtrace_buffer.h"
 
@@ -64,50 +63,46 @@ DecCu::~DecCu()
 
 Void DecCu::init( TrQuant* pcTrQuant, IntraPrediction* pcIntra, InterPrediction* pcInter)
 {
-  m_pcTrQuant     = pcTrQuant;
-  m_pcIntraPred   = pcIntra;
-  m_pcInterPred   = pcInter;
+  m_pcTrQuant       = pcTrQuant;
+  m_pcIntraPred     = pcIntra;
+  m_pcInterPred     = pcInter;
 }
 
 // ====================================================================================================================
 // Public member functions
 // ====================================================================================================================
 
-/**
- Decoding process for a CTU.
- \param    pCtu                      [in/out] pointer to CTU data structure
- */
 Void DecCu::decompressCtu( CodingStructure& cs, const UnitArea& ctuArea )
 {
-  for( auto &currCU : cs.traverseCUs( CS::getArea( cs, ctuArea ) ) )
+  const int maxNumChannelType = cs.pcv->chrFormat != CHROMA_400 && CS::isDualITree( cs ) ? 2 : 1;
+
+  for( int ch = 0; ch < maxNumChannelType; ch++ )
   {
-    switch( currCU.predMode )
+    const ChannelType chType = ChannelType( ch );
+
+    for( auto &currCU : cs.traverseCUs( CS::getArea( cs, ctuArea, chType ), chType ) )
     {
-    case MODE_INTER:
-      xDeriveCUMV( currCU );
-      xReconInter( currCU );
-      break;
-    case MODE_INTRA:
-      xReconIntraQT( currCU );
-      break;
-    default:
-      THROW("Invalid prediction mode");
-      break;
+      switch( currCU.predMode )
+      {
+      case MODE_INTER:
+        xDeriveCUMV( currCU );
+        xReconInter( currCU );
+        break;
+      case MODE_INTRA:
+        xReconIntraQT( currCU );
+        break;
+      default:
+        THROW( "Invalid prediction mode" );
+        break;
+      }
+
+      if( CU::isLosslessCoded( currCU ) && !currCU.ipcm )
+      {
+        xFillPCMBuffer( currCU );
+      }
+
+      DTRACE_BLOCK_REC( cs.picture->getRecoBuf( currCU ), currCU, currCU.predMode );
     }
-
-    if( CU::isLosslessCoded( currCU ) && !currCU.ipcm )
-    {
-      xFillPCMBuffer( currCU );
-    }
-
-    DTRACE_BLOCK_REC( cs.picture->getRecoBuf( currCU ), currCU, currCU.predMode );
-  }
-
-  if( cs.pcv->chrFormat != CHROMA_400 && CS::isDualITree( cs ) && cs.chType != CHANNEL_TYPE_CHROMA )
-  {
-    cs.chType = CHANNEL_TYPE_CHROMA;
-    decompressCtu( cs, ctuArea );
-    cs.chType = CHANNEL_TYPE_LUMA;
   }
 }
 
@@ -122,39 +117,24 @@ Void DecCu::xIntraRecBlk( TransformUnit& tu, const ComponentID compID )
     return;
   }
 
-        CodingStructure &cs= *tu.cs;
-  const CompArea &area     = tu.blocks[compID];
-  const SPS &sps           = *cs.sps;
+        CodingStructure &cs = *tu.cs;
+  const CompArea &area      = tu.blocks[compID];
 
-  const ChannelType chType = toChannelType( compID );
 
-        PelBuf piPred      = cs.getPredBuf( area );
+  const ChannelType chType  = toChannelType( compID );
 
-  const PredictionUnit &pu = *tu.cs->getPU( area.pos(), chType );
+        PelBuf piPred       = cs.getPredBuf( area );
 
-  const UInt uiChFinalMode = PU::getFinalIntraMode( pu, chType );
+  const PredictionUnit &pu  = *tu.cs->getPU( area.pos(), chType );
 
   //===== init availability pattern =====
-  const bool bUseFilteredPredictions = IntraPrediction::useFilteredIntraRefSamples( compID, pu, true, tu );
 
+  const bool bUseFilteredPredictions = IntraPrediction::useFilteredIntraRefSamples( compID, pu, true, tu );
   m_pcIntraPred->initIntraPatternChType( *tu.cu, area, bUseFilteredPredictions );
 
   //===== get prediction signal =====
-  if( compID != COMPONENT_Y && PU::isLMCMode( uiChFinalMode ) )
   {
-    const PredictionUnit& pu = cs.pcv->noRQT && cs.pcv->only2Nx2N ? *tu.cu->firstPU : *( tu.cs->getPU( tu.block( compID ), CHANNEL_TYPE_CHROMA ) );
-    m_pcIntraPred->xGetLumaRecPixels( pu, area );
-    m_pcIntraPred->predIntraChromaLM( compID, piPred, pu, area, uiChFinalMode );
-  }
-  else
-  {
-    PelBuf piOrg;
-    m_pcIntraPred->predIntraAng( compID, piOrg, piPred, pu, bUseFilteredPredictions );
-    if( compID == COMPONENT_Cr && sps.getSpsNext().getUseLMChroma() )
-    {
-      const CPelBuf pResiCb = cs.getResiBuf( tu.Cb() );
-      m_pcIntraPred->addCrossColorResi( compID, piPred, tu, pResiCb );
-    }
+    m_pcIntraPred->predIntraAng( compID, piPred, pu, bUseFilteredPredictions );
   }
 
   //===== inverse transform =====
@@ -186,16 +166,6 @@ Void DecCu::xIntraRecBlk( TransformUnit& tu, const ComponentID compID )
 #else
   piPred.reconstruct( piPred, piResi, tu.cu->cs->slice->clpRng( compID ) );
 #endif
-
-  if( sps.getSpsNext().getUseBIF() && isLuma(compID) && TU::getCbf(tu, compID) && (tu.cu->qp > 17)/* && (16 > std::min(tu.lumaSize().width, tu.lumaSize().height) )*/ )
-  {
-#if KEEP_PRED_AND_RESI_SIGNALS
-    BilateralFilter::instance()->bilateralFilterIntra( pReco, tu.cu->qp );
-#else
-    BilateralFilter::instance()->bilateralFilterIntra( piPred, tu.cu->qp );
-#endif
-  }
-
 #if !KEEP_PRED_AND_RESI_SIGNALS
   pReco.copyFrom( piPred );
 #endif
@@ -292,12 +262,6 @@ DecCu::xIntraRecQT(CodingUnit &cu, const ChannelType chType)
       for( UInt compID = COMPONENT_Cb; compID < numValidComp; compID++ )
       {
         xIntraRecBlk( currTU, ComponentID( compID ) );
-#if ENABLE_CHROMA_422
-        if( cu.cs->pcv->multiBlock422 )
-        {
-          xIntraRecBlk( currTU, ComponentID( compID + SCND_TBLOCK_OFFSET ) );
-        }
-#endif
       }
     }
   }
@@ -327,7 +291,6 @@ Void DecCu::xReconInter(CodingUnit &cu)
 {
   // inter prediction
   m_pcInterPred->motionCompensation( cu );
-  m_pcInterPred->subBlockOBMC      ( cu );
 
   // inter recon
   xDecodeInterTexture(cu);
@@ -368,11 +331,6 @@ Void DecCu::xDecodeInterTU( TransformUnit & currTU, const ComponentID compID )
   if( TU::getCbf( currTU, compID ) )
   {
     m_pcTrQuant->invTransformNxN( currTU, compID, resiBuf, cQP );
-    if( cs.sps->getSpsNext().getUseBIF() && isLuma(compID) && (currTU.cu->qp > 17) && (16 > std::min(currTU.lumaSize().width, currTU.lumaSize().height) ) )
-    {
-      const CPelBuf predBuf  = cs.getPredBuf(area);
-      BilateralFilter::instance()->bilateralFilterInter( resiBuf, predBuf, currTU.cu->qp, cs.slice->clpRng(compID) );
-    }
   }
   else
   {
@@ -388,7 +346,8 @@ Void DecCu::xDecodeInterTU( TransformUnit & currTU, const ComponentID compID )
 
 Void DecCu::xDecodeInterTexture(CodingUnit &cu)
 {
-  if (!cu.rootCbf) {
+  if( !cu.rootCbf )
+  {
     return;
   }
 
@@ -401,12 +360,6 @@ Void DecCu::xDecodeInterTexture(CodingUnit &cu)
     for( auto& currTU : CU::traverseTUs( cu ) )
     {
       xDecodeInterTU( currTU, compID );
-#if ENABLE_CHROMA_422
-      if( cu.cs->pcv->multiBlock422 && compID != COMPONENT_Y )
-      {
-        xDecodeInterTU( currTU, ComponentID( compID + SCND_TBLOCK_OFFSET ) );
-      }
-#endif
     }
   }
 }
@@ -419,151 +372,57 @@ Void DecCu::xDeriveCUMV( CodingUnit &cu )
 
     if( pu.mergeFlag )
     {
-      if( pu.frucMrgMode )
+      if( cu.cs->pps->getLog2ParallelMergeLevelMinus2() && cu.partSize != SIZE_2Nx2N && cu.lumaSize().width <= 8 )
       {
-        pu.mergeType = MRG_TYPE_FRUC;
-
-        Bool bAvailable = m_pcInterPred->deriveFRUCMV( pu );
-
-        CHECK( !bAvailable, "fruc mode not availabe" );
-        //normal merge data should be set already, to be checked
+        if( !mrgCtx.hasMergedCandList )
+        {
+          // temporarily set size to 2Nx2N
+          PartSize                 tmpPS    = SIZE_2Nx2N;
+          PredictionUnit           tmpPU    = pu;
+          static_cast<UnitArea&> ( tmpPU )  = cu;
+          std::swap( tmpPS, cu.partSize );
+          PU::getInterMergeCandidates( tmpPU, mrgCtx );
+          std::swap( tmpPS, cu.partSize );
+          mrgCtx.hasMergedCandList          = true;
+        }
       }
       else
       {
-        if( pu.cu->affine )
-        {
-          pu.mergeIdx = 0;
-          MvField       affineMvField[2][3];
-          unsigned char interDirNeighbours;
-          int           numValidMergeCand;
-          PU::getAffineMergeCand( pu, affineMvField, interDirNeighbours, numValidMergeCand );
-          pu.interDir = interDirNeighbours;
-          for( int i = 0; i < 2; ++i )
-          {
-            if( pu.cs->slice->getNumRefIdx( RefPicList( i ) ) > 0 )
-            {
-              MvField* mvField = affineMvField[i];
-
-              pu.mvpIdx[i] = 0;
-              pu.mvpNum[i] = 0;
-              pu.mvd[i]    = Mv();
-              PU::setAllAffineMvField( pu, mvField, RefPicList( i ) );
-            }
-          }
-          PU::spanMotionInfo( pu, mrgCtx );
-        }
-        else
-        {
-          if( pu.cs->sps->getSpsNext().getUseSubPuMvp() )
-          {
-            Size bufSize = g_miScaling.scale( pu.lumaSize() );
-            mrgCtx.subPuMvpMiBuf    = MotionBuf( m_SubPuMiBuf,    bufSize );
-            mrgCtx.subPuMvpExtMiBuf = MotionBuf( m_SubPuExtMiBuf, bufSize );
-          }
-
-          if( cu.cs->pps->getLog2ParallelMergeLevelMinus2() && cu.partSize != SIZE_2Nx2N && cu.lumaSize().width <= 8 )
-          {
-            if( !mrgCtx.hasMergedCandList )
-            {
-              // temporarily set size to 2Nx2N
-              PartSize                 tmpPS    = SIZE_2Nx2N;
-              PredictionUnit           tmpPU    = pu;
-              static_cast<UnitArea&> ( tmpPU )  = cu;
-              std::swap( tmpPS, cu.partSize );
-              PU::getInterMergeCandidates( tmpPU, mrgCtx );
-              std::swap( tmpPS, cu.partSize );
-              mrgCtx.hasMergedCandList          = true;
-            }
-          }
-          else
-          {
-            PU::getInterMergeCandidates( pu, mrgCtx );
-          }
-
-          mrgCtx.setMergeInfo( pu, pu.mergeIdx );
-
-          if( pu.interDir == 3 /* PRED_BI */ && PU::isBipredRestriction(pu) )
-          {
-            pu.mv    [REF_PIC_LIST_1] = Mv(0, 0);
-            pu.refIdx[REF_PIC_LIST_1] = -1;
-            pu.interDir               =  1;
-          }
-
-          PU::spanMotionInfo( pu, mrgCtx );
-        }
+        PU::getInterMergeCandidates( pu, mrgCtx );
       }
+          
+      mrgCtx.setMergeInfo( pu, pu.mergeIdx );
+          
+      if( pu.interDir == 3 /* PRED_BI */ && PU::isBipredRestriction(pu) )
+      {
+        pu.mv    [REF_PIC_LIST_1] = Mv(0, 0);
+        pu.refIdx[REF_PIC_LIST_1] = -1;
+        pu.interDir               =  1;
+      }
+      PU::spanMotionInfo( pu, mrgCtx );      
     }
     else
     {
-      if( cu.imv )
+      for ( UInt uiRefListIdx = 0; uiRefListIdx < 2; uiRefListIdx++ )
       {
-        PU::applyImv( pu, mrgCtx, m_pcInterPred );
-      }
-      else
-      {
-        if( pu.cu->affine )
+        RefPicList eRefList = RefPicList( uiRefListIdx );
+        if ( pu.cs->slice->getNumRefIdx( eRefList ) > 0 && ( pu.interDir & ( 1 << uiRefListIdx ) ) )
         {
-          for ( UInt uiRefListIdx = 0; uiRefListIdx < 2; uiRefListIdx++ )
-          {
-            RefPicList eRefList = RefPicList( uiRefListIdx );
-            if ( pu.cs->slice->getNumRefIdx( eRefList ) > 0 && ( pu.interDir & ( 1 << uiRefListIdx ) ) )
-            {
-              AffineAMVPInfo affineAMVPInfo;
-              PU::fillAffineMvpCand( pu, eRefList, pu.refIdx[eRefList], affineAMVPInfo );
-
-              const unsigned mvp_idx = pu.mvpIdx[eRefList];
-
-              pu.mvpNum[eRefList] = affineAMVPInfo.numCand;
-
-              //    Mv mv[3];
-              CHECK( pu.refIdx[eRefList] < 0, "Unexpected negative refIdx." );
-
-              Position posLT = pu.Y().topLeft();
-              Position posRT = pu.Y().topRight();
-
-              Mv mvLT = affineAMVPInfo.mvCandLT[mvp_idx] + pu.getMotionInfo( posLT ).mvdAffi[eRefList];
-              Mv mvRT = affineAMVPInfo.mvCandRT[mvp_idx] + pu.getMotionInfo( posRT ).mvdAffi[eRefList];
-
-              CHECK( !mvLT.highPrec, "unexpected lp mv" );
-              CHECK( !mvRT.highPrec, "unexpected lp mv" );
-
-              Int iWidth = pu.Y().width;
-              Int iHeight = pu.Y().height;
-              Int vx2 =  - ( mvRT.getVer() - mvLT.getVer() ) * iHeight / iWidth + mvLT.getHor();
-              Int vy2 =    ( mvRT.getHor() - mvLT.getHor() ) * iHeight / iWidth + mvLT.getVer();
-              //    Mv mvLB( vx2, vy2 );
-              Mv mvLB( vx2, vy2, true );
-
-              clipMv(mvLT, pu.cu->lumaPos(), *pu.cs->sps);
-              clipMv(mvRT, pu.cu->lumaPos(), *pu.cs->sps);
-              clipMv(mvLB, pu.cu->lumaPos(), *pu.cs->sps);
-              PU::setAllAffineMv( pu, mvLT, mvRT, mvLB, eRefList );
-            }
-          }
+          AMVPInfo amvpInfo;
+          PU::fillMvpCand( pu, eRefList, pu.refIdx[eRefList], amvpInfo );
+          pu.mvpNum [eRefList] = amvpInfo.numCand;
+          pu.mv     [eRefList] = amvpInfo.mvCand[pu.mvpIdx [eRefList]] + pu.mvd[eRefList];
         }
-        else
-        {
-          for ( UInt uiRefListIdx = 0; uiRefListIdx < 2; uiRefListIdx++ )
-          {
-            RefPicList eRefList = RefPicList( uiRefListIdx );
-            if ( pu.cs->slice->getNumRefIdx( eRefList ) > 0 && ( pu.interDir & ( 1 << uiRefListIdx ) ) )
-            {
-              AMVPInfo amvpInfo;
-              PU::fillMvpCand( pu, eRefList, pu.refIdx[eRefList], amvpInfo, m_pcInterPred );
-              pu.mvpNum [eRefList] = amvpInfo.numCand;
-              pu.mv     [eRefList] = amvpInfo.mvCand[pu.mvpIdx [eRefList]] + pu.mvd[eRefList];
-
-              if( pu.cs->sps->getSpsNext().getUseAffine() )
-              {
-                pu.mv[eRefList].setHighPrec();
-              }
-            }
-          }
-        }
-        PU::spanMotionInfo( pu, mrgCtx );
       }
+      PU::spanMotionInfo( pu, mrgCtx );
     }
+#if MCTS_ENC_CHECK
+
+    if( pu.cs->pps->getMctsOneRegionPerTileFlag() && !m_pcInterPred->checkTMctsMv( pu ) )
+    {
+      THROW( "pu motion vector across tile boundaries\n" );
+    }
+#endif
   }
 }
-
 //! \}

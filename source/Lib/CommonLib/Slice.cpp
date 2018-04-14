@@ -66,12 +66,9 @@ Slice::Slice()
 , m_deblockingFilterBetaOffsetDiv2( 0 )
 , m_deblockingFilterTcOffsetDiv2  ( 0 )
 , m_pendingRasInit                ( false )
-, m_bioLDBPossible                ( false )
-, m_UseLIC                        ( false )
 , m_bCheckLDC                     ( false )
 , m_iSliceQpDelta                 ( 0 )
 , m_iDepth                        ( 0 )
-, m_bScaleFactorValid             ( false )
 , m_pcVPS                         ( NULL )
 , m_pcSPS                         ( NULL )
 , m_pcPPS                         ( NULL )
@@ -109,9 +106,9 @@ Slice::Slice()
 , m_LFCrossSliceBoundaryFlag      ( false )
 , m_enableTMVPFlag                ( true )
 , m_encCABACTableIdx              (I_SLICE)
-, m_iProcessingStartTime          (0)
-, m_dProcessingTime               (0)
-, m_uiMaxBTSize                   (0)
+, m_iProcessingStartTime          ( 0 )
+, m_dProcessingTime               ( 0 )
+, m_uiMaxBTSize                   ( 0 )
 {
   for(UInt i=0; i<NUM_REF_PIC_LIST_01; i++)
   {
@@ -148,22 +145,6 @@ Slice::Slice()
     m_saoEnabledFlag[ch] = false;
   }
 
-  m_bFrucRefIdxPairValid = false;
-  if( m_bScaleFactorValid == false )
-  {
-    for( Int iTDB = -128 ; iTDB <= 127 ; iTDB++ )
-    {
-      for( Int iTDD = -128 ; iTDD <= 127 ; iTDD++ )
-      {
-        if( iTDD == 0 )
-          continue;
-        Int iX        = (0x4000 + abs(iTDD/2)) / iTDD;
-        Int iScale    = Clip3( -4096, 4095, (iTDB * iX + 32) >> 6 );
-        m_iScaleFactor[128+iTDB][128+iTDD] = iScale;
-      }
-    }
-    m_bScaleFactorValid = true;
-  }
 }
 
 Slice::~Slice()
@@ -789,7 +770,6 @@ Void Slice::copySliceInfo(Slice *pSrc, bool cpyAlmostAll)
   m_sliceSegmentCurEndCtuTsAddr   = pSrc->m_sliceSegmentCurEndCtuTsAddr;
   m_nextSlice                     = pSrc->m_nextSlice;
   m_nextSliceSegment              = pSrc->m_nextSliceSegment;
-  m_UseLIC                        = pSrc->m_UseLIC;
   m_clpRngs                       = pSrc->m_clpRngs;
   m_pendingRasInit                = pSrc->m_pendingRasInit;
 
@@ -806,7 +786,6 @@ Void Slice::copySliceInfo(Slice *pSrc, bool cpyAlmostAll)
     m_saoEnabledFlag[ch] = pSrc->m_saoEnabledFlag[ch];
   }
 
-  m_bioLDBPossible                = pSrc->m_bioLDBPossible;
   m_cabacInitFlag                 = pSrc->m_cabacInitFlag;
   m_cabacWinUpdateMode            = pSrc->m_cabacWinUpdateMode;
 
@@ -1492,55 +1471,6 @@ Void  Slice::initWpScaling(const SPS *sps)
   }
 }
 
-void Slice::setUseLICOnPicLevel( bool fastMode )
-{
-  m_UseLIC = ( getSPS()->getSpsNext().getLICMode() && !isIntra() );
-  if( !fastMode || !m_UseLIC )
-  {
-    return;
-  }
-  m_UseLIC = false;
-
-  //----- get negated histogram of current picture -----
-  int32_t               numValues   = ( 1 << getSPS()->getBitDepth( CHANNEL_TYPE_LUMA ) );
-  int32_t               numSamples  = 0;
-  std::vector<int32_t>  negCurrHist ( numValues, 0 );
-  getPic()->getOrigBuf().Y().updateHistogram( negCurrHist );
-  for( std::size_t k = 0; k < numValues; k++ )
-  {
-    int32_t val     =  negCurrHist[k];
-    numSamples     +=  val;
-    negCurrHist[k]  = -val;
-  }
-
-  //----- get SAD threshold -----
-  double  sampleThres   = getPPS()->pcv->only2Nx2N ? 0.06 : 0.05;
-  int32_t sadThreshold  = int32_t( sampleThres * double(numSamples) );
-
-  //----- check delta histograms -----
-  std::vector<int32_t> deltaHist;
-  for( int dir = 0; dir < ( isInterB() ? 2 : 1 ) && !m_UseLIC; dir++ )
-  {
-    RefPicList  eList   = RefPicList  ( dir );
-    int         numRef  = getNumRefIdx( eList );
-    for( int refIdx = 0; refIdx < numRef && !m_UseLIC; refIdx++ )
-    {
-      // get delta histogram
-      deltaHist = negCurrHist;
-      getRefPic( eList, refIdx )->getOrigBuf().Y().updateHistogram( deltaHist );
-
-      // get SAD of delta histogram
-      int32_t sadHist = 0;
-      for( std::size_t k = 0; k < numValues; k++ )
-      {
-        sadHist += abs( deltaHist[k] );
-      }
-
-      // check
-      m_UseLIC  = ( sadHist > sadThreshold );
-    }
-  }
-}
 
 void Slice::startProcessingTimer()
 {
@@ -1553,50 +1483,6 @@ void Slice::stopProcessingTimer()
   m_iProcessingStartTime = 0;
 }
 
-Int Slice::getRefIdx4MVPair( RefPicList eCurRefPicList , Int nCurRefIdx )
-{
-  CHECK( !isInterB(), "Invalid frame type" );
-  if( !m_bFrucRefIdxPairValid )
-  {
-    memset( m_iFrucRefIdxPair , -1 , sizeof( m_iFrucRefIdxPair ) );
-    for( Int nRefPicList = 0 ; nRefPicList < 2 ; nRefPicList++ )
-    {
-      for( Int nRefIdx = 0 ; nRefIdx < getNumRefIdx( ( RefPicList )nRefPicList ) ; nRefIdx++ )
-      {
-        Int nRefPOC = getRefPOC( ( RefPicList )nRefPicList , nRefIdx );
-        Int nTargetPOC = ( getPOC() << 1 ) - nRefPOC;
-        RefPicList eTargetRefPicList = RefPicList( 1 - nRefPicList );
-        Int nTargetRefIdx = getNumRefIdx( eTargetRefPicList ) - 1;
-        for( ; nTargetRefIdx >= 0 ; nTargetRefIdx-- )
-        {
-          if( nTargetPOC == getRefPOC( eTargetRefPicList , nTargetRefIdx ) )
-          {
-            m_iFrucRefIdxPair[nRefPicList][nRefIdx] = nTargetRefIdx;
-          }
-        }
-
-        if( m_iFrucRefIdxPair[nRefPicList][nRefIdx] == -1 && getCheckLDC() )
-        {
-          Int nMinDeltaPOC = MAX_INT;
-          nTargetRefIdx = -1;
-          for( Int nTmpIdx = getNumRefIdx( eTargetRefPicList ) - 1 ; nTmpIdx >= 0 ; nTmpIdx-- )
-          {
-            Int nTmpPOC = getRefPOC( eTargetRefPicList , nTmpIdx );
-            if( nRefPOC != nTmpPOC && abs( nTmpPOC - getPOC() ) < nMinDeltaPOC )
-            {
-              nMinDeltaPOC = abs( nTmpPOC - getPOC() );
-              nTargetRefIdx = nTmpIdx;
-            }
-          }
-          m_iFrucRefIdxPair[nRefPicList][nRefIdx] = nTargetRefIdx;
-        }
-      }
-    }
-    m_bFrucRefIdxPairValid = true;
-  }
-
-  return( m_iFrucRefIdxPair[eCurRefPicList][nCurRefIdx] );
-}
 
 unsigned Slice::getMinPictureDistance() const
 {
@@ -1670,58 +1556,26 @@ SPSRExt::SPSRExt()
 SPSNext::SPSNext( SPS& sps )
   : m_SPS                       ( sps )
   , m_NextEnabled               ( false )
-  , m_GALFEnabled               ( false )
   // disable all tool enabling flags by default
   , m_QTBT                      ( false )
-  , m_NSST                      ( false )
-  , m_Intra4Tap                 ( false )
-  , m_Intra65Ang                ( false )
   , m_LargeCTU                  ( false )
-  , m_IntraBoundaryFilter       ( false )
-  , m_SubPuMvp                  ( false )
-  , m_ModifiedCABACEngine       ( false )
-  , m_IMV                       ( false )
-  , m_altResiComp               ( false )
-  , m_highPrecMv                ( false )
-  , m_BIO                       ( false )
   , m_DisableMotionCompression  ( false )
-  , m_LICEnabled                ( false )
-  , m_IntraPDPC                 ( false )
-  , m_ALFEnabled                ( false )
-  , m_LMChroma                  ( false )
-  , m_IntraEMT                  ( false )
-  , m_InterEMT                  ( false )
-  , m_OBMC                      ( false )
-  , m_FRUC                      ( false )
-  , m_Affine                    ( false )
-  , m_AClip                     ( false )
-  , m_CIPF                      ( false )
-  , m_BIF                       ( false )
-  , m_DMVR                      ( false )
-  , m_MDMS                      ( false )
+  , m_MTTEnabled                ( false )
+#if HHI_WPP_PARALLELISM
+  , m_NextDQP                   ( false )
+#endif
 
   // default values for additional parameters
   , m_CTUSize                   ( 0 )
   , m_minQT                     { 0, 0 }
-  , m_maxBTDepth                ( MAX_BT_DEPTH_INTER )
-  , m_maxBTDepthI               ( MAX_BT_DEPTH )
-  , m_maxBTDepthIChroma         ( MAX_BT_DEPTH_C )
-  , m_maxBTSize                 ( MAX_BT_SIZE_INTER )
-  , m_maxBTSizeI                ( MAX_BT_SIZE )
-  , m_maxBTSizeIChroma          ( MAX_BT_SIZE_C )
-  , m_subPuLog2Size             ( 0 )
-  , m_CABACEngineMode           ( 0 )
-  , m_ImvMode                   ( IMV_OFF )
-  , m_altResiCompId             ( 0 )
-  , m_LICMode                   ( 0 )
-  , m_OBMCBlkSize               ( 4 )
-  , m_FRUCRefineFilter          ( 1 )
-  , m_FRUCRefineRange           ( 8 )
-  , m_FRUCSmallBlkRefineDepth   ( 3 )
-  , m_ELMMode                   ( 0 )
-  , m_IntraPDPCMode             ( 0 )
+  , m_maxBTDepth                { MAX_BT_DEPTH, MAX_BT_DEPTH_INTER, MAX_BT_DEPTH_C }
+  , m_maxBTSize                 { MAX_BT_SIZE,  MAX_BT_SIZE_INTER,  MAX_BT_SIZE_C }
+  , m_MTTMode                   ( 0 )
+  , m_gbsNonLog2CUs             ( true )
+  , m_gbsForceSplitToLog2       ( false )
   // ADD_NEW_TOOL : (sps extension) add tool enabling flags here (with "false" as default values)
-{}
+{
+}
 
 
 SPS::SPS()
@@ -2491,6 +2345,19 @@ UInt PreCalcValues::getMaxBtSize( const Slice &slice, const ChannelType chType )
   return ( !slice.isIntra() || isLuma( chType ) || ISingleTree ) ? slice.getMaxBTSize() : MAX_BT_SIZE_C;
 }
 
+UInt PreCalcValues::getMinTtSize( const Slice &slice, const ChannelType chType ) const
+{
+  return minTtSize[getValIdx( slice, chType )];
+}
+
+UInt PreCalcValues::getMaxTtSize( const Slice &slice, const ChannelType chType ) const
+{
+  return maxTtSize[getValIdx( slice, chType )];
+}
+unsigned PreCalcValues::getMaxAsymSize( const Slice &slice, const ChannelType chType ) const
+{
+  return maxAsymSize[getValIdx( slice, chType )];
+}
 
 UInt PreCalcValues::getMinQtSize( const Slice &slice, const ChannelType chType ) const
 {

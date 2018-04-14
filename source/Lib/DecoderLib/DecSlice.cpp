@@ -66,8 +66,8 @@ Void DecSlice::destroy()
 
 Void DecSlice::init( CABACDecoder* cabacDecoder, DecCu* pcCuDecoder )
 {
-  m_CABACDecoder  = cabacDecoder;
-  m_pcCuDecoder   = pcCuDecoder;
+  m_CABACDecoder    = cabacDecoder;
+  m_pcCuDecoder     = pcCuDecoder;
 }
 
 Void DecSlice::decompressSlice( Slice* slice, InputBitstream* bitstream )
@@ -78,9 +78,7 @@ Void DecSlice::decompressSlice( Slice* slice, InputBitstream* bitstream )
   const SPS*     sps          = slice->getSPS();
   Picture*       pic          = slice->getPic();
   const TileMap& tileMap      = *pic->tileMap;
-  CABACReader&   cabacReader  = *m_CABACDecoder->getCABACReader( sps->getSpsNext().getCABACEngineMode() );
-
-  m_CABACDecoder->updateBufferState( slice );
+  CABACReader&   cabacReader  = *m_CABACDecoder->getCABACReader( 0 );
 
   // setup coding structure
   CodingStructure& cs = *pic->cs;
@@ -89,10 +87,9 @@ Void DecSlice::decompressSlice( Slice* slice, InputBitstream* bitstream )
   cs.pps              = slice->getPPS();
   cs.vps              = slice->getVPS();
   cs.pcv              = slice->getPPS()->pcv;
-  cs.chType           = CHANNEL_TYPE_LUMA;
   cs.chromaQpAdj      = 0;
 
-  cs.addSAO(cs.pcv->sizeInCtus);
+  cs.picture->resizeSAO(cs.pcv->sizeInCtus, 0);
 
   const unsigned numSubstreams = slice->getNumberOfSubstreamSizes() + 1;
 
@@ -112,15 +109,14 @@ Void DecSlice::decompressSlice( Slice* slice, InputBitstream* bitstream )
   const bool      wavefrontsEnabled       = cs.pps->getEntropyCodingSyncEnabledFlag();
 
   cabacReader.initBitstream( ppcSubstreams[0] );
-  cabacReader.initCtxModels( *slice, m_CABACDecoder );
+  cabacReader.initCtxModels( *slice );
 
   // Quantization parameter
   if(!slice->getDependentSliceSegmentFlag())
   {
-    pic->setPrevQP( slice->getSliceQp(), CHANNEL_TYPE_LUMA );
-    pic->setPrevQP( slice->getSliceQp(), CHANNEL_TYPE_CHROMA );
+    pic->m_prevQP[0] = pic->m_prevQP[1] = slice->getSliceQp();
   }
-  CHECK(pic->getPrevQP( CHANNEL_TYPE_LUMA ) == std::numeric_limits<Int>::max(), "Invalid previous QP");
+  CHECK( pic->m_prevQP[0] == std::numeric_limits<Int>::max(), "Invalid previous QP" );
 
   DTRACE( g_trace_ctx, D_HEADER, "=========== POC: %d ===========\n", slice->getPOC() );
 
@@ -155,7 +151,6 @@ Void DecSlice::decompressSlice( Slice* slice, InputBitstream* bitstream )
     const unsigned  ctuYPosInCtus         = ctuRsAddr / widthInCtus;
     const unsigned  subStrmId             = tileMap.getSubstreamForCtuAddr( ctuRsAddr, true, slice ) - subStreamOffset;
     const unsigned  maxCUSize             = sps->getMaxCUWidth();
-
     Position pos( ctuXPosInCtus*maxCUSize, ctuYPosInCtus*maxCUSize) ;
     UnitArea ctuArea(cs.area.chromaFormat, Area( pos.x, pos.y, maxCUSize, maxCUSize ) );
 
@@ -163,61 +158,38 @@ Void DecSlice::decompressSlice( Slice* slice, InputBitstream* bitstream )
 
     cabacReader.initBitstream( ppcSubstreams[subStrmId] );
 
-    // load CABAC context from previous frame
-    if( ctuRsAddr == 0 )
-    {
-      m_CABACDecoder->loadCtxStates( slice, cabacReader.getCtx() );
-    }
-
     // set up CABAC contexts' state for this CTU
     if( ctuRsAddr == firstCtuRsAddrOfTile )
     {
       if( ctuTsAddr != startCtuTsAddr ) // if it is the first CTU, then the entropy coder has already been reset
       {
-        cabacReader.initCtxModels( *slice, m_CABACDecoder );
+        cabacReader.initCtxModels( *slice );
       }
-      pic->setPrevQP( slice->getSliceQp(), CHANNEL_TYPE_LUMA );
-      pic->setPrevQP( slice->getSliceQp(), CHANNEL_TYPE_CHROMA );
+      pic->m_prevQP[0] = pic->m_prevQP[1] = slice->getSliceQp();
     }
     else if( ctuXPosInCtus == tileXPosInCtus && wavefrontsEnabled )
     {
       // Synchronize cabac probabilities with upper-right CTU if it's available and at the start of a line.
       if( ctuTsAddr != startCtuTsAddr ) // if it is the first CTU, then the entropy coder has already been reset
       {
-        cabacReader.initCtxModels( *slice, m_CABACDecoder );
+        cabacReader.initCtxModels( *slice );
       }
-      if( cs.getCURestricted( pos.offset(maxCUSize, -1), slice->getIndependentSliceIdx(), tileMap.getTileIdxMap( pos ) ) )
+      if( cs.getCURestricted( pos.offset(maxCUSize, -1), slice->getIndependentSliceIdx(), tileMap.getTileIdxMap( pos ), CH_L ) )
       {
         // Top-right is available, so use it.
         cabacReader.getCtx() = m_entropyCodingSyncContextState;
       }
-      pic->setPrevQP( slice->getSliceQp(), CHANNEL_TYPE_LUMA );
-      pic->setPrevQP( slice->getSliceQp(), CHANNEL_TYPE_CHROMA );
+      pic->m_prevQP[0] = pic->m_prevQP[1] = slice->getSliceQp();
     }
 
-
-    if( ctuRsAddr == 0 )
-    {
-      cabacReader.alf( cs );
-    }
-    isLastCtuOfSliceSegment = cabacReader.coding_tree_unit( cs, ctuArea, pic->getPrevQP( CHANNEL_TYPE_LUMA ), pic->getPrevQP( CHANNEL_TYPE_CHROMA ), ctuRsAddr );
+    isLastCtuOfSliceSegment = cabacReader.coding_tree_unit( cs, ctuArea, pic->m_prevQP, ctuRsAddr );
 
     m_pcCuDecoder->decompressCtu( cs, ctuArea );
 
-    // store probabilities of second CTU in line into buffer
+
     if( ctuXPosInCtus == tileXPosInCtus+1 && wavefrontsEnabled )
     {
       m_entropyCodingSyncContextState = cabacReader.getCtx();
-    }
-
-    // store CABAC context to be used in next frames
-    if ( sps->getSpsNext().getUseCIPF() )
-    {
-      const unsigned storeCtuAddr = std::min<unsigned>( widthInCtus / 2 + numCtusInFrame / 2, numCtusInFrame - 1 );
-      if ( ctuRsAddr == storeCtuAddr )
-      {
-        m_CABACDecoder->storeCtxStates( slice, cabacReader.getCtx() );
-      }
     }
 
 

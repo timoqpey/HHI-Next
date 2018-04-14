@@ -41,14 +41,12 @@
 #include "CommonLib/TrQuant.h"
 #include "CommonLib/UnitTools.h"
 #include "CommonLib/SampleAdaptiveOffset.h"
-#include "CommonLib/AdaptiveLoopFilter.h"
 #include "CommonLib/dtrace_next.h"
 #include "CommonLib/Picture.h"
 
 #if RExt__DECODER_DEBUG_BIT_STATISTICS
 #include "CommonLib/CodingStatistics.h"
 #endif
-
 
 #if RExt__DECODER_DEBUG_BIT_STATISTICS
 #define RExt__DECODER_DEBUG_BIT_STATISTICS_CREATE_SET(x)           const CodingStatisticsClassType CSCT(x);                       m_BinDecoder.set( CSCT )
@@ -65,7 +63,7 @@
 #endif
 
 
-void CABACReader::initCtxModels( Slice& slice, CABACDecoder* cabacDecoder )
+void CABACReader::initCtxModels( Slice& slice )
 {
   SliceType sliceType  = slice.getSliceType();
   Int       qp         = slice.getSliceQp();
@@ -85,10 +83,6 @@ void CABACReader::initCtxModels( Slice& slice, CABACDecoder* cabacDecoder )
     }
   }
   m_BinDecoder.reset( qp, (int)sliceType );
-  if( cabacDecoder )
-  {
-    m_BinDecoder.setWinSizes( cabacDecoder->getWinSizes( &slice ) );
-  }
 }
 
 
@@ -143,29 +137,28 @@ void CABACReader::remaining_bytes( bool noTrailingBytesExpected )
 //    bool  coding_tree_unit( cs, area, qpL, qpC, ctuRsAddr )
 //================================================================================
 
-bool CABACReader::coding_tree_unit( CodingStructure& cs, const UnitArea& area, int& qpL, int& qpC, unsigned ctuRsAddr )
+bool CABACReader::coding_tree_unit( CodingStructure& cs, const UnitArea& area, int (&qps)[2], unsigned ctuRsAddr )
 {
-  CUCtx cuCtx( qpL );
+  CUCtx cuCtx( qps[CH_L] );
   Partitioner *partitioner = PartitionerFactory::get( *cs.slice );
 
-  partitioner->initCtu( area );
+  partitioner->initCtu( area, CH_L, *cs.slice );
 
 
   sao( cs, ctuRsAddr );
 
-
   bool isLast = coding_tree( cs, *partitioner, cuCtx );
-  qpL = cuCtx.qp;
-
-  if( !isLast && cs.pcv->chrFormat != CHROMA_400 && CS::isDualITree( cs ) )
+  qps[CH_L] = cuCtx.qp;
+  if( !isLast && CS::isDualITree( cs ) && cs.pcv->chrFormat != CHROMA_400 )
   {
-    CUCtx cuCtxChroma( qpC );
-    cs.chType = CHANNEL_TYPE_CHROMA;
-    partitioner->initCtu( area );
+    CUCtx cuCtxChroma( qps[CH_C] );
+    partitioner->initCtu( area, CH_C, *cs.slice );
     isLast = coding_tree( cs, *partitioner, cuCtxChroma );
-    cs.chType = CHANNEL_TYPE_LUMA;
-    qpC = cuCtxChroma.qp;
+    qps[CH_C] = cuCtxChroma.qp;
   }
+
+  DTRACE_COND( ctuRsAddr == 0, g_trace_ctx, D_QP_PER_CTU, "\n%4d %2d", cs.picture->poc, cs.slice->getSliceQpBase() );
+  DTRACE     (                 g_trace_ctx, D_QP_PER_CTU, " %3d",           qps[CH_L] - cs.slice->getSliceQpBase() );
 
   delete partitioner;
   return isLast;
@@ -191,7 +184,7 @@ void CABACReader::sao( CodingStructure& cs, unsigned ctuRsAddr )
   }
 
   const Slice& slice                        = *cs.slice;
-  SAOBlkParam&      sao_ctu_pars            = cs.getSAO()[ctuRsAddr];
+  SAOBlkParam&      sao_ctu_pars            = cs.picture->getSAO()[ctuRsAddr];
   bool              slice_sao_luma_flag     = ( slice.getSaoEnabledFlag( CHANNEL_TYPE_LUMA ) );
   bool              slice_sao_chroma_flag   = ( slice.getSaoEnabledFlag( CHANNEL_TYPE_CHROMA ) && sps.getChromaFormatIdc() != CHROMA_400 );
   sao_ctu_pars[ COMPONENT_Y  ].modeIdc      = SAO_MODE_OFF;
@@ -213,20 +206,20 @@ void CABACReader::sao( CodingStructure& cs, unsigned ctuRsAddr )
 
   RExt__DECODER_DEBUG_BIT_STATISTICS_CREATE_SET( STATS__CABAC_BITS__SAO );
 
-  if( cs.getCURestricted( pos.offset(-(Int)cs.pcv->maxCUWidth, 0), curSliceIdx, curTileIdx ) )
+  if( cs.getCURestricted( pos.offset(-(Int)cs.pcv->maxCUWidth, 0), curSliceIdx, curTileIdx, CH_L ) )
   {
     // sao_merge_left_flag
     sao_merge_type  += int( m_BinDecoder.decodeBin( Ctx::SaoMergeFlag() ) );
   }
 
-  if( sao_merge_type < 0 && cs.getCURestricted( pos.offset(0, -(Int)cs.pcv->maxCUHeight), curSliceIdx, curTileIdx ) )
+  if( sao_merge_type < 0 && cs.getCURestricted( pos.offset(0, -(Int)cs.pcv->maxCUHeight), curSliceIdx, curTileIdx, CH_L ) )
   {
     // sao_merge_above_flag
     sao_merge_type  += int( m_BinDecoder.decodeBin( Ctx::SaoMergeFlag() ) ) << 1;
   }
   if( sao_merge_type >= 0 )
   {
-    if( slice_sao_luma_flag )
+    if( slice_sao_luma_flag || slice_sao_chroma_flag )
     {
       sao_ctu_pars[ COMPONENT_Y  ].modeIdc  = SAO_MODE_MERGE;
       sao_ctu_pars[ COMPONENT_Y  ].typeIdc  = sao_merge_type;
@@ -326,531 +319,6 @@ void CABACReader::sao( CodingStructure& cs, unsigned ctuRsAddr )
 
 
 
-UInt CABACReader::parseAlfUvlc ()
-{
-  UInt uiCode;
-  Int  i;
-
-  uiCode = m_BinDecoder.decodeBinEP();
-  if ( uiCode == 0 )
-  {
-    return 0;
-  }
-
-  i=1;
-  while (1)
-  {
-    uiCode = m_BinDecoder.decodeBinEP();
-    if ( uiCode == 0 ) break;
-    i++;
-  }
-  return i;
-}
-
-Int CABACReader::parseAlfSvlc()
-{
-  UInt uiCode;
-  Int  iSign;
-  Int  i;
-
-  uiCode = m_BinDecoder.decodeBinEP();
-  if ( uiCode == 0 )
-  {
-    return 0;
-  }
-
-  // read sign
-  uiCode = m_BinDecoder.decodeBinEP();
-
-  if ( uiCode == 0 ) iSign =  1;
-  else               iSign = -1;
-
-  // read magnitude
-  i=1;
-  while (1)
-  {
-    uiCode = m_BinDecoder.decodeBinEP();
-    if ( uiCode == 0 ) break;
-    i++;
-  }
-  return i*iSign;
-}
-
-Void CABACReader::xReadTruncBinCode(UInt& ruiSymbol, UInt uiMaxSymbol)
-{
-  UInt uiThresh;
-  if (uiMaxSymbol > 256)
-  {
-    UInt uiThreshVal = 1 << 8;
-    uiThresh = 8;
-    while (uiThreshVal <= uiMaxSymbol)
-    {
-      uiThresh++;
-      uiThreshVal <<= 1;
-    }
-    uiThresh--;
-  }
-  else
-  {
-    uiThresh = g_NonMPM[uiMaxSymbol];
-  }
-
-  UInt uiVal = 1 << uiThresh;
-  UInt b = uiMaxSymbol - uiVal;
-  ruiSymbol = m_BinDecoder.decodeBinsEP(uiThresh);
-  if (ruiSymbol >= uiVal - b)
-  {
-    UInt uiSymbol;
-    uiSymbol = m_BinDecoder.decodeBinEP();
-    ruiSymbol <<= 1;
-    ruiSymbol += uiSymbol;
-    ruiSymbol -= (uiVal - b);
-  }
-}
-
-UInt CABACReader::xReadEpExGolomb(UInt uiCount)
-{
-  UInt uiSymbol = 0;
-  UInt uiBit = 1;
-
-  while (uiBit)
-  {
-    uiBit = m_BinDecoder.decodeBinEP();
-    uiSymbol += uiBit << uiCount++;
-  }
-
-  if (--uiCount)
-  {
-    UInt bins;
-    bins = m_BinDecoder.decodeBinsEP(uiCount);
-    uiSymbol += bins;
-  }
-
-  return uiSymbol;
-}
-
-Int CABACReader::alfGolombDecode(Int k)
-{
-  UInt uiSymbol;
-  Int q = -1;
-  Int nr = 0;
-  Int m = (Int)pow(2.0, k);
-  Int a;
-
-  uiSymbol = 1;
-  while (uiSymbol)
-  {
-    uiSymbol = m_BinDecoder.decodeBinEP();
-    q++;
-  }
-  for(a = 0; a < k; ++a)          // read out the sequential log2(M) bits
-  {
-    uiSymbol = m_BinDecoder.decodeBinEP();
-    if(uiSymbol)
-      nr += 1 << a;
-  }
-  nr += q * m;                    // add the bits and the multiple of M
-  if(nr != 0)
-  {
-    uiSymbol = m_BinDecoder.decodeBinEP();
-    nr = (uiSymbol)? nr: -nr;
-  }
-  return nr;
-}
-
-
-
-void CABACReader::alf( CodingStructure& cs )
-{
-  RExt__DECODER_DEBUG_BIT_STATISTICS_CREATE_SET( STATS__CABAC_BITS__ALF );
-
-  const SPSNext& spsNext = cs.sps->getSpsNext();
-  if( !spsNext.getALFEnabled() )
-  {
-    return;
-  }
-  ALFParam& alfParam = cs.getALFParam();
-  {
-    CHECK( alfParam.num_ctus_in_frame != cs.pcv->sizeInCtus, "inconsistent" )
-    alfParam.reset();
-  }
-
-  UInt alfFlag = m_BinDecoder.decodeBinEP();
-  if( !alfFlag )
-  {
-    return;
-  }
-
-  alfParam.alf_flag = 1;
-
-#if COM16_C806_ALF_TEMPPRED_NUM
-  if (cs.slice->getSliceType() == I_SLICE)
-#else
-//  if (cs.slice->getSliceType() == I_SLICE || true)
-  if (cs.slice->getSliceType() == I_SLICE )
-#endif
-  {
-    alfParam.temporalPredFlag = 0;
-  }
-  else
-  {
-    alfParam.temporalPredFlag = m_BinDecoder.decodeBinEP();
-    if( alfParam.temporalPredFlag )
-    {
-      alfParam.prevIdx = parseAlfUvlc();
-    }
-  }
-  if( alfParam.temporalPredFlag == 0 )
-  {
-    alf_aux   ( alfParam, spsNext.getGALFEnabled() );
-    alf_filter( alfParam, spsNext.getGALFEnabled() );
-  }
-
-  if( spsNext.getGALFEnabled() )
-  {
-    alfParam.chroma_idc = parseAlfUvlc();
-  #if COM16_C806_ALF_TEMPPRED_NUM
-    if (!alfParam.temporalPredFlag && alfParam.chroma_idc)
-  #else
-    if (alfParam.chroma_idc)
-  #endif
-    {
-      alfParam.num_coeff_chroma = ((alfParam.tap_chroma*alfParam.tap_chroma) >> 2) + 1;
-      alf_filter(alfParam, spsNext.getGALFEnabled(), true);
-    }
-  }
-  else
-  {
-    alf_chroma( alfParam );
-  }
-  alf_cu_ctrl( alfParam );
-}
-
-Void CABACReader::alf_aux( ALFParam& alfParam, bool isGALF )
-{
-  Int FiltTab[3] = {5, 7, 9};
-  Int sqrFiltLengthTab[3] = {AdaptiveLoopFilter::m_SQR_FILT_LENGTH_5SYM, AdaptiveLoopFilter::m_SQR_FILT_LENGTH_7SYM, AdaptiveLoopFilter::m_SQR_FILT_LENGTH_9SYM };
-
-  UInt uiSymbol;
-  const int iNoVarBins = AdaptiveLoopFilter::m_NO_VAR_BINS;
-  int i;
-  if( isGALF )
-  {
-    memset(alfParam.filterPattern, 0, sizeof(Int)*AdaptiveLoopFilter::m_NO_VAR_BINS);
-    //number of total filters
-    xReadTruncBinCode(uiSymbol, iNoVarBins);
-    alfParam.filters_per_group = uiSymbol + 1;
-  }
-
-  AlfFilterType filtType = (AlfFilterType) parseAlfUvlc();
-  alfParam.filterType =                   filtType;
-  alfParam.tapH       =          FiltTab[ filtType ];
-  alfParam.num_coeff  = sqrFiltLengthTab[ filtType ];
-
-  if( isGALF )
-  {
-    //filter set index for each class
-    if (alfParam.filters_per_group > 1)
-    {
-      for (i = 0; i< iNoVarBins; i++)
-      {
-        xReadTruncBinCode(uiSymbol, (UInt)alfParam.filters_per_group);
-        alfParam.filterPattern[i] = (Int)uiSymbol;
-      }
-    }
-    else
-    {
-      memset(alfParam.filterPattern, 0, iNoVarBins* sizeof(Int));
-    }
-
-  #if JVET_C0038_NO_PREV_FILTERS
-    Int decodetab_pred[3] = { 1, 0, 2 };
-    memset(alfParam.PrevFiltIdx, 0, sizeof(Int)*AdaptiveLoopFilter::m_NO_VAR_BINS);
-
-    if (alfParam.iAvailableFilters > 0)
-    {
-      // prediction pattern
-      //0: all zero, no pred from pre-defined filters; 1: all are predicted but could be different values; 2: some predicted and some not
-
-      alfParam.iPredPattern = decodetab_pred[xReadEpExGolomb(0)];
-
-      if (alfParam.iPredPattern == 0)
-      {
-        memset(alfParam.PrevFiltIdx, 0, sizeof(Int)*AdaptiveLoopFilter::m_NO_VAR_BINS);
-      }
-      else
-      {
-        if (alfParam.iPredPattern == 2)
-        {
-          //on/off flags
-          for (i = 0; i < iNoVarBins; i++)
-          {
-            alfParam.PrevFiltIdx[i] = m_BinDecoder.decodeBinEP();
-          }
-        }
-        else
-        {
-          CHECK(alfParam.iPredPattern != 1, "iPredPattern has to be equal 1");
-          for (i = 0; i < iNoVarBins; i++)
-          {
-            alfParam.PrevFiltIdx[i] = 1;
-          }
-        }
-        if (alfParam.iAvailableFilters > 1)
-        {
-          CHECK(alfParam.iPredPattern <= 0, "iPredPattern has to be greater 0");
-          for (i = 0; i < iNoVarBins; i++)
-          {
-            if (alfParam.PrevFiltIdx[i] > 0)
-            {
-              xReadTruncBinCode(uiSymbol, (UInt)alfParam.iAvailableFilters);
-              alfParam.PrevFiltIdx[i] = (uiSymbol + 1);
-            }
-          }
-        }
-      }
-    }
-  #endif
-  }
-  else
-  {
-    alfParam.filters_per_group = 0;
-    memset ( alfParam.filterPattern, 0 , sizeof(Int)*AdaptiveLoopFilter::m_NO_VAR_BINS);
-
-    AlfFilterMode fMode = (AlfFilterMode) parseAlfUvlc();
-
-    alfParam.filterMode = fMode;
-
-    if( fMode == ALF_ONE_FILTER )
-    {
-      alfParam.filters_per_group = 1;
-    }
-    else if( fMode == ALF_TWO_FILTERS )
-    {
-      alfParam.filters_per_group = 2;
-      UInt symbol = parseAlfUvlc();
-      alfParam.startSecondFilter = symbol;
-      alfParam.filterPattern[ symbol ] = 1;
-    }
-    else if( fMode == ALF_MULTIPLE_FILTERS )
-    {
-      alfParam.filters_per_group = 1;
-      for( int i=1; i< AdaptiveLoopFilter::m_NO_VAR_BINS; i++)
-      {
-        UInt symbol = m_BinDecoder.decodeBinEP();
-        alfParam.filterPattern[i]   = symbol;
-        alfParam.filters_per_group += symbol;
-      }
-    }
-    else
-    {
-      THROW( "ALF: unknown filter mode" );
-    }
-  }
-
- memset( alfParam.mapClassToFilter, 0, AdaptiveLoopFilter::m_NO_VAR_BINS * sizeof(int));
- for(Int i = 1; i < AdaptiveLoopFilter::m_NO_VAR_BINS; ++i)
- {
-   if( alfParam.filterPattern[i])
-   {
-     alfParam.mapClassToFilter[i] = alfParam.mapClassToFilter[i-1] + 1;
-   }
-   else
-   {
-     alfParam.mapClassToFilter[i] = alfParam.mapClassToFilter[i-1];
-   }
- }
-
-}
-
-Void CABACReader::alf_filter( ALFParam& alfParam, bool isGALF, bool bChroma )
-{
-  UInt uiSymbol;
-  int ind, scanPos, i;
-  int golombIndexBit;
-  int kMin;
-  int maxScanVal = 0;
-  const Int* pDepthInt = nullptr;
-
-#if FORCE0
-  if (!bChroma)
-  {
-    alfParam.forceCoeff0 = m_BinDecoder.decodeBinEP();
-    if (!alfParam.forceCoeff0)
-    {
-#endif
-      for (int i = 0; i < AdaptiveLoopFilter::m_NO_VAR_BINS; i++)
-      {
-        alfParam.codedVarBins[i] = 1;
-      }
-      if (alfParam.filters_per_group > 1)
-      {
-#if !FORCE0
-        alfParam.forceCoeff0 = 0;
-#endif
-        alfParam.predMethod = m_BinDecoder.decodeBinEP();
-      }
-      else
-      {
-        alfParam.forceCoeff0 = 0;
-        alfParam.predMethod = 0;
-      }
-#if FORCE0
-    }
-    else
-    {
-      alfParam.predMethod = 0;
-    }
-  }
-#endif
-
-  //Determine maxScanVal
-  if( bChroma)
-  {
-    pDepthInt = AdaptiveLoopFilter::m_pDepthIntTab[alfParam.tap_chroma == 5 ? 0 : (alfParam.tap_chroma == 7 ? 1 : 2)];
-  }
-  else
-  {
-    pDepthInt = AdaptiveLoopFilter::m_pDepthIntTab[alfParam.filterType];
-  }
-  int maxIdx = (bChroma ? alfParam.num_coeff_chroma : alfParam.num_coeff) - !!isGALF;
-  for( int i = 0; i < maxIdx; i++ )
-  {
-    maxScanVal = std::max(maxScanVal, pDepthInt[i]);
-  }
-
-  uiSymbol = parseAlfUvlc();
-  alfParam.minKStart = 1 + uiSymbol;
-
-  kMin = alfParam.minKStart;
-  for(scanPos = 0; scanPos < maxScanVal; scanPos++)
-  {
-     golombIndexBit = m_BinDecoder.decodeBinEP();
-     if( golombIndexBit)
-     {
-       alfParam.kMinTab[scanPos] = kMin + 1;
-     }
-     else
-     {
-       alfParam.kMinTab[scanPos] = kMin;
-     }
-     kMin = alfParam.kMinTab[scanPos];
-  }
-
-#if FORCE0
-  if (!bChroma)
-  {
-    if (alfParam.forceCoeff0)
-    {
-      for (ind = 0; ind < alfParam.filters_per_group; ++ind)
-      {
-        alfParam.codedVarBins[ind] = m_BinDecoder.decodeBinEP();
-      }
-    }
-  }
-#endif
-  if( bChroma && isGALF)
-  {
-    Int iNumCoeffMinus1 = alfParam.num_coeff_chroma - 1;
-    for (i = 0; i < iNumCoeffMinus1; i++)
-    {
-      scanPos = pDepthInt[i] - 1;
-      alfParam.coeff_chroma[i] = alfGolombDecode(alfParam.kMinTab[scanPos]);
-    }
-  }
-  else
-  {
-    // Filter coefficients
-    for (ind = 0; ind < alfParam.filters_per_group; ++ind)
-    {
-      if( isGALF )
-      {
-#if FORCE0
-        if (!alfParam.codedVarBins[ind] && alfParam.forceCoeff0)
-        {
-          continue;
-        }
-#endif
-      }
-      int maxIdx = alfParam.num_coeff  - !!isGALF;
-      for( int i = 0; i < maxIdx; i++ )
-      {
-        scanPos = pDepthInt[i] - 1;
-        alfParam.coeffmulti[ind][i] = alfGolombDecode(alfParam.kMinTab[scanPos]);
-      }
-    }
-  }
-}
-
-Void CABACReader::alf_cu_ctrl( ALFParam& alfParam )
-{
-  alfParam.cu_control_flag = m_BinDecoder.decodeBinEP();
-  if( alfParam.cu_control_flag )
-  {
-    alfParam.alf_max_depth = unary_max_symbol( Ctx::AlfUvlcSCModel( 0 ), Ctx::AlfUvlcSCModel( 1 ), alfParam.maxCodingDepth - 1 );
-
-    UInt uiLength = 0;
-    UInt minValue = alfParam.num_ctus_in_frame;
-    UInt maxValue = ( minValue << ( alfParam.alf_max_depth * 2) );
-    UInt temp = maxValue - minValue;
-    for( UInt i = 0; i < 32; i++ )
-    {
-      if( temp & 0x1 )
-      {
-        uiLength = i + 1;
-      }
-      temp = ( temp >> 1 );
-    }
-    UInt numOfFlags = 0;
-    UInt uiBit;
-    if( uiLength )
-    {
-      while( uiLength-- )
-      {
-        uiBit = m_BinDecoder.decodeBinEP();
-        numOfFlags += uiBit << uiLength;
-      }
-    }
-    numOfFlags += minValue;
-    alfParam.num_alf_cu_flag = numOfFlags;
-
-    DTRACE( g_trace_ctx, D_SYNTAX, "alf_cu_ctrl() max_depth=%d max_alf_depth=%d num_cu_flags=%d\n", alfParam.maxCodingDepth, alfParam.alf_max_depth, alfParam.num_alf_cu_flag );
-
-    for( UInt i = 0; i < alfParam.num_alf_cu_flag; i++ )
-    {
-      alfParam.alf_cu_flag[i] = m_BinDecoder.decodeBin( Ctx::AlfCUCtrlFlags( 0 ) );
-
-      DTRACE( g_trace_ctx, D_SYNTAX, "alf_cu_ctrl() blk=%d alf_cu_flag[blk]=%d\n", i, alfParam.alf_cu_flag[i] );
-    }
-  }
-  else
-  {
-    DTRACE( g_trace_ctx, D_SYNTAX, "alf_cu_ctrl() off\n" );
-  }
-}
-
-
-Void CABACReader::alf_chroma( ALFParam& alfParam )
-{
-
-  //alfParam.chroma_idc = unary_max_eqprob( 3 );
-  alfParam.chroma_idc = parseAlfUvlc();
-  if(alfParam.chroma_idc && !alfParam.temporalPredFlag )
-  {
-     //alfParam.tap_chroma = (unary_max_eqprob( 3 ) <<1 ) + 5;
-     alfParam.tap_chroma = (parseAlfUvlc() <<1 ) + 5;
-     alfParam.num_coeff_chroma = ((alfParam.tap_chroma*alfParam.tap_chroma+1) >> 1) + 1;
-     // filter coefficients for chroma
-     for(Int pos=0; pos<alfParam.num_coeff_chroma; pos++)
-     {
-       alfParam.coeff_chroma[pos] = parseAlfSvlc();
-     }
-   }
-
-}
-
-
-
 
 //================================================================================
 //  clause 7.3.8.4
@@ -878,43 +346,76 @@ bool CABACReader::coding_tree( CodingStructure& cs, Partitioner& partitioner, CU
 
   const PartSplit implicitSplit = partitioner.getImplicitSplit( cs );
 
+  // QT
+  bool canQtSplit = partitioner.canSplit( CU_QUAD_SPLIT, cs );
+
+  if( canQtSplit )
   {
-    // QT
-    bool canQtSplit = partitioner.canSplit( CU_QUAD_SPLIT, cs );
+    // force QT split enabling on the edges and if the current area exceeds maximum transformation size
+    bool qtSplit = implicitSplit == CU_QUAD_SPLIT;
 
-    if( canQtSplit )
+    // split_cu_flag
+    if( !qtSplit && implicitSplit != CU_QUAD_SPLIT )
     {
-      // force QT split enabling on the edges and if the current area exceeds maximum transformation size
-      bool qtSplit = implicitSplit == CU_QUAD_SPLIT;
+      qtSplit = split_cu_flag( cs, partitioner );
+    }
 
-      // split_cu_flag
-      if( !qtSplit && implicitSplit != CU_QUAD_SPLIT )
+    // quad-tree split
+    if( qtSplit )
+    {
+      partitioner.splitCurrArea( CU_QUAD_SPLIT, cs );
+
+      do
       {
-        qtSplit = split_cu_flag( cs, partitioner );
-      }
-
-      // quad-tree split
-      if( qtSplit )
-      {
-        partitioner.splitCurrArea( CU_QUAD_SPLIT, cs );
-
-        do
+        if( !lastSegment && cs.area.blocks[partitioner.chType].contains( partitioner.currArea().blocks[partitioner.chType].pos() ) )
         {
-          if( !lastSegment && cs.area.blocks[cs.chType].contains( partitioner.currArea().blocks[cs.chType].pos() ) )
-          {
-            lastSegment = coding_tree( cs, partitioner, cuCtx );
-          }
-        } while( partitioner.nextPart( cs ) );
+          lastSegment = coding_tree( cs, partitioner, cuCtx );
+        }
+      } while( partitioner.nextPart( cs ) );
 
-        partitioner.exitCurrSplit();
-        return lastSegment;
+      partitioner.exitCurrSplit();
+      return lastSegment;
+    }
+  }
+
+  if( cs.sps->getSpsNext().getUseGenBinSplit() )
+  {
+    PartSplit split = implicitSplit;
+
+    if( split == CU_DONT_SPLIT )
+    {
+      split = gen_bin_split_mode( cs, partitioner );
+
+      if( split != CU_DONT_SPLIT )
+      {
+        const SplitModifier mod = gen_bin_split_mod( cs, partitioner, split );
+
+        split = applyModifier( split, mod );
       }
     }
 
-    // BT
-    bool btSplit = partitioner.canSplit( CU_BT_SPLIT, cs );
+    if( split != CU_DONT_SPLIT )
+    {
+      partitioner.splitCurrArea( split, cs );
 
-    if( btSplit )
+      do
+      {
+        if( !lastSegment && cs.area.blocks[partitioner.chType].contains( partitioner.currArea().blocks[partitioner.chType].pos() ) )
+        {
+          lastSegment = coding_tree( cs, partitioner, cuCtx );
+        }
+      } while( partitioner.nextPart( cs ) );
+
+      partitioner.exitCurrSplit();
+      return lastSegment;
+    }
+  }
+  else
+  {
+    // MT
+    bool mtSplit = partitioner.canSplit( CU_MT_SPLIT, cs );
+
+    if( mtSplit )
     {
       const PartSplit splitMode = implicitSplit != CU_DONT_SPLIT ? implicitSplit : split_cu_mode_mt( cs, partitioner );
 
@@ -924,7 +425,7 @@ bool CABACReader::coding_tree( CodingStructure& cs, Partitioner& partitioner, CU
 
         do
         {
-          if( !lastSegment && cs.area.blocks[cs.chType].contains( partitioner.currArea().blocks[cs.chType].pos() ) )
+          if( !lastSegment && cs.area.blocks[partitioner.chType].contains( partitioner.currArea().blocks[partitioner.chType].pos() ) )
           {
             lastSegment = coding_tree( cs, partitioner, cuCtx );
           }
@@ -937,7 +438,7 @@ bool CABACReader::coding_tree( CodingStructure& cs, Partitioner& partitioner, CU
   }
 
 
-  CodingUnit& cu = cs.addCU( CS::getArea( cs, currArea ) );
+  CodingUnit& cu = cs.addCU( CS::getArea( cs, currArea, partitioner.chType ), partitioner.chType );
 
   partitioner.setCUData( cu );
   cu.slice   = cs.slice;
@@ -959,7 +460,87 @@ bool CABACReader::coding_tree( CodingStructure& cs, Partitioner& partitioner, CU
   return isLastCtu;
 }
 
+PartSplit CABACReader::gen_bin_split_mode( CodingStructure& cs, Partitioner& partitioner )
+{
+  RExt__DECODER_DEBUG_BIT_STATISTICS_CREATE_SET( STATS__CABAC_BITS__GBS );
 
+  const unsigned width      = partitioner.currArea().lumaSize().width;
+  const unsigned height     = partitioner.currArea().lumaSize().height;
+  auto &gbsPartitioner      = *dynamic_cast<GenBinSplitPartitioner*>( &partitioner );
+
+  DecisionTree dt( g_genBinSplitDTT );
+
+  dt.setAvail( DTT_GBS_PERP_SPLIT, partitioner.canSplit( CU_PERPENDICULAR_SPLIT, cs ) );
+  dt.setAvail( DTT_GBS_PARL_SPLIT, partitioner.canSplit( CU_PARALLEL_SPLIT,      cs ) );
+  dt.setAvail( DTT_GBS_DONT_SPLIT, partitioner.canSplit( CU_DONT_SPLIT,          cs ) );
+
+  unsigned btSCtxId = width == height ? 1 : ( width > height ? 0 : 2 );
+  if( gbsPartitioner.getActualSplitType( CU_PERPENDICULAR_SPLIT ) == CU_VERT_SPLIT )
+  {
+    btSCtxId = 2 - btSCtxId;
+  }
+  unsigned btCtxIdx = DeriveCtx::CtxBTsplit( cs, partitioner );
+
+  dt.setCtxId( DTT_GBS_DO_SPLIT,      Ctx::GBSSplitFlag(     btCtxIdx ) );
+  dt.setCtxId( DTT_GBS_DO_PERP_SPLIT, Ctx::GBSSplitFlag( 3 + btSCtxId ) );
+
+  unsigned id = decode_sparse_dt( dt );
+
+  DTRACE( g_trace_ctx, D_SYNTAX, "gen_bin_split_mode() %dx%d at [%d,%d], btSCtx = %d, btCtx = %d, split = %d\n", width, height, partitioner.currArea().lx(), partitioner.currArea().ly(), btSCtxId, btCtxIdx, id );
+
+  if( id == DTT_GBS_PARL_SPLIT )      return gbsPartitioner.getActualSplitType( CU_PARALLEL_SPLIT      );
+  else if( id == DTT_GBS_PERP_SPLIT ) return gbsPartitioner.getActualSplitType( CU_PERPENDICULAR_SPLIT );
+  else                                return gbsPartitioner.getActualSplitType( CU_DONT_SPLIT          );
+}
+
+SplitModifier CABACReader::gen_bin_split_mod( CodingStructure& cs, Partitioner& partitioner, const PartSplit baseSplit )
+{
+  RExt__DECODER_DEBUG_BIT_STATISTICS_CREATE_SET( STATS__CABAC_BITS__GBS );
+
+  const PartSplit base    = getBaseSplit( baseSplit );
+  auto &gbsPartitioner    = *dynamic_cast<GenBinSplitPartitioner*>( &partitioner );
+  const unsigned width    = partitioner.currArea().lumaSize().width;
+  const unsigned height   = partitioner.currArea().lumaSize().height;
+
+  DecisionTree dt( g_splitModifierDTT );
+
+  dt.setAvail( DTT_SM_12, gbsPartitioner.canModify( base, SPLIT_MOD_12, cs ) );
+  dt.setAvail( DTT_SM_14, gbsPartitioner.canModify( base, SPLIT_MOD_14, cs ) );
+  dt.setAvail( DTT_SM_34, gbsPartitioner.canModify( base, SPLIT_MOD_34, cs ) );
+  dt.setAvail( DTT_SM_38, gbsPartitioner.canModify( base, SPLIT_MOD_38, cs ) );
+  dt.setAvail( DTT_SM_58, gbsPartitioner.canModify( base, SPLIT_MOD_58, cs ) );
+  dt.setAvail( DTT_SM_13, gbsPartitioner.canModify( base, SPLIT_MOD_13, cs ) );
+  dt.setAvail( DTT_SM_23, gbsPartitioner.canModify( base, SPLIT_MOD_23, cs ) );
+  dt.setAvail( DTT_SM_15, gbsPartitioner.canModify( base, SPLIT_MOD_15, cs ) );
+  dt.setAvail( DTT_SM_25, gbsPartitioner.canModify( base, SPLIT_MOD_25, cs ) );
+  dt.setAvail( DTT_SM_35, gbsPartitioner.canModify( base, SPLIT_MOD_35, cs ) );
+  dt.setAvail( DTT_SM_45, gbsPartitioner.canModify( base, SPLIT_MOD_45, cs ) );
+
+  unsigned dirCtx       = DeriveCtx::CtxSplitMod( cs, partitioner, base );
+  unsigned btSCtxId     = width == height ? 1 : ( width > height ? 0 : 2 );
+  if( gbsPartitioner.getActualSplitType( CU_PERPENDICULAR_SPLIT ) == CU_VERT_SPLIT )
+  {
+    btSCtxId   = 2 - btSCtxId;
+  }
+  
+  dt.setCtxId( DTT_SM_IS_ASYM,  Ctx::GBSSplitMod(     btSCtxId ) );          //  0 -  2
+  dt.setCtxId( DTT_SM_IS_x3,    Ctx::GBSSplitMod( 3            ) );          //  3
+  dt.setCtxId( DTT_SM_IS_x5,    Ctx::GBSSplitMod( 3            ) );          //  3
+  dt.setCtxId( DTT_SM_IS_QUART, Ctx::GBSSplitMod( 4 + btSCtxId ) );          //  4 -  6
+
+  dt.setCtxId( DTT_SM_IS_14,    Ctx::GBSSplitMod( dirCtx + 7   ) );          //  7 -  9
+  dt.setCtxId( DTT_SM_IS_38,    Ctx::GBSSplitMod( dirCtx + 7   ) );          //  7 -  9
+  dt.setCtxId( DTT_SM_IS_13,    Ctx::GBSSplitMod( dirCtx + 7   ) );          //  7 -  9
+  dt.setCtxId( DTT_SM_IS_15,    Ctx::GBSSplitMod( dirCtx + 7   ) );          //  7 -  9
+  dt.setCtxId( DTT_SM_IS_25,    Ctx::GBSSplitMod( dirCtx + 7   ) );          //  7 -  9
+  dt.setCtxId( DTT_SM_IS_235,   Ctx::GBSSplitMod( dirCtx == 1 ? 10 : 11 ) ); // 10 - 11
+
+  SplitModifier mod = SplitModifier( decode_sparse_dt( dt ) );
+
+  DTRACE( g_trace_ctx, D_SYNTAX, "gen_bin_split_mod() %dx%d at [%d,%d] qtd=%d d=%d base=%d dirCtx=%d, mod = %d\n", partitioner.currArea().lwidth(), partitioner.currArea().lheight(), partitioner.currArea().lx(), partitioner.currArea().ly(), partitioner.currQtDepth, partitioner.currDepth, base, dirCtx, mod );
+
+  return mod;
+}
 PartSplit CABACReader::split_cu_mode_mt( CodingStructure& cs, Partitioner &partitioner )
 {
   RExt__DECODER_DEBUG_BIT_STATISTICS_CREATE_SET( STATS__CABAC_BITS__SPLIT_FLAG );
@@ -971,17 +552,25 @@ PartSplit CABACReader::split_cu_mode_mt( CodingStructure& cs, Partitioner &parti
   unsigned width      = partitioner.currArea().lumaSize().width;
   unsigned height     = partitioner.currArea().lumaSize().height;
 
-  DecisionTree dt( g_qtbtSplitDTT );
+  DecisionTree dt( g_mtSplitDTT );
 
-  unsigned minBTSize = cs.slice->isIntra() ? ( cs.chType == 0 ? MIN_BT_SIZE : MIN_BT_SIZE_C ) : MIN_BT_SIZE_INTER;
+  dt.setAvail( DTT_SPLIT_BT_HORZ, partitioner.canSplit( CU_HORZ_SPLIT, cs ) );
+  dt.setAvail( DTT_SPLIT_BT_VERT, partitioner.canSplit( CU_VERT_SPLIT, cs ) );
 
-  dt.setAvail( DTT_SPLIT_BT_HORZ, height > minBTSize && ( partitioner.canSplit( CU_HORZ_SPLIT, cs ) || width  == minBTSize ) );
-  dt.setAvail( DTT_SPLIT_BT_VERT, width  > minBTSize && ( partitioner.canSplit( CU_VERT_SPLIT, cs ) || height == minBTSize ) );
+  dt.setAvail( DTT_SPLIT_TT_HORZ, partitioner.canSplit( CU_TRIH_SPLIT,    cs ) );
+  dt.setAvail( DTT_SPLIT_TT_VERT, partitioner.canSplit( CU_TRIV_SPLIT,    cs ) );
 
+  dt.setAvail( DTT_SPLIT_BT_H_14, partitioner.canSplit( CU_HORZ_SPLIT_14, cs ) );
+  dt.setAvail( DTT_SPLIT_BT_H_34, partitioner.canSplit( CU_HORZ_SPLIT_34, cs ) );
+  dt.setAvail( DTT_SPLIT_BT_V_14, partitioner.canSplit( CU_VERT_SPLIT_14, cs ) );
+  dt.setAvail( DTT_SPLIT_BT_V_34, partitioner.canSplit( CU_VERT_SPLIT_34, cs ) );
 
   unsigned btSCtxId = width == height ? 0 : ( width > height ? 1 : 2 );
   dt.setCtxId( DTT_SPLIT_DO_SPLIT_DECISION,   Ctx::BTSplitFlag( ctxIdBT ) );      // 0- 2
   dt.setCtxId( DTT_SPLIT_HV_DECISION,         Ctx::BTSplitFlag( 3 + btSCtxId ) ); // 3- 5
+
+  dt.setCtxId( DTT_SPLIT_H_IS_BT_12_DECISION, Ctx::BTSplitFlag( 6 + btSCtxId ) ); // 6- 8
+  dt.setCtxId( DTT_SPLIT_V_IS_BT_12_DECISION, Ctx::BTSplitFlag( 9 + btSCtxId ) ); // 9-11
 
   unsigned id = decode_sparse_dt( dt );
 
@@ -996,7 +585,9 @@ PartSplit CABACReader::split_cu_mode_mt( CodingStructure& cs, Partitioner &parti
 bool CABACReader::split_cu_flag( CodingStructure& cs, Partitioner &partitioner )
 {
   // TODO: make maxQTDepth a slice parameter
-  unsigned maxQTDepth = ( cs.sps->getSpsNext().getUseQTBT() ? g_aucLog2[cs.sps->getSpsNext().getCTUSize()] - g_aucLog2[cs.sps->getSpsNext().getMinQTSize( cs.slice->getSliceType(), cs.chType )] : cs.sps->getLog2DiffMaxMinCodingBlockSize() );
+  unsigned maxQTDepth = ( cs.sps->getSpsNext().getUseGenBinSplit() || cs.sps->getSpsNext().getUseQTBT()
+    ? g_aucLog2[cs.sps->getSpsNext().getCTUSize()] - g_aucLog2[cs.sps->getSpsNext().getMinQTSize( cs.slice->getSliceType(), partitioner.chType )]
+    : cs.sps->getLog2DiffMaxMinCodingBlockSize() );
   if( partitioner.currDepth == maxQTDepth )
   {
     return false;
@@ -1009,6 +600,7 @@ bool CABACReader::split_cu_flag( CodingStructure& cs, Partitioner &partitioner )
   DTRACE( g_trace_ctx, D_SYNTAX, "split_cu_flag() ctx=%d split=%d\n", ctxId, split ? 1 : 0 );
   return split;
 }
+
 
 //================================================================================
 //  clause 7.3.8.5
@@ -1048,19 +640,16 @@ bool CABACReader::coding_unit( CodingUnit &cu, Partitioner &partitioner, CUCtx& 
   // skip data
   if( cu.skip )
   {
-    cs.addTU         ( cu );
-    PredictionUnit&    pu = cs.addPU( cu );
+    cs.addTU         ( cu, partitioner.chType );
+    PredictionUnit&    pu = cs.addPU( cu, partitioner.chType );
     MergeCtx           mrgCtx;
     prediction_unit  ( pu, mrgCtx );
-    cu.obmcFlag      = cu.cs->sps->getSpsNext().getUseOBMC();
-    cu_lic_flag      ( cu );
     return end_of_ctu( cu, cuCtx );
   }
 
   // prediction mode and partitioning data
   pred_mode ( cu );
-  pdpc_flag ( cu );
-  part_mode ( cu );
+  cu.partSize = SIZE_2Nx2N;
 
   // --> create PUs
   CU::addPUs( cu );
@@ -1071,7 +660,7 @@ bool CABACReader::coding_unit( CodingUnit &cu, Partitioner &partitioner, CUCtx& 
     pcm_flag( cu );
     if( cu.ipcm )
     {
-      TransformUnit& tu = cs.addTU( cu );
+      TransformUnit& tu = cs.addTU( cu, partitioner.chType );
       pcm_samples( tu );
       return end_of_ctu( cu, cuCtx );
     }
@@ -1113,38 +702,7 @@ void CABACReader::cu_skip_flag( CodingUnit& cu )
     cu.partSize = SIZE_2Nx2N;
   }
 }
-void CABACReader::imv_mode( CodingUnit& cu, MergeCtx& mrgCtx )
-{
-  RExt__DECODER_DEBUG_BIT_STATISTICS_CREATE_SET( STATS__CABAC_BITS__OTHER );
 
-  if( !cu.cs->sps->getSpsNext().getUseIMV() )
-  {
-    return;
-  }
-
-  Bool bNonZeroMvd = CU::hasSubCUNonZeroMVd( cu );
-  if( !bNonZeroMvd )
-  {
-    return;
-  }
-
-  const SPSNext& spsNext = cu.cs->sps->getSpsNext();
-
-  unsigned value = 0;
-  unsigned ctxId = DeriveCtx::CtxIMVFlag( cu );
-  value = m_BinDecoder.decodeBin( Ctx::ImvFlag( ctxId ) );
-  DTRACE( g_trace_ctx, D_SYNTAX, "imv_mode() value=%d ctx=%d\n", value, ctxId );
-
-  if( spsNext.getImvMode() == IMV_4PEL && value )
-  {
-    value = m_BinDecoder.decodeBin( Ctx::ImvFlag( 3 ) );
-    DTRACE( g_trace_ctx, D_SYNTAX, "imv_mode() value=%d ctx=%d\n", value, 3 );
-    value++;
-  }
-
-  cu.imv = value;
-  DTRACE( g_trace_ctx, D_SYNTAX, "imv_mode() IMVFlag=%d\n", cu.imv );
-}
 
 void CABACReader::pred_mode( CodingUnit& cu )
 {
@@ -1160,71 +718,6 @@ void CABACReader::pred_mode( CodingUnit& cu )
   }
 }
 
-
-void CABACReader::part_mode( CodingUnit& cu )
-{
-  if( cu.cs->pcv->only2Nx2N )
-  {
-    cu.partSize = SIZE_2Nx2N;
-    return;
-  }
-
-  const SPS&      sps                           = *cu.cs->sps;
-  const unsigned  cuWidth                       = cu.lumaSize().width;
-  const unsigned  cuHeight                      = cu.lumaSize().height;
-  const int       log2DiffMaxMinCodingBlockSize = sps.getLog2DiffMaxMinCodingBlockSize();
-
-  RExt__DECODER_DEBUG_BIT_STATISTICS_CREATE_SET_SIZE( STATS__CABAC_BITS__PART_SIZE, cu.blocks[cu.cs->chType].lumaSize() );
-
-  DecisionTree dt( g_partSizeDTT );
-
-  dt.setCtxId( DTT_PS_IS_2Nx2N, Ctx::PartSize() );
-
-  if( CU::isIntra( cu ) )
-  {
-    dt.setAvail( DTT_PS_nLx2N, false );
-    dt.setAvail( DTT_PS_2NxN,  false );
-    dt.setAvail( DTT_PS_Nx2N,  false );
-    dt.setAvail( DTT_PS_nRx2N, false );
-    dt.setAvail( DTT_PS_2NxnU, false );
-    dt.setAvail( DTT_PS_2NxnD, false );
-    dt.setAvail( DTT_PS_NxN,   cu.qtDepth == log2DiffMaxMinCodingBlockSize );
-  }
-  else
-  {
-    const bool isAmpAvail = sps.getUseAMP() && cu.qtDepth < log2DiffMaxMinCodingBlockSize;
-
-    dt.setAvail( DTT_PS_2NxN,  true );
-    dt.setAvail( DTT_PS_Nx2N,  true );
-    dt.setAvail( DTT_PS_nLx2N, isAmpAvail );
-    dt.setAvail( DTT_PS_nRx2N, isAmpAvail );
-    dt.setAvail( DTT_PS_2NxnU, isAmpAvail );
-    dt.setAvail( DTT_PS_2NxnD, isAmpAvail );
-    dt.setAvail( DTT_PS_NxN,   cu.qtDepth == log2DiffMaxMinCodingBlockSize && !( cuWidth == 8 && cuHeight == 8 ) );
-
-    dt.setCtxId( DTT_PS_IS_2Nx,     Ctx::PartSize( 1 ) );
-    dt.setCtxId( DTT_PS_IS_2NxN,    Ctx::PartSize( 3 ) );
-    dt.setCtxId( DTT_PS_IS_NOT_NxN, Ctx::PartSize( 2 ) );
-    dt.setCtxId( DTT_PS_IS_Nx2N,    Ctx::PartSize( 3 ) );
-  }
-
-  unsigned id = decode_sparse_dt( dt );
-  cu.partSize = PartSize( id );
-}
-
-
-void CABACReader::pdpc_flag( CodingUnit& cu )
-{
-  RExt__DECODER_DEBUG_BIT_STATISTICS_CREATE_SET( STATS__CABAC_BITS__INTRA_PDPC_FLAG );
-
-  if (!cu.cs->sps->getSpsNext().isIntraPDPC() || cu.predMode == MODE_INTER)
-  {
-    cu.pdpc = false;
-    return;
-  }
-
-  cu.pdpc = ( m_BinDecoder.decodeBin( Ctx::PdpcFlag() ) );
-}
 
 void CABACReader::pcm_flag( CodingUnit& cu )
 {
@@ -1254,48 +747,8 @@ void CABACReader::cu_pred_data( CodingUnit &cu )
     prediction_unit( pu, mrgCtx );
   }
 
-  imv_mode   ( cu, mrgCtx );
-  obmc_flag  ( cu );
-  cu_lic_flag( cu ); // local illumination compensation
-
-  for( auto &pu : CU::traversePUs( cu ) )
-  {
-    PU::spanLICFlags( pu, cu.LICFlag );
-  }
 }
 
-
-void CABACReader::cu_lic_flag( CodingUnit& cu )
-{
-  if( CU::isLICFlagPresent( cu ) )
-  {
-    RExt__DECODER_DEBUG_BIT_STATISTICS_CREATE_SET( STATS__CABAC_BITS__LIC_FLAG );
-
-    cu.LICFlag = ( m_BinDecoder.decodeBin( Ctx::LICFlag() ) );
-    DTRACE( g_trace_ctx, D_SYNTAX, "cu_lic_flag() lic_flag=%d\n", cu.LICFlag?1:0 );
-  }
-}
-
-Void CABACReader::obmc_flag( CodingUnit& cu )
-{
-  RExt__DECODER_DEBUG_BIT_STATISTICS_CREATE_SET( STATS__CABAC_BITS__OTHER );
-
-  cu.obmcFlag = cu.cs->sps->getSpsNext().getUseOBMC();
-  if( !cu.obmcFlag )
-  {
-    return;
-  }
-
-  Bool bCoded = CU::isObmcFlagCoded( cu );
-
-  if( bCoded )
-  {
-    unsigned obmc = m_BinDecoder.decodeBin( Ctx::ObmcFlag() );
-    cu.obmcFlag = ( Bool ) obmc;
-  }
-
-  DTRACE( g_trace_ctx, D_SYNTAX, "obmc_flag() obmc=%d pos=(%d,%d)\n", cu.obmcFlag ? 1 : 0, cu.lumaPos().x, cu.lumaPos().y );
-}
 
 
 
@@ -1320,8 +773,6 @@ void CABACReader::intra_luma_pred_modes( CodingUnit &cu )
 
   PredictionUnit *pu = cu.firstPU;
 
-  const bool use65Ang = cu.cs->sps->getSpsNext().getUseIntra65Ang();
-
   // mpm_idx / rem_intra_luma_pred_mode
   for( int k = 0; k < numBlocks; k++ )
   {
@@ -1331,27 +782,6 @@ void CABACReader::intra_luma_pred_modes( CodingUnit &cu )
     if( mpmFlag[k] )
     {
       unsigned ipred_idx = 0;
-      if( use65Ang )
-      {
-        ipred_idx = m_BinDecoder.decodeBin( Ctx::IPredMode[0]( mpmCtx[mpm_pred[0]] ) );
-        if( ipred_idx > 0 )
-        {
-          ipred_idx += m_BinDecoder.decodeBin( Ctx::IPredMode[0]( mpmCtx[mpm_pred[1]] ) );
-          if( ipred_idx > 1 )
-          {
-            ipred_idx += m_BinDecoder.decodeBin( Ctx::IPredMode[0]( mpmCtx[mpm_pred[2]] ) );
-            if( ipred_idx > 2 )
-            {
-              ipred_idx += m_BinDecoder.decodeBinEP();
-              if( ipred_idx > 3 )
-              {
-                ipred_idx += m_BinDecoder.decodeBinEP();
-              }
-            }
-          }
-        }
-      }
-      else
       {
         ipred_idx = m_BinDecoder.decodeBinEP();
         if( ipred_idx )
@@ -1365,17 +795,6 @@ void CABACReader::intra_luma_pred_modes( CodingUnit &cu )
     {
       unsigned ipred_mode = 0;
 
-      if( use65Ang )
-      {
-        ipred_mode    = m_BinDecoder.decodeBinsEP( 4 );
-        ipred_mode  <<= 2;
-        int RealNumIntraMode = cu.cs->sps->getSpsNext().getRealNumIntraMode();
-        if( ipred_mode < ( RealNumIntraMode - 8 ) )
-        {
-          ipred_mode += m_BinDecoder.decodeBinsEP( 2 );
-        }
-      }
-      else
       {
         ipred_mode = m_BinDecoder.decodeBinsEP( 5 );
       }
@@ -1384,10 +803,10 @@ void CABACReader::intra_luma_pred_modes( CodingUnit &cu )
 
       for( unsigned i = 0; i < cu.cs->pcv->numMPMs; i++ )
       {
-        ipred_mode += use65Ang ? ( ipred_mode >= mpm_pred[i] ) : ( ipred_mode >= g_intraMode65to33AngMapping[mpm_pred[i]] );
+        ipred_mode += ipred_mode >= g_intraMode65to33AngMapping[mpm_pred[i]];
       }
 
-      pu->intraDir[0] = use65Ang ? ipred_mode : g_intraMode33to65AngMapping[ipred_mode];
+      pu->intraDir[0] = g_intraMode33to65AngMapping[ipred_mode];
     }
 
     DTRACE( g_trace_ctx, D_SYNTAX, "intra_luma_pred_modes() idx=%d pos=(%d,%d) mode=%d\n", k, pu->lumaPos().x, pu->lumaPos().y, pu->intraDir[0] );
@@ -1397,78 +816,23 @@ void CABACReader::intra_luma_pred_modes( CodingUnit &cu )
 
 void CABACReader::intra_chroma_pred_modes( CodingUnit& cu )
 {
-  if( cu.chromaFormat == CHROMA_400 || ( CS::isDualITree( *cu.cs ) && cu.cs->chType == CHANNEL_TYPE_LUMA ) )
+  if( cu.chromaFormat == CHROMA_400 || ( CS::isDualITree( *cu.cs ) && cu.chType == CHANNEL_TYPE_LUMA ) )
   {
     return;
   }
 
-  int numBlocks = enable4ChromaPUsInIntraNxNCU( cu.chromaFormat ) ? CU::getNumPUs( cu ) : 1;
-
   PredictionUnit *pu = cu.firstPU;
 
-  for( int k = 0; k < numBlocks; k++ )
   {
     CHECK( pu->cu != &cu, "Inkonsistent PU-CU mapping" );
     intra_chroma_pred_mode( *pu );
-    pu = pu->next;
   }
-}
-
-bool CABACReader::intra_chroma_lmc_mode( PredictionUnit& pu )
-{
-  if ( pu.cs->sps->getSpsNext().getUseMDMS() )
-  {
-    if ( m_BinDecoder.decodeBin( Ctx::IPredMode[1]( 0 ) ) == 0 )
-    {
-      unsigned ctxId = 6;
-      if ( PU::isMMLMEnabled( pu ) )
-      {
-        if ( m_BinDecoder.decodeBin( Ctx::IPredMode[1]( ctxId++ ) ) == 1 )
-        {
-          pu.intraDir[1] = MMLM_CHROMA_IDX;
-          return true;
-        }
-      }
-      if ( PU::isMFLMEnabled( pu ) )
-      {
-        if ( m_BinDecoder.decodeBin( Ctx::IPredMode[1]( ctxId++ ) ) == 1 )
-        {
-          pu.intraDir[1] = LM_CHROMA_IDX;
-          return true;
-        }
-        int candId = m_BinDecoder.decodeBin( Ctx::IPredMode[1]( ctxId++ ) ) << 1;
-        candId    += m_BinDecoder.decodeBin( Ctx::IPredMode[1]( ctxId++ ) );
-        pu.intraDir[1] = LM_CHROMA_F1_IDX + candId;
-        return true;
-      }
-      pu.intraDir[1] = LM_CHROMA_IDX;
-      return true;
-    }
-  }
-  else
-  {
-    int lmModeList[10];
-    int maxSymbol = PU::getLMSymbolList(pu, lmModeList);
-    int symbol    = unary_max_symbol( Ctx::IPredMode[1]( 2 ), Ctx::IPredMode[1]( 3 ), maxSymbol - 1 );
-    if ( lmModeList[ symbol ] != -1 )
-    {
-      pu.intraDir[1] = lmModeList[ symbol ];
-      return true;
-    }
-  }
-
-  return false;
 }
 
 void CABACReader::intra_chroma_pred_mode( PredictionUnit& pu )
 {
-  RExt__DECODER_DEBUG_BIT_STATISTICS_CREATE_SET_SIZE2( STATS__CABAC_BITS__INTRA_DIR_ANG, pu.cu->blocks[pu.cs->chType].lumaSize(), CHANNEL_TYPE_CHROMA );
+  RExt__DECODER_DEBUG_BIT_STATISTICS_CREATE_SET_SIZE2( STATS__CABAC_BITS__INTRA_DIR_ANG, pu.cu->blocks[pu.chType].lumaSize(), CHANNEL_TYPE_CHROMA );
 
-  // DM chroma index
-  if( pu.cs->sps->getSpsNext().getUseMDMS() )
-  {
-  }
-  else
   {
     if( m_BinDecoder.decodeBin( Ctx::IPredMode[1]( 1 ) ) == 0 )
     {
@@ -1477,38 +841,12 @@ void CABACReader::intra_chroma_pred_mode( PredictionUnit& pu )
     }
   }
 
-  // LM chroma mode
-  if( pu.cs->sps->getSpsNext().getUseLMChroma() )
-  {
-    if( intra_chroma_lmc_mode( pu ) )
-    {
-      return;
-    }
-  }
-
-  // chroma candidate index
-  unsigned candId = 0;
-  if( pu.cs->sps->getSpsNext().getUseMDMS() )
-  {
-    const unsigned lastId = NUM_DM_MODES - 1;
-
-    unsigned ctxId = 1;
-    while( candId < lastId && m_BinDecoder.decodeBin( Ctx::IPredMode[1]( ctxId++ ) ) )
-    {
-      candId += 1;
-    }
-    candId += NUM_LMC_MODE;
-  }
-  else
-  {
-    candId = m_BinDecoder.decodeBinsEP( 2 );
-  }
+  unsigned candId = m_BinDecoder.decodeBinsEP( 2 );
 
   unsigned chromaCandModes[ NUM_CHROMA_MODE ];
   PU::getIntraChromaCandModes( pu, chromaCandModes );
 
   CHECK( candId >= NUM_CHROMA_MODE, "Chroma prediction mode index out of bounds" );
-  CHECK( PU::isLMCMode( chromaCandModes[ candId ] ), "The intra dir cannot be LM_CHROMA for this path" );
   CHECK( chromaCandModes[ candId ] == DM_CHROMA_IDX, "The intra dir cannot be DM_CHROMA for this path" );
 
   pu.intraDir[1] = chromaCandModes[ candId ];
@@ -1529,8 +867,7 @@ void CABACReader::cu_residual( CodingUnit& cu, Partitioner &partitioner, CUCtx& 
     }
     if( !cu.rootCbf )
     {
-      TransformUnit& tu = cu.cs->addTU(cu);
-      tu.depth = 0;
+      TransformUnit& tu = cu.cs->addTU(cu, partitioner.chType);
       for( unsigned c = 0; c < tu.blocks.size(); c++ )
       {
         tu.cbf[c]             = 0;
@@ -1542,43 +879,11 @@ void CABACReader::cu_residual( CodingUnit& cu, Partitioner &partitioner, CUCtx& 
     }
   }
 
-  cuCtx.quadtreeTULog2MinSizeInCU = CU::getQuadtreeTULog2MinSizeInCU(cu);
   ChromaCbfs chromaCbfs;
   transform_tree( *cu.cs, partitioner, cuCtx, chromaCbfs );
 
-  residual_nsst_mode( cu );
-
-  cu_emt_noqrt_idx( cu );
 }
 
-void CABACReader::cu_emt_noqrt_idx( CodingUnit& cu )
-{
-  if( !cu.cs->pcv->noRQT || !isLuma( cu.cs->chType ) || cu.nsstIdx != 0 || !( cu.cs->sps->getSpsNext().getUseIntraEMT() || cu.cs->sps->getSpsNext().getUseInterEMT() ) || !cu.firstTU->cbf[COMPONENT_Y] || cu.firstTU->transformSkip[COMPONENT_Y] )
-  {
-    return;
-  }
-
-  emt_cu_flag( cu );
-
-  if( cu.emtFlag )
-  {
-    if( CU::isIntra( cu ) )
-    {
-      if( TU::getNumNonZeroCoeffsNonTS( *cu.firstTU, true, false ) > g_EmtSigNumThr )
-      {
-        emt_tu_index( *cu.firstTU );
-      }
-      else
-      {
-        CHECK( cu.firstTU->emtIdx != 0, "If the number of significant coefficients is <= g_EmtSigNumThr, then the tu index must be 0" );
-      }
-    }
-    else
-    {
-      emt_tu_index( *cu.firstTU );
-    }
-  }
-}
 
 void CABACReader::rqt_root_cbf( CodingUnit& cu )
 {
@@ -1593,11 +898,12 @@ void CABACReader::rqt_root_cbf( CodingUnit& cu )
 bool CABACReader::end_of_ctu( CodingUnit& cu, CUCtx& cuCtx )
 {
   const SPS     &sps   = *cu.cs->sps;
-  const Position rbPos = recalcPosition( cu.chromaFormat, cu.cs->chType, CHANNEL_TYPE_LUMA, cu.blocks[cu.cs->chType].bottomRight().offset( 1, 1 ) );
+  const Position rbPos = recalcPosition( cu.chromaFormat, cu.chType, CHANNEL_TYPE_LUMA, cu.blocks[cu.chType].bottomRight().offset( 1, 1 ) );
 
-  if( ( ( rbPos.x & cu.cs->pcv->maxCUWidthMask  ) == 0 || rbPos.x == sps.getPicWidthInLumaSamples ()              ) &&
-      ( ( rbPos.y & cu.cs->pcv->maxCUHeightMask ) == 0 || rbPos.y == sps.getPicHeightInLumaSamples()              ) &&
-        ( !CS::isDualITree( *cu.cs ) || cu.chromaFormat == CHROMA_400 || cu.cs->chType == CHANNEL_TYPE_CHROMA ) )
+  if ( ( ( rbPos.x & cu.cs->pcv->maxCUWidthMask  ) == 0 || rbPos.x == sps.getPicWidthInLumaSamples () )
+    && ( ( rbPos.y & cu.cs->pcv->maxCUHeightMask ) == 0 || rbPos.y == sps.getPicHeightInLumaSamples() )
+    && ( !CS::isDualITree( *cu.cs ) || cu.chromaFormat == CHROMA_400 || isChroma( cu.chType ) )
+      )
   {
     cuCtx.isDQPCoded = ( cu.cs->pps->getUseDQP() && !cuCtx.isDQPCoded );
 
@@ -1633,35 +939,19 @@ void CABACReader::prediction_unit( PredictionUnit& pu, MergeCtx& mrgCtx )
   }
   if( pu.mergeFlag )
   {
-    fruc_mrg_mode( pu );
-    affine_flag  ( *pu.cu );
     merge_data   ( pu );
   }
   else
   {
     inter_pred_idc( pu );
-    affine_flag   ( *pu.cu );
 
     if( pu.interDir != 2 /* PRED_L1 */ )
     {
       ref_idx     ( pu, REF_PIC_LIST_0 );
-      if( pu.cu->affine )
-      {
-        Mv affLT, affRT;
-        mvd_coding( affLT );
-        mvd_coding( affRT );
-
-        PU::setAllAffineMvd( pu.getMotionBuf(), affLT, affRT, REF_PIC_LIST_0, pu.cs->pcv->rectCUs );
-      }
-      else
       {
         mvd_coding( pu.mvd[REF_PIC_LIST_0] );
       }
       mvp_flag    ( pu, REF_PIC_LIST_0 );
-    }
-    else if( pu.cu->affine )
-    {
-      PU::setAllAffineMv( pu, Mv(), Mv(), Mv(), REF_PIC_LIST_0 ); // done in JEM, but maybe unnecessary
     }
     if( pu.interDir != 1 /* PRED_L0 */ )
     {
@@ -1670,23 +960,11 @@ void CABACReader::prediction_unit( PredictionUnit& pu, MergeCtx& mrgCtx )
       {
         pu.mvd[ REF_PIC_LIST_1 ] = Mv();
       }
-      else if( pu.cu->affine )
-      {
-        Mv affLT, affRT;
-        mvd_coding( affLT );
-        mvd_coding( affRT );
-
-        PU::setAllAffineMvd( pu.getMotionBuf(), affLT, affRT, REF_PIC_LIST_1, pu.cs->pcv->rectCUs );
-      }
       else
       {
         mvd_coding( pu.mvd[REF_PIC_LIST_1] );
       }
       mvp_flag    ( pu, REF_PIC_LIST_1 );
-    }
-    else if( pu.cu->affine )
-    {
-      PU::setAllAffineMv( pu, Mv(), Mv(), Mv(), REF_PIC_LIST_1 ); // done in JEM, but maybe not necessary
     }
   }
   if( pu.interDir == 3 /* PRED_BI */ && PU::isBipredRestriction(pu) )
@@ -1699,32 +977,6 @@ void CABACReader::prediction_unit( PredictionUnit& pu, MergeCtx& mrgCtx )
   PU::spanMotionInfo( pu, mrgCtx );
 }
 
-void CABACReader::affine_flag( CodingUnit& cu )
-{
-  if( cu.slice->isIntra() || !cu.cs->sps->getSpsNext().getUseAffine() || cu.partSize != SIZE_2Nx2N || cu.firstPU->frucMrgMode )
-  {
-    return;
-  }
-
-  if( !cu.firstPU->mergeFlag && !( cu.lumaSize().width > 8 && cu.lumaSize().height > 8 ) )
-  {
-    return;
-  }
-
-  if( cu.firstPU->mergeFlag && !PU::isAffineMrgFlagCoded( *cu.firstPU ) )
-  {
-    return;
-  }
-
-  CHECK( !cu.cs->pcv->rectCUs && cu.lumaSize().width != cu.lumaSize().height, "CU width and height are not equal for QTBT off." );
-
-  RExt__DECODER_DEBUG_BIT_STATISTICS_CREATE_SET( STATS__CABAC_BITS__AFFINE_FLAG );
-
-  unsigned ctxId = DeriveCtx::CtxAffineFlag( cu );
-  cu.affine = m_BinDecoder.decodeBin( Ctx::AffineFlag( ctxId ) );
-
-  DTRACE( g_trace_ctx, D_SYNTAX, "affine_flag() affine=%d ctx=%d pos=(%d,%d)\n", cu.affine ? 1 : 0, ctxId, cu.Y().x, cu.Y().y );
-}
 
 void CABACReader::merge_flag( PredictionUnit& pu )
 {
@@ -1738,10 +990,6 @@ void CABACReader::merge_flag( PredictionUnit& pu )
 
 void CABACReader::merge_data( PredictionUnit& pu )
 {
-  if( pu.frucMrgMode || pu.cu->affine )
-  {
-    return;
-  }
 
   merge_idx( pu );
 }
@@ -1751,24 +999,15 @@ void CABACReader::merge_idx( PredictionUnit& pu )
 {
   RExt__DECODER_DEBUG_BIT_STATISTICS_CREATE_SET( STATS__CABAC_BITS__MERGE_INDEX );
 
-  int numCandminus1 = int( pu.cu->cs->slice->getMaxNumMergeCand() ) - 1;
+  int numCandminus1 = int( pu.cs->slice->getMaxNumMergeCand() ) - 1;
   pu.mergeIdx       = 0;
   if( numCandminus1 > 0 )
   {
     if( m_BinDecoder.decodeBin( Ctx::MergeIdx() ) )
     {
-      bool useExtCtx = pu.cs->sps->getSpsNext().getUseSubPuMvp();
       pu.mergeIdx++;
       for( ; pu.mergeIdx < numCandminus1; pu.mergeIdx++ )
       {
-        if( useExtCtx )
-        {
-          if( !m_BinDecoder.decodeBin( Ctx::MergeIdx( std::min<int>( pu.mergeIdx, NUM_MERGE_IDX_EXT_CTX - 1 ) ) ) )
-          {
-            break;
-          }
-        }
-        else
         {
           if( !m_BinDecoder.decodeBinEP() )
           {
@@ -1786,28 +1025,28 @@ void CABACReader::inter_pred_idc( PredictionUnit& pu )
 {
   RExt__DECODER_DEBUG_BIT_STATISTICS_CREATE_SET( STATS__CABAC_BITS__INTER_DIR );
 
-  if( pu.cu->cs->slice->isInterP() )
+  if( pu.cs->slice->isInterP() )
   {
     pu.interDir = 1;
     return;
   }
-  if( pu.cu->partSize == SIZE_2Nx2N || pu.cs->sps->getSpsNext().getUseSubPuMvp() || pu.cu->lumaSize().width != 8 )
+  if( pu.cu->partSize == SIZE_2Nx2N || pu.cu->lumaSize().width != 8 )
   {
     unsigned ctxId = DeriveCtx::CtxInterDir(pu);
     if( m_BinDecoder.decodeBin( Ctx::InterDir(ctxId) ) )
     {
-      DTRACE( g_trace_ctx, D_SYNTAX, "inter_pred_idc() value=%d pos=(%d,%d)\n", 3, pu.lumaPos().x, pu.lumaPos().y );
+      DTRACE( g_trace_ctx, D_SYNTAX, "inter_pred_idc() ctx=%d value=%d pos=(%d,%d)\n", ctxId, 3, pu.lumaPos().x, pu.lumaPos().y );
       pu.interDir = 3;
       return;
     }
   }
   if( m_BinDecoder.decodeBin( Ctx::InterDir(4) ) )
   {
-    DTRACE( g_trace_ctx, D_SYNTAX, "inter_pred_idc() value=%d pos=(%d,%d)\n", 2, pu.lumaPos().x, pu.lumaPos().y );
+    DTRACE( g_trace_ctx, D_SYNTAX, "inter_pred_idc() ctx=4 value=%d pos=(%d,%d)\n", 2, pu.lumaPos().x, pu.lumaPos().y );
     pu.interDir = 2;
     return;
   }
-  DTRACE( g_trace_ctx, D_SYNTAX, "inter_pred_idc() value=%d pos=(%d,%d)\n", 1, pu.lumaPos().x, pu.lumaPos().y );
+  DTRACE( g_trace_ctx, D_SYNTAX, "inter_pred_idc() ctx=4 value=%d pos=(%d,%d)\n", 1, pu.lumaPos().x, pu.lumaPos().y );
   pu.interDir = 1;
   return;
 }
@@ -1817,7 +1056,7 @@ void CABACReader::ref_idx( PredictionUnit &pu, RefPicList eRefList )
 {
   RExt__DECODER_DEBUG_BIT_STATISTICS_CREATE_SET( STATS__CABAC_BITS__REF_FRM_IDX );
 
-  int numRef  = pu.cu->cs->slice->getNumRefIdx(eRefList);
+  int numRef  = pu.cs->slice->getNumRefIdx(eRefList);
   if( numRef <= 1 || !m_BinDecoder.decodeBin( Ctx::RefPic() ) )
   {
     if( numRef > 1 )
@@ -1856,35 +1095,6 @@ void CABACReader::mvp_flag( PredictionUnit& pu, RefPicList eRefList )
   DTRACE( g_trace_ctx, D_SYNTAX, "mvpIdx(refList:%d)=%d\n", eRefList, mvp_idx );
 }
 
-void CABACReader::fruc_mrg_mode( PredictionUnit& pu )
-{
-  RExt__DECODER_DEBUG_BIT_STATISTICS_CREATE_SET( STATS__CABAC_BITS__OTHER );
-
-  if( !pu.cs->slice->getSPS()->getSpsNext().getUseFRUCMrgMode() )
-    return;
-
-  unsigned fruc_mode  = FRUC_MERGE_OFF;
-  unsigned flag_idx   = DeriveCtx::CtxFrucFlag( pu );
-
-  if( m_BinDecoder.decodeBin( Ctx::FrucFlag(flag_idx) ) )
-  {
-    if( pu.cs->slice->isInterP() )
-    {
-      fruc_mode = FRUC_MERGE_TEMPLATE;
-    }
-    else
-    {
-      unsigned mode_idx   = DeriveCtx::CtxFrucMode( pu );
-      unsigned second_bin = m_BinDecoder.decodeBin( Ctx::FrucMode(mode_idx) );
-      fruc_mode = second_bin ? FRUC_MERGE_BILATERALMV : FRUC_MERGE_TEMPLATE;
-    }
-  }
-
-  pu.frucMrgMode = fruc_mode;
-
-  DTRACE( g_trace_ctx, D_SYNTAX, "fruc_mrg_mode() fruc_mode=%d pos=(%d,%d) size: %dx%d\n", fruc_mode, pu.Y().x, pu.Y().y, pu.lumaSize().width, pu.lumaSize().height );
-}
-
 
 //================================================================================
 //  clause 7.3.8.7
@@ -1898,7 +1108,6 @@ void CABACReader::pcm_samples( TransformUnit& tu )
 
   const SPS&        sps       = *tu.cu->cs->sps;
   const ComponentID maxCompId = ( tu.chromaFormat == CHROMA_400 ? COMPONENT_Y : COMPONENT_Cr );
-  tu.depth                    = 0;
   for( ComponentID compID = COMPONENT_Y; compID <= maxCompId; compID = ComponentID(compID+1) )
   {
     PelBuf          samples     = tu.getPcmbuf( compID );
@@ -1910,19 +1119,6 @@ void CABACReader::pcm_samples( TransformUnit& tu )
         samples.at(x, y) = m_BinDecoder.decodeBinsPCM( sampleBits );
       }
     }
-#if ENABLE_CHROMA_422
-    if( tu.cs->pcv->multiBlock422 && compID != COMPONENT_Y )
-    {
-      samples = tu.getPcmbuf( ComponentID( compID + SCND_TBLOCK_OFFSET ) );
-      for( unsigned y = 0; y < samples.height; y++ )
-      {
-        for( unsigned x = 0; x < samples.width; x++ )
-        {
-          samples.at(x, y) = m_BinDecoder.decodeBinsPCM( sampleBits );
-        }
-      }
-    }
-#endif
   }
   m_BinDecoder.start();
 }
@@ -1943,106 +1139,22 @@ void CABACReader::transform_tree( CodingStructure &cs, Partitioner &partitioner,
 {
   const UnitArea& area          = partitioner.currArea();
 
-  if( cs.pcv->noRQT )
-  {
-    TransformUnit &tu = cs.addTU( CS::getArea( cs, area ) );
-    tu.depth = 0;
 
-    unsigned numBlocks = ::getNumberValidTBlocks( *cs.pcv );
-    for( unsigned compID = COMPONENT_Y; compID < numBlocks; compID++ )
-    {
-      if( tu.blocks[compID].valid() )
-      {
-        tu.getCoeffs( ComponentID( compID ) ).fill( 0 );
-        tu.getPcmbuf( ComponentID( compID ) ).fill( 0 );
-      }
-    }
+  CodingUnit&     cu            = *cs.getCU( area.blocks[partitioner.chType], partitioner.chType );
 
-    transform_unit_qtbt( tu, cuCtx, chromaCbfs );
-    return;
-  }
-
-  const unsigned  trDepth       = partitioner.currTrDepth;
-  CodingUnit&     cu            = *cs.getCU( area.blocks[cs.chType] );
-  const SPS&      sps           = *cs.sps;
-  const unsigned  log2TrafoSize = g_aucLog2[area.lumaSize().width];
-
-  // split_transform_flag
-  bool split = false;
-  if( cu.cs->pcv->noRQT )
-  {
-    split = false;
-  }
-  else if( CU::isIntra( cu ) && cu.partSize == SIZE_NxN && trDepth == 0 )
-  {
-    split = true;
-  }
-  else if( sps.getQuadtreeTUMaxDepthInter() == 1 && CU::isInter( cu ) && cu.partSize != SIZE_2Nx2N && trDepth == 0 )
-  {
-    split = ( log2TrafoSize > cuCtx.quadtreeTULog2MinSizeInCU );
-  }
-  else if( log2TrafoSize > sps.getQuadtreeTULog2MaxSize() )
-  {
-    split = true;
-  }
-  else if( log2TrafoSize == sps.getQuadtreeTULog2MinSize() )
-  {
-    split = false;
-  }
-  else if( log2TrafoSize == cuCtx.quadtreeTULog2MinSizeInCU )
-  {
-    split = false;
-  }
-  else
-  {
-    CHECK( log2TrafoSize <= cuCtx.quadtreeTULog2MinSizeInCU, "block cannot be split in multiple TUs" );
-
-    if( sps.getSpsNext().nextToolsEnabled() )
-    {
-      split = split_transform_flag( sps.getQuadtreeTULog2MaxSize() - log2TrafoSize );
-    }
-    else
-    {
-      split = split_transform_flag( 5 - log2TrafoSize );
-    }
-  }
 
   // cbf_cb & cbf_cr
-#if ENABLE_CHROMA_422
-  const bool twoChromaCbfs = ( cs.pcv->multiBlock422 && ( !split || log2TrafoSize == 3 ) );
-#endif
-  if( area.chromaFormat != CHROMA_400 && area.blocks[COMPONENT_Cb].valid() && ( !CS::isDualITree( cs ) || cs.chType == CHANNEL_TYPE_CHROMA ) )
+  if( area.chromaFormat != CHROMA_400 && area.blocks[COMPONENT_Cb].valid() && ( !CS::isDualITree( cs ) || partitioner.chType == CHANNEL_TYPE_CHROMA ) )
   {
-    const bool firstCbfOfCU = ( trDepth == 0 );
-    const bool allQuadrants = TU::isProcessingAllQuadrants(area);
-    if( firstCbfOfCU || allQuadrants )
     {
-#if ENABLE_CHROMA_422
-      if( twoChromaCbfs )
-      {
-        chromaCbfs.Cb2 = chromaCbfs.Cb;
-        chromaCbfs.Cr2 = chromaCbfs.Cr;
-        if( chromaCbfs.Cb )
-        {
-          chromaCbfs.Cb  &= cbf_comp( area.blocks[ COMPONENT_Cb ], trDepth );
-          chromaCbfs.Cb2 &= cbf_comp( area.blocks[ COMPONENT_Cb ], trDepth );
-        }
-        if( chromaCbfs.Cr )
-        {
-          chromaCbfs.Cr  &= cbf_comp( area.blocks[ COMPONENT_Cr ], trDepth );
-          chromaCbfs.Cr2 &= cbf_comp( area.blocks[ COMPONENT_Cr ], trDepth );
-        }
-      }
-      else
-#endif
       {
         if( chromaCbfs.Cb )
         {
-          chromaCbfs.Cb  &= cbf_comp( area.blocks[ COMPONENT_Cb ], trDepth );
+          chromaCbfs.Cb &= cbf_comp( cs, area.blocks[COMPONENT_Cb] );
         }
         if( chromaCbfs.Cr )
         {
-          chromaCbfs.Cr  &= cbf_comp( area.blocks[ COMPONENT_Cr ], trDepth );
+          chromaCbfs.Cr &= cbf_comp( cs, area.blocks[COMPONENT_Cr] );
         }
       }
     }
@@ -2052,144 +1164,46 @@ void CABACReader::transform_tree( CodingStructure &cs, Partitioner &partitioner,
     chromaCbfs = ChromaCbfs( false );
   }
 
-  if( split )
   {
-    if( trDepth == 0 ) emt_cu_flag( cu );
-
-    partitioner.splitCurrArea( TU_QUAD_SPLIT, cs );
-
-    do
-    {
-      ChromaCbfs subCbfs = chromaCbfs;
-      transform_tree( cs, partitioner, cuCtx, subCbfs );
-    } while( partitioner.nextPart( cs ) );
-
-    partitioner.exitCurrSplit();
-
-    const UnitArea &currArea  = partitioner.currArea();
-    const unsigned  currDepth = partitioner.currTrDepth;
-    const unsigned numTBlocks = getNumberValidTBlocks( *cs.pcv );
-
-    unsigned        anyCbfSet = 0;
-#if ENABLE_CHROMA_422
-    unsigned        compCbf[5] = { 0, 0, 0, 0, 0 };
-    const bool      is_NxN_422 = ( cs.pcv->multiBlock422 && currArea.lumaSize().width == 8 );
-#else
-    unsigned        compCbf[3] = { 0, 0, 0 };
-#endif
-
-    for( auto &currTU : cs.traverseTUs( currArea ) )
-    {
-      for( unsigned ch = 0; ch < numTBlocks; ch++ )
-      {
-        compCbf[ch] |= ( TU::getCbfAtDepth( currTU, ComponentID( ch ), currDepth + 1 ) ? 1 : 0 );
-      }
-    }
-
-#if ENABLE_CHROMA_422
-    if( is_NxN_422 ) // very special case
-    {
-      for( auto &currTU : cs.traverseTUs( currArea ) )
-      {
-        TU::setCbfAtDepth( currTU, COMPONENT_Y,   currDepth, compCbf[COMPONENT_Y] );
-        TU::setCbfAtDepth( currTU, COMPONENT_Cb,  currDepth, compCbf[COMPONENT_Cb] );
-        TU::setCbfAtDepth( currTU, COMPONENT_Cr,  currDepth, compCbf[COMPONENT_Cr] );
-        TU::setCbfAtDepth( currTU, COMPONENT_Cb2, currDepth, compCbf[COMPONENT_Cb2] );
-        TU::setCbfAtDepth( currTU, COMPONENT_Cr2, currDepth, compCbf[COMPONENT_Cr2] );
-      }
-
-      anyCbfSet  = compCbf[COMPONENT_Y];
-      anyCbfSet |= compCbf[COMPONENT_Cb];
-      anyCbfSet |= compCbf[COMPONENT_Cr];
-      anyCbfSet |= compCbf[COMPONENT_Cb2];
-      anyCbfSet |= compCbf[COMPONENT_Cr2];
-    }
-    else // usual case
-#endif
-    {
-#if ENABLE_CHROMA_422
-      if( cs.pcv->multiBlock422 )
-      {
-        compCbf[COMPONENT_Cb] |= compCbf[COMPONENT_Cb2];
-        compCbf[COMPONENT_Cr] |= compCbf[COMPONENT_Cr2];
-      }
-#endif
-
-      for( auto &currTU : cs.traverseTUs( currArea ) )
-      {
-        TU::setCbfAtDepth( currTU, COMPONENT_Y, currDepth, compCbf[COMPONENT_Y] );
-        if( currArea.chromaFormat != CHROMA_400 )
-        {
-          TU::setCbfAtDepth( currTU, COMPONENT_Cb, currDepth, compCbf[COMPONENT_Cb] );
-          TU::setCbfAtDepth( currTU, COMPONENT_Cr, currDepth, compCbf[COMPONENT_Cr] );
-        }
-      }
-    }
-  }
-  else
-  {
-    TransformUnit &tu = cs.addTU( CS::getArea( cs, area ) );
+    TransformUnit &tu = cs.addTU( CS::getArea( cs, area, partitioner.chType ), partitioner.chType );
     unsigned numBlocks = ::getNumberValidTBlocks( *cs.pcv );
+
     for( unsigned compID = COMPONENT_Y; compID < numBlocks; compID++ )
     {
       if( tu.blocks[compID].valid() )
       {
-        tu.getCoeffs( ComponentID(compID) ).fill(0);
-        tu.getPcmbuf( ComponentID(compID) ).fill(0);
+        tu.getCoeffs( ComponentID( compID ) ).fill( 0 );
+        tu.getPcmbuf( ComponentID( compID ) ).fill( 0 );
       }
     }
-    tu.depth = trDepth;
+    DTRACE( g_trace_ctx, D_SYNTAX, "transform_unit() pos=(%d,%d) depth=%d\n", tu.lumaPos().x, tu.lumaPos().y, cu.depth );
 
-    DTRACE( g_trace_ctx, D_SYNTAX, "transform_unit() pos=(%d,%d) depth=%d trDepth=%d\n", tu.lumaPos().x, tu.lumaPos().y, cu.depth, partitioner.currTrDepth );
-
-    if( !isChroma( cs.chType ) )
+    if( !isChroma( partitioner.chType ) )
     {
-      if( !CU::isIntra( cu ) && trDepth == 0 && !chromaCbfs.sigChroma( area.chromaFormat ) )
+      if( !CU::isIntra( cu ) && !chromaCbfs.sigChroma( area.chromaFormat ) )
       {
-        TU::setCbfAtDepth( tu, COMPONENT_Y, trDepth, 1 );
+        TU::setCbf( tu, COMPONENT_Y, true );
       }
       else
       {
-        Bool cbfY = cbf_comp( tu.Y(), trDepth );
-        TU::setCbfAtDepth( tu, COMPONENT_Y, trDepth, ( cbfY ? 1 : 0 ) );
+        Bool cbfY = cbf_comp( cs, tu.Y() );
+        TU::setCbf( tu, COMPONENT_Y, cbfY );
       }
     }
     if( area.chromaFormat != CHROMA_400 )
     {
-      TU::setCbfAtDepth( tu, COMPONENT_Cb, trDepth, ( chromaCbfs.Cb ? 1 : 0 ) );
-      TU::setCbfAtDepth( tu, COMPONENT_Cr, trDepth, ( chromaCbfs.Cr ? 1 : 0 ) );
-#if ENABLE_CHROMA_422
-      if( cs.pcv->multiBlock422 )
-      {
-        TU::setCbfAtDepth( tu, COMPONENT_Cb2, trDepth, ( chromaCbfs.Cb2 ? 1 : 0 ) );
-        TU::setCbfAtDepth( tu, COMPONENT_Cr2, trDepth, ( chromaCbfs.Cr2 ? 1 : 0 ) );
-      }
-#endif
+      TU::setCbf( tu, COMPONENT_Cb, chromaCbfs.Cb );
+      TU::setCbf( tu, COMPONENT_Cr, chromaCbfs.Cr );
     }
 
-    if( trDepth == 0 && TU::getCbfAtDepth( tu, COMPONENT_Y, 0 ) && !cu.cs->pcv->noRQT )
-    {
-      emt_cu_flag( cu );
-    }
 
     transform_unit( tu, cuCtx, chromaCbfs );
   }
 }
 
-
-bool CABACReader::split_transform_flag( unsigned depth )
+bool CABACReader::cbf_comp( CodingStructure& cs, const CompArea& area )
 {
-  RExt__DECODER_DEBUG_BIT_STATISTICS_CREATE_SET_SIZE( STATS__CABAC_BITS__TRANSFORM_SUBDIV_FLAG, Size( 1 << ( 5 - depth ), 1 << ( 5 - depth ) ) );
-
-  unsigned split = m_BinDecoder.decodeBin( Ctx::TransSubdivFlag( depth ) );
-  DTRACE( g_trace_ctx, D_SYNTAX, "split_transform_flag() ctx=%d split=%d\n", depth, split );
-  return ( split );
-}
-
-
-bool CABACReader::cbf_comp( const CompArea& area, unsigned depth )
-{
-  const unsigned  ctxId   = DeriveCtx::CtxQtCbf( area.compID, depth );
+  const unsigned  ctxId   = DeriveCtx::CtxQtCbf( area.compID );
   const CtxSet&   ctxSet  = Ctx::QtCbf[ toChannelType(area.compID) ];
 
   RExt__DECODER_DEBUG_BIT_STATISTICS_CREATE_SET_SIZE2(STATS__CABAC_BITS__QT_CBF, area.size(), area.compID);
@@ -2275,18 +1289,15 @@ void CABACReader::transform_unit( TransformUnit& tu, CUCtx& cuCtx, ChromaCbfs& c
   CodingUnit& cu         = *tu.cu;
   bool        lumaOnly   = ( cu.chromaFormat == CHROMA_400 || !tu.blocks[COMPONENT_Cb].valid() );
   bool        cbfLuma    = ( tu.cbf[ COMPONENT_Y ] != 0 );
-#if ENABLE_CHROMA_422
-  bool        cbfChroma  = ( cu.chromaFormat == CHROMA_400 ? false : ( chromaCbfs.Cb || chromaCbfs.Cr || ( cu.cs->pcv->multiBlock422 && ( chromaCbfs.Cb2 || chromaCbfs.Cr2 ) ) ) );
-#else
   bool        cbfChroma  = ( cu.chromaFormat == CHROMA_400 ? false : ( chromaCbfs.Cb || chromaCbfs.Cr ) );
-#endif
+
 
   if( cbfLuma || cbfChroma )
   {
     if( cu.cs->pps->getUseDQP() && !cuCtx.isDQPCoded )
     {
-      cu_qp_delta( cu, cuCtx.qp );
-      cuCtx.qp = cu.qp;
+      cu_qp_delta( cu, cuCtx.qp, cu.qp );
+      cuCtx.qp         = cu.qp;
       cuCtx.isDQPCoded = true;
     }
     if( cu.cs->slice->getUseChromaQpAdj() && cbfChroma && !cu.transQuantBypass && !cuCtx.isChromaQpAdjCoded )
@@ -2310,95 +1321,19 @@ void CABACReader::transform_unit( TransformUnit& tu, CUCtx& cuCtx, ChromaCbfs& c
         {
           residual_coding( tu, compID );
         }
-#if ENABLE_CHROMA_422
-        if( cu.cs->pcv->multiBlock422 )
-        {
-          if( tu.cbf[ compID + SCND_TBLOCK_OFFSET ] )
-          {
-            residual_coding( tu, ComponentID(compID+SCND_TBLOCK_OFFSET) );
-          }
-        }
-#endif
       }
     }
   }
 }
 
-void CABACReader::transform_unit_qtbt( TransformUnit& tu, CUCtx& cuCtx, ChromaCbfs& chromaCbfs )
-{
-  CodingUnit& cu  = *tu.cu;
-  bool cbfLuma    = false;
-  bool cbfChroma  = false;
 
-  bool lumaOnly   = ( cu.chromaFormat == CHROMA_400 || !tu.blocks[COMPONENT_Cb].valid() );
-  bool chromaOnly =                                    !tu.blocks[COMPONENT_Y ].valid();
-
-  if( !lumaOnly )
-  {
-    for( ComponentID compID = COMPONENT_Cb; compID <= COMPONENT_Cr; compID = ComponentID( compID + 1 ) )
-    {
-      bool cbf = cbf_comp( tu.blocks[compID], tu.depth );
-      chromaCbfs.cbf( compID ) = cbf;
-      TU::setCbfAtDepth( tu, compID, tu.depth, cbf ? 1 : 0 );
-
-      if( TU::hasCrossCompPredInfo( tu, compID ) )
-      {
-        cross_comp_pred( tu, compID );
-      }
-      if( tu.cbf[compID] )
-      {
-        residual_coding( tu, compID );
-        cbfChroma = true;
-      }
-    }
-  }
-
-  if( !chromaOnly )
-  {
-    if( !CU::isIntra( cu ) && !chromaCbfs.sigChroma( tu.chromaFormat ) )
-    {
-      TU::setCbfAtDepth( tu, COMPONENT_Y, tu.depth, 1 );
-    }
-    else
-    {
-      bool cbf = cbf_comp( tu.Y(), tu.depth );
-      TU::setCbfAtDepth( tu, COMPONENT_Y, tu.depth, cbf ? 1 : 0 );
-    }
-  }
-
-  if( tu.cbf[0] )
-  {
-    if( !cu.cs->pcv->noRQT )
-    {
-      emt_cu_flag  ( cu );
-    }
-    residual_coding( tu, COMPONENT_Y );
-    cbfLuma = true;
-  }
-
-  if( cbfLuma || cbfChroma )
-  {
-    if( cu.cs->pps->getUseDQP() && !cuCtx.isDQPCoded )
-    {
-      cu_qp_delta( cu, cuCtx.qp );
-      cuCtx.qp         = cu.qp;
-      cuCtx.isDQPCoded = true;
-    }
-    if( cu.cs->slice->getUseChromaQpAdj() && cbfChroma && !cu.transQuantBypass && !cuCtx.isChromaQpAdjCoded )
-    {
-      cu_chroma_qp_offset( cu );
-      cuCtx.isChromaQpAdjCoded = true;
-    }
-  }
-}
-
-void CABACReader::cu_qp_delta( CodingUnit& cu, int predQP )
+void CABACReader::cu_qp_delta( CodingUnit& cu, int predQP, SChar& qp )
 {
   RExt__DECODER_DEBUG_BIT_STATISTICS_CREATE_SET( STATS__CABAC_BITS__DELTA_QP_EP );
 
   CHECK( predQP == std::numeric_limits<int>::max(), "Invalid predicted QP" );
   int qpY = predQP;
-  int DQp = unary_max_symbol( Ctx::DeltaQP(), Ctx::DeltaQP(1), CU_DQP_TU_CMAX  );
+  int DQp = unary_max_symbol( Ctx::DeltaQP(), Ctx::DeltaQP(1), CU_DQP_TU_CMAX );
   if( DQp >= CU_DQP_TU_CMAX )
   {
     DQp += exp_golomb_eqprob( CU_DQP_EG_k  );
@@ -2412,15 +1347,15 @@ void CABACReader::cu_qp_delta( CodingUnit& cu, int predQP )
     int     qpBdOffsetY = cu.cs->sps->getQpBDOffset( CHANNEL_TYPE_LUMA );
     qpY = ( ( predQP + DQp + 52 + 2*qpBdOffsetY ) % (52 + qpBdOffsetY) ) - qpBdOffsetY;
   }
-  cu.qp = qpY;
+  qp = (SChar)qpY;
 
-  DTRACE( g_trace_ctx, D_DQP, "x=%d, y=%d, d=%d, pred_qp=%d, DQp=%d, qp=%d\n", cu.blocks[cu.cs->chType].lumaPos().x, cu.blocks[cu.cs->chType].lumaPos().y, cu.qtDepth, predQP, DQp, cu.qp );
+  DTRACE( g_trace_ctx, D_DQP, "x=%d, y=%d, d=%d, pred_qp=%d, DQp=%d, qp=%d\n", cu.blocks[cu.chType].lumaPos().x, cu.blocks[cu.chType].lumaPos().y, cu.qtDepth, predQP, DQp, qp );
 }
 
 
 void CABACReader::cu_chroma_qp_offset( CodingUnit& cu )
 {
-  RExt__DECODER_DEBUG_BIT_STATISTICS_CREATE_SET_SIZE2( STATS__CABAC_BITS__CHROMA_QP_ADJUSTMENT, cu.blocks[cu.cs->chType].lumaSize(), CHANNEL_TYPE_CHROMA );
+  RExt__DECODER_DEBUG_BIT_STATISTICS_CREATE_SET_SIZE2( STATS__CABAC_BITS__CHROMA_QP_ADJUSTMENT, cu.blocks[cu.chType].lumaSize(), CHANNEL_TYPE_CHROMA );
 
   // cu_chroma_qp_offset_flag
   int       length  = cu.cs->pps->getPpsRangeExtension().getChromaQpOffsetListLen();
@@ -2477,26 +1412,19 @@ void CABACReader::residual_coding( TransformUnit& tu, ComponentID compID )
   CoeffCodingContext  cctx    ( tu, compID, signHiding );
   TCoeff*             coeff   = tu.getCoeffs( compID ).buf;
   unsigned&           GRStats = m_BinDecoder.getCtx().getGRAdaptStats( TU::getGolombRiceStatisticsIndex( tu, compID ) );
-  unsigned            numSig  = 0;
 
   // parse last coeff position
   cctx.setScanPosLast( last_sig_coeff( cctx ) );
 
   // parse subblocks
   cctx.setGoRiceStats( GRStats );
-  bool useEmt = ( cu.cs->sps->getSpsNext().getUseIntraEMT() && cu.predMode == MODE_INTRA ) || ( cu.cs->sps->getSpsNext().getUseInterEMT() && cu.predMode != MODE_INTRA );
-  useEmt = useEmt && isLuma(compID);
-  for( int subSetId = ( cctx.scanPosLast() >> cctx.log2CGSize() ); subSetId >= 0; subSetId--)
-  {
-    cctx.initSubblock       ( subSetId );
-    residual_coding_subblock( cctx, coeff );
 
-    if (useEmt)
+
+    for( int subSetId = ( cctx.scanPosLast() >> cctx.log2CGSize() ); subSetId >= 0; subSetId--)
     {
-      numSig += cctx.emtNumSigCoeff();
-      cctx.setEmtNumSigCoeff( 0 );
+      cctx.initSubblock       ( subSetId );
+      residual_coding_subblock( cctx, coeff );
     }
-  }
   GRStats = cctx.currGoRiceStats();
 
   if( tu.cs->pcv->noRQT )
@@ -2504,30 +1432,13 @@ void CABACReader::residual_coding( TransformUnit& tu, ComponentID compID )
     return;
   }
 
-  if( useEmt && !tu.transformSkip[compID] && compID == COMPONENT_Y && tu.cu->emtFlag )
-  {
-    if( CU::isIntra( *tu.cu ) )
-    {
-      if( numSig > g_EmtSigNumThr )
-      {
-        emt_tu_index( tu );
-      }
-      else
-      {
-        tu.emtIdx = 0; //default transform
-      }
-    }
-    else
-    {
-      emt_tu_index( tu );
-    }
-  }
 
 }
 
 
 void CABACReader::transform_skip_flag( TransformUnit& tu, ComponentID compID )
 {
+
   if( !tu.cu->cs->pps->getUseTransformSkip() || tu.cu->transQuantBypass || !TU::hasTransformSkipFlag( *tu.cs, tu.blocks[compID] ) )
   {
     tu.transformSkip[compID] = false;
@@ -2540,87 +1451,8 @@ void CABACReader::transform_skip_flag( TransformUnit& tu, ComponentID compID )
   tu.transformSkip[compID] = tskip;
 }
 
-Void CABACReader::emt_tu_index( TransformUnit& tu )
-{
-  int maxSizeEmtIntra, maxSizeEmtInter;
-  if( tu.cs->pcv->noRQT )
-  {
-    maxSizeEmtIntra = EMT_INTRA_MAX_CU_WITH_QTBT;
-    maxSizeEmtInter = EMT_INTER_MAX_CU_WITH_QTBT;
-  }
-  else
-  {
-    maxSizeEmtIntra = EMT_INTRA_MAX_CU;
-    maxSizeEmtInter = EMT_INTER_MAX_CU;
-  }
 
-  UChar trIdx = 0;
-  RExt__DECODER_DEBUG_BIT_STATISTICS_CREATE_SET( STATS__CABAC_BITS__EMT_TU_INDEX );
 
-  if( CU::isIntra( *tu.cu ) && ( tu.cu->Y().width <= maxSizeEmtIntra ) && ( tu.cu->Y().height <= maxSizeEmtIntra ) )
-  {
-    bool uiSymbol1 = m_BinDecoder.decodeBin( Ctx::EMTTuIndex( 0 ) );
-    bool uiSymbol2 = m_BinDecoder.decodeBin( Ctx::EMTTuIndex( 1 ) );
-
-    trIdx = ( uiSymbol2 << 1 ) | ( int ) uiSymbol1;
-
-    DTRACE( g_trace_ctx, D_SYNTAX, "emt_tu_index() etype=%d pos=(%d,%d) emtTrIdx=%d\n", COMPONENT_Y, tu.lx(), tu.ly(), ( int ) trIdx );
-  }
-  if( !CU::isIntra( *tu.cu ) && ( tu.cu->Y().width <= maxSizeEmtInter ) && ( tu.cu->Y().height <= maxSizeEmtInter ) )
-  {
-    bool uiSymbol1 = m_BinDecoder.decodeBin( Ctx::EMTTuIndex( 2 ) );
-    bool uiSymbol2 = m_BinDecoder.decodeBin( Ctx::EMTTuIndex( 3 ) );
-
-    trIdx = ( uiSymbol2 << 1 ) | ( int ) uiSymbol1;
-
-    DTRACE( g_trace_ctx, D_SYNTAX, "emt_tu_index() etype=%d pos=(%d,%d) emtTrIdx=%d\n", COMPONENT_Y, tu.lx(), tu.ly(), ( int ) trIdx );
-  }
-
-  tu.emtIdx = trIdx;
-}
-
-Void CABACReader::emt_cu_flag( CodingUnit& cu )
-{
-  const CodingStructure &cs = *cu.cs;
-
-  if( !( ( cs.sps->getSpsNext().getUseIntraEMT() && CU::isIntra( cu ) ) || ( cs.sps->getSpsNext().getUseInterEMT() && CU::isInter( cu ) ) ) || isChroma( cu.cs->chType ) )
-  {
-    return;
-  }
-
-  unsigned       depth      = cu.qtDepth;
-  const unsigned cuWidth    = cu.lwidth();
-  const unsigned cuHeight   = cu.lheight();
-
-  int maxSizeEmtIntra, maxSizeEmtInter;
-  if( cu.cs->pcv->noRQT )
-  {
-    if( depth >= NUM_EMT_CU_FLAG_CTX )
-    {
-      depth = NUM_EMT_CU_FLAG_CTX - 1;
-    }
-    maxSizeEmtIntra = EMT_INTRA_MAX_CU_WITH_QTBT;
-    maxSizeEmtInter = EMT_INTER_MAX_CU_WITH_QTBT;
-  }
-  else
-  {
-    maxSizeEmtIntra = EMT_INTRA_MAX_CU;
-    maxSizeEmtInter = EMT_INTER_MAX_CU;
-    CHECK( depth >= NUM_EMT_CU_FLAG_CTX, "Depth exceeds limit." );
-  }
-
-  cu.emtFlag = 0;
-
-  const unsigned maxSizeEmt = CU::isIntra( cu ) ? maxSizeEmtIntra : maxSizeEmtInter;
-
-  RExt__DECODER_DEBUG_BIT_STATISTICS_CREATE_SET( STATS__CABAC_BITS__EMT_CU_FLAG );
-  if( cuWidth <= maxSizeEmt && cuHeight <= maxSizeEmt )
-  {
-    bool uiCuFlag = m_BinDecoder.decodeBin( Ctx::EMTCuFlag( depth ) );
-    cu.emtFlag = uiCuFlag;
-    DTRACE( g_trace_ctx, D_SYNTAX, "emt_cu_flag() etype=%d pos=(%d,%d) emtCuFlag=%d\n", COMPONENT_Y, cu.lx(), cu.ly(), ( int ) cu.emtFlag );
-  }
-}
 
 void CABACReader::explicit_rdpcm_mode( TransformUnit& tu, ComponentID compID )
 {
@@ -2630,7 +1462,7 @@ void CABACReader::explicit_rdpcm_mode( TransformUnit& tu, ComponentID compID )
 
   if( !CU::isIntra(cu) && CU::isRDPCMEnabled(cu) && ( tu.transformSkip[compID] || cu.transQuantBypass ) )
   {
-    RExt__DECODER_DEBUG_BIT_STATISTICS_CREATE_SET_SIZE( STATS__EXPLICIT_RDPCM_BITS, tu.blocks[tu.cs->chType].lumaSize() );
+    RExt__DECODER_DEBUG_BIT_STATISTICS_CREATE_SET_SIZE( STATS__EXPLICIT_RDPCM_BITS, tu.blocks[tu.chType].lumaSize() );
 
     ChannelType chType = toChannelType( compID );
     if( m_BinDecoder.decodeBin( Ctx::RdpcmFlag( chType ) ) )
@@ -2647,81 +1479,6 @@ void CABACReader::explicit_rdpcm_mode( TransformUnit& tu, ComponentID compID )
   }
 }
 
-void CABACReader::residual_nsst_mode( CodingUnit& cu )
-{
-
-  if( CS::isDualITree( *cu.cs ) && cu.cs->chType == CHANNEL_TYPE_CHROMA && std::min( cu.blocks[1].width, cu.blocks[1].height ) < 4 )
-  {
-    return;
-  }
-
-  RExt__DECODER_DEBUG_BIT_STATISTICS_CREATE_SET( STATS__CABAC_BITS__NSST );
-  if( cu.cs->sps->getSpsNext().getUseNSST() && CU::isIntra( cu ) && !CU::isLosslessCoded( cu ) && !cu.pdpc )
-  {
-    bool nonZeroCoeffNonTs;
-    if( cu.cs->pcv->noRQT )
-    {
-      const int nonZeroCoeffThr = CS::isDualITree( *cu.cs ) ? ( isLuma( cu.cs->chType ) ? NSST_SIG_NZ_LUMA : NSST_SIG_NZ_CHROMA ) : NSST_SIG_NZ_LUMA + NSST_SIG_NZ_CHROMA;
-      nonZeroCoeffNonTs = CU::getNumNonZeroCoeffNonTs( cu ) > nonZeroCoeffThr;
-    }
-    else
-    {
-      nonZeroCoeffNonTs = CU::hasNonTsCodedBlock( cu );
-    }
-    if( !nonZeroCoeffNonTs )
-    {
-      cu.nsstIdx = 0;
-      return;
-    }
-  }
-  else
-  {
-    cu.nsstIdx = 0;
-    return;
-  }
-
-  Bool bUseThreeNSSTPasses = false;
-
-  if( cu.partSize == SIZE_2Nx2N )
-  {
-    int intraMode = cu.firstPU->intraDir[cu.cs->chType];
-    if( intraMode == DM_CHROMA_IDX )
-    {
-      intraMode = CS::isDualITree( *cu.cs ) ? cu.cs->picture->cs->getPU( cu.blocks[cu.cs->chType].lumaPos(), CHANNEL_TYPE_LUMA )->intraDir[0] : cu.firstPU->intraDir[0];
-    }
-    else if( PU::isLMCMode( intraMode ) )
-    {
-      intraMode = PLANAR_IDX;
-    }
-
-    bUseThreeNSSTPasses = ( intraMode <= DC_IDX );
-  }
-
-  if( bUseThreeNSSTPasses )
-  {
-    UInt idxROT = m_BinDecoder.decodeBin( Ctx::NSSTIdx( 1 ) );
-    if( idxROT )
-    {
-      idxROT += m_BinDecoder.decodeBin( Ctx::NSSTIdx( 3 ) );
-    }
-    cu.nsstIdx = idxROT;
-  }
-  else
-  {
-    UInt idxROT = m_BinDecoder.decodeBin( Ctx::NSSTIdx( 0 ) );
-    if( idxROT )
-    {
-      UInt uiSymbol = m_BinDecoder.decodeBin( Ctx::NSSTIdx( 2 ) );
-      if( uiSymbol )
-      {
-        idxROT += 1 + m_BinDecoder.decodeBin( Ctx::NSSTIdx( 4 ) );
-      }
-    }
-    cu.nsstIdx = idxROT;
-  }
-
-  DTRACE( g_trace_ctx, D_SYNTAX, "residual_nsst_mode() etype=%d pos=(%d,%d) mode=%d\n", COMPONENT_Y, cu.lx(), cu.ly(), ( int ) cu.nsstIdx );
-}
 
 int CABACReader::last_sig_coeff( CoeffCodingContext& cctx )
 {
@@ -2762,6 +1519,7 @@ int CABACReader::last_sig_coeff( CoeffCodingContext& cctx )
     }
     PosLastY = g_uiMinInGroup[ PosLastY ] + uiTemp;
   }
+
   int blkPos;
   if( cctx.scanType() == SCAN_VER )
   {
@@ -2771,6 +1529,7 @@ int CABACReader::last_sig_coeff( CoeffCodingContext& cctx )
   {
     blkPos = PosLastX + ( PosLastY * cctx.width() );
   }
+
   int scanPos = 0;
   for( ; scanPos < cctx.maxNumCoeff() - 1; scanPos++ )
   {
@@ -2781,6 +1540,9 @@ int CABACReader::last_sig_coeff( CoeffCodingContext& cctx )
   }
   return scanPos;
 }
+
+
+
 
 void CABACReader::residual_coding_subblock( CoeffCodingContext& cctx, TCoeff* coeff )
 {
@@ -2814,185 +1576,6 @@ void CABACReader::residual_coding_subblock( CoeffCodingContext& cctx, TCoeff* co
     return;
   }
 
-  if( cctx.altResiCompId() == 1 )
-  {
-    //===== decode significant_coeff_flag's =====
-    const int inferSigPos = ( cctx.isNotFirst() ? minSubPos : -1 );
-    unsigned  numNonZero  = 0;
-    int       firstNZPos  = maxSbbSize;
-    int       lastNZPos   = -1;
-    int       sigBlkPos   [ 1 << MLS_CG_SIZE ];
-    int       scanPos     [ 1 << MLS_CG_SIZE ];
-    if( isLast )
-    {
-      firstNZPos                = nextSigPos;
-      lastNZPos                 = nextSigPos;
-      sigBlkPos[ numNonZero   ] = cctx.blockPos( nextSigPos );
-      scanPos  [ numNonZero++ ] = nextSigPos--;
-      coeff[ sigBlkPos[ 0 ] ]   = 1;
-    }
-    for( ; nextSigPos >= minSubPos; nextSigPos-- )
-    {
-      unsigned sigFlag = ( !numNonZero && nextSigPos == inferSigPos );
-      if( !sigFlag )
-      {
-        sigFlag = m_BinDecoder.decodeBin( cctx.sigCtxId( nextSigPos, coeff ) );
-      }
-      if( sigFlag )
-      {
-        sigBlkPos [ numNonZero ]    = cctx.blockPos( nextSigPos );
-        scanPos   [ numNonZero++ ]  = nextSigPos;
-        coeff[ cctx.blockPos( nextSigPos ) ] = 1;
-        firstNZPos                  = nextSigPos;
-        lastNZPos                   = std::max<int>( lastNZPos, nextSigPos );
-      }
-    }
-
-    RExt__DECODER_DEBUG_BIT_STATISTICS_SET( ctype_gt1 );
-
-    //===== decode abs_greater1_flag's =====
-    const unsigned  numGt1Flags = std::min<unsigned>( numNonZero, C1FLAG_NUMBER );
-    int             gt2FlagIdx  = maxSbbSize;
-    bool            escapeData  = false;
-    uint16_t        ctxGt1Id    = cctx.greater1CtxId( 0 );
-    for( unsigned k = 0; k < numGt1Flags; k++ )
-    {
-      if( k || !cctx.isLast() )
-      {
-        ctxGt1Id = cctx.greater1CtxId( scanPos[ k ], coeff );
-      }
-
-      if( m_BinDecoder.decodeBin( ctxGt1Id ) )
-      {
-        coeff[ sigBlkPos[ k ] ] = 2;
-        if( gt2FlagIdx < maxSbbSize )
-        {
-          escapeData  = true;
-        }
-        else
-        {
-          gt2FlagIdx  = k;
-        }
-      }
-      else
-      {
-        coeff[ sigBlkPos[ k ] ] = 1;
-      }
-    }
-    for( unsigned k = numGt1Flags; k < numNonZero; k++ )
-    {
-      coeff[ sigBlkPos[ k ] ] = 1;
-      escapeData              = true;
-    }
-    cctx.setGt2Flag( ctxGt1Id == 0 );
-
-    RExt__DECODER_DEBUG_BIT_STATISTICS_SET( ctype_gt2 );
-
-    //===== decode abs_greater2_flag =====
-    if( gt2FlagIdx < maxSbbSize )
-    {
-      uint16_t ctxGt2Id = cctx.greater1CtxIdOfs();
-      if( gt2FlagIdx || !cctx.isLast() )
-      {
-        ctxGt2Id = cctx.greater2CtxId( scanPos[ gt2FlagIdx ], coeff );
-      }
-
-      if( m_BinDecoder.decodeBin( ctxGt2Id ) )
-      {
-        coeff[ sigBlkPos[ gt2FlagIdx ] ]++;
-        escapeData = true;
-      }
-    }
-
-    //===== align data =====
-    if( escapeData && cctx.alignFlag() )
-    {
-      m_BinDecoder.align();
-    }
-
-#if RExt__DECODER_DEBUG_BIT_STATISTICS
-    const bool alignGroup = escapeData && cctx.alignFlag();
-    CodingStatisticsClassType ctype_signs( ( alignGroup ? STATS__CABAC_BITS__ALIGNED_SIGN_BIT    : STATS__CABAC_BITS__SIGN_BIT    ), cctx.width(), cctx.height(), cctx.compID() );
-    CodingStatisticsClassType ctype_escs ( ( alignGroup ? STATS__CABAC_BITS__ALIGNED_ESCAPE_BITS : STATS__CABAC_BITS__ESCAPE_BITS ), cctx.width(), cctx.height(), cctx.compID() );
-#endif
-
-    RExt__DECODER_DEBUG_BIT_STATISTICS_SET( ctype_signs );
-
-    //===== decode remaining absolute values =====
-    if( escapeData )
-    {
-      RExt__DECODER_DEBUG_BIT_STATISTICS_SET( ctype_escs );
-
-      bool      updateGoRiceStats = cctx.updGoRiceStats();
-      unsigned  GoRicePar         = cctx.currGoRiceStats() >> 2;
-      unsigned  MaxGoRicePar      = ( updateGoRiceStats ? std::numeric_limits<unsigned>::max() : 4 );
-      int       baseLevel         = 3;
-      for( int k = 0; k < numNonZero; k++ )
-      {
-        if( coeff[ sigBlkPos[ k ] ] == baseLevel )
-        {
-          if( !updateGoRiceStats || !cctx.isLast() )
-          {
-            GoRicePar = cctx.GoRicePar( scanPos[ k ], coeff );
-          }
-
-          int remAbs    = m_BinDecoder.decodeRemAbsEP( GoRicePar, cctx.extPrec(), cctx.maxLog2TrDRange(), true );
-          coeff[ sigBlkPos[ k ] ] = baseLevel + remAbs;
-
-          // update rice parameter
-          if( coeff[ sigBlkPos[ k ] ] > ( 3 << GoRicePar ) && GoRicePar < MaxGoRicePar )
-          {
-            GoRicePar++;
-          }
-          if( updateGoRiceStats )
-          {
-            unsigned initGoRicePar = cctx.currGoRiceStats() >> 2;
-            if( remAbs >= ( 3 << initGoRicePar) )
-            {
-              cctx.incGoRiceStats();
-            }
-            else if( cctx.currGoRiceStats() > 0 && ( remAbs << 1 ) < ( 1 << initGoRicePar ) )
-            {
-              cctx.decGoRiceStats();
-            }
-            updateGoRiceStats = false;
-          }
-        }
-        if( k > C1FLAG_NUMBER - 2 )
-        {
-          baseLevel = 1;
-        }
-        else if( baseLevel == 3 && coeff[ sigBlkPos[ k ] ] > 1 )
-        {
-          baseLevel = 2;
-        }
-      }
-    }
-
-    //===== decode sign's =====
-    const unsigned  numSigns    = ( cctx.hideSign( firstNZPos, lastNZPos ) ? numNonZero - 1 : numNonZero );
-    unsigned        signPattern = m_BinDecoder.decodeBinsEP( numSigns ) << ( 32 - numSigns );
-
-    //===== set final coefficents =====
-    int sumAbs = 0;
-    for( unsigned k = 0; k < numSigns; k++ )
-    {
-      int AbsCoeff          = coeff[ sigBlkPos[ k ] ];
-      sumAbs               += AbsCoeff;
-      coeff[ sigBlkPos[k] ] = ( signPattern & ( 1u << 31 ) ? -AbsCoeff : AbsCoeff );
-      signPattern         <<= 1;
-    }
-    if( numNonZero > numSigns )
-    {
-      int k                 = numSigns;
-      int AbsCoeff          = coeff[ sigBlkPos[ k ] ];
-      sumAbs               += AbsCoeff;
-      coeff[ sigBlkPos[k] ] = ( sumAbs & 1 ? -AbsCoeff : AbsCoeff );
-    }
-
-    cctx.setEmtNumSigCoeff( numNonZero );
-  }
-  else
   {
     //===== decode significant_coeff_flag's =====
     RExt__DECODER_DEBUG_BIT_STATISTICS_SET( ctype_map );
@@ -3153,8 +1736,6 @@ void CABACReader::residual_coding_subblock( CoeffCodingContext& cctx, TCoeff* co
       sumAbs               += AbsCoeff;
       coeff[ sigBlkPos[k] ] = ( sumAbs & 1 ? -AbsCoeff : AbsCoeff );
     }
-
-    cctx.setEmtNumSigCoeff( numNonZero );
   }
 }
 
@@ -3194,7 +1775,6 @@ void CABACReader::cross_comp_pred( TransformUnit& tu, ComponentID compID )
   DTRACE( g_trace_ctx, D_SYNTAX, "cross_comp_pred() etype=%d pos=(%d,%d) alpha=%d\n", compID, tu.blocks[compID].x, tu.blocks[compID].y, tu.compAlpha[compID] );
   tu.compAlpha[compID] = alpha;
 }
-
 
 
 

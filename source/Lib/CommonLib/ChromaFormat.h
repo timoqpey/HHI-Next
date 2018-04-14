@@ -102,40 +102,6 @@ static inline uint64_t getTotalFracBits(const UInt width, const UInt height, con
 }
 
 
-//------------------------------------------------
-
-// In HM, a CU only has one chroma intra prediction direction, that corresponds to the top left luma intra prediction
-// even if the NxN PU split occurs when 4 sub-TUs exist for chroma.
-// Use this function to allow NxN PU splitting for chroma.
-
-static inline Bool enable4ChromaPUsInIntraNxNCU(const ChromaFormat chFmt)
-{
-  return (chFmt == CHROMA_444);
-}
-
-
-//------------------------------------------------
-
-//returns the part index of the luma region that is co-located with the specified chroma region
-
-static inline UInt
-getChromasCorrespondingPULumaIdx(const UInt lumaZOrderIdxInCtu,
-                                 const ChromaFormat chFmt,
-                                 const Int partsPerMinCU  // 1<<(2*(sps->getMaxCodingDepth() - sps->getLog2DiffMaxMinCodingBlockSize()))
-                                 )
-{
-  return enable4ChromaPUsInIntraNxNCU(chFmt) ? lumaZOrderIdxInCtu : lumaZOrderIdxInCtu & (~(partsPerMinCU-1));
-}
-
-//------------------------------------------------
-
-// If chroma format is 4:2:2 and a chroma-square-sub-tu is possible for the smallest TU, then increase the depth by 1 to allow for more parts.
-
-static inline UInt getMaxCUDepthOffset(const ChromaFormat chFmt, const UInt quadtreeTULog2MinSize)
-{
-  return (chFmt==CHROMA_422 && quadtreeTULog2MinSize>2) ? 1 : 0;
-}
-
 //======================================================================================================================
 //Intra prediction  ====================================================================================================
 //======================================================================================================================
@@ -150,7 +116,7 @@ static inline Bool filterIntraReferenceSamples (const ChannelType chType, const 
 
 static inline Int getTransformShift(const Int channelBitDepth, const Size size, const Int maxLog2TrDynamicRange)
 {
-  return maxLog2TrDynamicRange - channelBitDepth - ( ( g_aucLog2[size.width] + g_aucLog2[size.height] ) >> 1 );
+  return maxLog2TrDynamicRange - channelBitDepth - ((g_aucLog2OfPowerOf2Part[size.width] + g_aucLog2OfPowerOf2Part[size.height]) >> 1);
 }
 
 

@@ -38,6 +38,399 @@
 #include "Picture.h"
 #include "SEI.h"
 #include "ChromaFormat.h"
+#if HHI_WPP_PARALLELISM
+#if HHI_WPP_STATIC_LINK
+#include <atomic>
+#else
+#include <condition_variable>
+#endif
+#endif
+
+
+#if HHI_WPP_PARALLELISM || HHI_SPLIT_PARALLELISM
+#if HHI_WPP_PARALLELISM
+#if HHI_WPP_STATIC_LINK
+class SyncObj
+{
+public:
+  SyncObj() : m_Val(-1) {}
+  ~SyncObj()            {}
+
+  void reset()
+  {
+    m_Val = -1;
+  }
+
+  bool isReady( int64_t val ) const
+  {
+//    std::cout << "is ready m_Val " << m_Val << " val " << val << std::endl;
+    return m_Val >= val;
+  }
+
+  void wait( int64_t idx, int ctuPosY  )
+  {
+    while( ! isReady( idx ) )
+    {
+    }
+  }
+
+  void set( int64_t val, int ctuPosY)
+  {
+    m_Val = val;
+  }
+
+private:
+  std::atomic<int>         m_Val;
+};
+#else
+class SyncObj
+{
+public:
+  SyncObj() : m_Val(-1) {}
+  ~SyncObj()            {}
+
+  void reset()
+  {
+    std::unique_lock< std::mutex > lock( m_mutex );
+
+    m_Val = -1;
+  }
+
+  bool isReady( int64_t val ) const
+  {
+    return m_Val >= val;
+  }
+
+  void wait( int64_t idx, int ctuPosY  )
+  {
+    std::unique_lock< std::mutex > lock( m_mutex );
+
+    while( ! isReady( idx ) )
+    {
+      m_cv.wait( lock );
+    }
+  }
+
+  void set( int64_t val, int ctuPosY)
+  {
+    std::unique_lock< std::mutex > lock( m_mutex );
+    m_Val = val;
+    m_cv.notify_all();
+  }
+
+private:
+  int64_t                 m_Val;
+  std::condition_variable m_cv;
+  std::mutex              m_mutex;
+};
+#endif
+#endif
+
+int g_wppThreadId( 0 );
+#pragma omp threadprivate(g_wppThreadId)
+
+#if HHI_SPLIT_PARALLELISM
+int g_splitThreadId( 0 );
+#pragma omp threadprivate(g_splitThreadId)
+
+int g_splitJobId( 0 );
+#pragma omp threadprivate(g_splitJobId)
+#endif
+
+Scheduler::Scheduler() :
+#if HHI_WPP_PARALLELISM
+  m_numWppThreads( 1 ),
+  m_numWppDataInstances( 1 )
+#endif
+#if HHI_SPLIT_PARALLELISM && HHI_WPP_PARALLELISM
+  ,
+#endif
+#if HHI_SPLIT_PARALLELISM
+  m_numSplitThreads( 1 )
+#endif
+{
+}
+
+Scheduler::~Scheduler()
+{
+#if HHI_WPP_PARALLELISM
+  for( auto & so : m_SyncObjs )
+  {
+    delete so;
+  }
+  m_SyncObjs.clear();
+#endif
+}
+
+#if HHI_SPLIT_PARALLELISM
+unsigned Scheduler::getSplitDataId( int jobId ) const
+{
+  if( m_numSplitThreads > 1 && m_hasParallelBuffer )
+  {
+    int splitJobId = jobId == CURR_THREAD_ID ? g_splitJobId : jobId;
+
+    return ( g_wppThreadId * NUM_RESERVERD_SPLIT_JOBS ) + splitJobId;
+  }
+  else
+  {
+    return 0;
+  }
+}
+
+unsigned Scheduler::getSplitPicId( int tId /*= CURR_THREAD_ID */ ) const
+{
+  if( m_numSplitThreads > 1 && m_hasParallelBuffer )
+  {
+    int threadId = tId == CURR_THREAD_ID ? g_splitThreadId : tId;
+
+    return ( g_wppThreadId * m_numSplitThreads ) + threadId;
+  }
+  else
+  {
+    return 0;
+  }
+}
+
+unsigned Scheduler::getSplitJobId() const
+{
+  if( m_numSplitThreads > 1 )
+  {
+    return g_splitJobId;
+  }
+  else
+  {
+    return 0;
+  }
+}
+
+void Scheduler::setSplitJobId( const int jobId )
+{
+  CHECK( g_splitJobId != 0 && jobId != 0, "Need to reset the jobId after usage!" );
+  g_splitJobId = jobId;
+}
+
+void Scheduler::startParallel()
+{
+  m_hasParallelBuffer = true;
+}
+
+void Scheduler::finishParallel()
+{
+  m_hasParallelBuffer = false;
+}
+
+void Scheduler::setSplitThreadId( const int tId )
+{
+  g_splitThreadId = tId == CURR_THREAD_ID ? omp_get_thread_num() : tId;
+}
+
+#endif
+
+
+#if HHI_WPP_PARALLELISM
+unsigned Scheduler::getWppDataId( int lID ) const
+{
+  const int tId = lID == CURR_THREAD_ID ? g_wppThreadId : lID;
+
+#if HHI_SPLIT_PARALLELISM
+  if( m_numSplitThreads > 1 )
+  {
+    return tId * NUM_RESERVERD_SPLIT_JOBS;
+  }
+  else
+  {
+    return tId;
+  }
+#else
+  return tId;
+#endif
+}
+
+unsigned Scheduler::getWppThreadId() const
+{
+  return g_wppThreadId;
+}
+
+void Scheduler::setWppThreadId( const int tId )
+{
+  g_wppThreadId = tId == CURR_THREAD_ID ? omp_get_thread_num() : tId;
+
+  CHECK( g_wppThreadId >= HHI_WPP_MAX_NUM_THREADS, "The WPP thread ID " << g_wppThreadId << " is invalid!" );
+}
+#endif
+
+unsigned Scheduler::getDataId() const
+{
+#if HHI_SPLIT_PARALLELISM
+  if( m_numSplitThreads > 1 )
+  {
+    return getSplitDataId();
+  }
+#endif
+#if HHI_WPP_PARALLELISM
+  if( m_numWppThreads > 1 )
+  {
+    return getWppDataId();
+  }
+#endif
+  return 0;
+}
+
+bool Scheduler::init( const int ctuYsize, const int ctuXsize, const int numWppThreadsRunning, const int numWppExtraLines, const int numSplitThreads )
+{
+#if HHI_SPLIT_PARALLELISM
+  m_numSplitThreads = numSplitThreads;
+#endif
+#if HHI_WPP_PARALLELISM
+  m_firstNonFinishedLine    = 0;
+  m_numWppThreadsRunning    = 1;
+  m_numWppDataInstances     = numWppThreadsRunning+numWppExtraLines;
+  m_numWppThreads           = numWppThreadsRunning;
+  m_ctuYsize                = ctuYsize;
+  m_ctuXsize                = ctuXsize;
+
+  if( m_SyncObjs.size() == 0 )
+  {
+    m_SyncObjs.reserve( ctuYsize );
+    for( int i = (int)m_SyncObjs.size(); i < ctuYsize; i++ )
+    {
+      m_SyncObjs.push_back( new SyncObj );
+    }
+  }
+  else
+  {
+    CHECK( m_SyncObjs.size() != ctuYsize, "");
+  }
+
+  for( int i = 0; i < ctuYsize; i++ )
+  {
+    m_SyncObjs[i]->reset();
+  }
+
+  if( m_numWppThreads != m_numWppDataInstances )
+  {
+    m_LineDone.clear();
+    m_LineDone.resize(ctuYsize, -1);
+
+    m_LineProc.clear();
+    m_LineProc.resize(ctuYsize, false);
+
+    m_SyncObjs[0]->set(0,0);
+    m_LineProc[0]=true;
+  }
+#endif
+
+  return true;
+}
+
+
+int Scheduler::getNumPicInstances() const
+{
+#if !HHI_SPLIT_PARALLELISM
+  return 1;
+#elif !HHI_WPP_PARALLELISM
+  return ( m_numSplitThreads > 1 ? m_numSplitThreads : 1 );
+#else
+  return m_numSplitThreads > 1 ? m_numWppDataInstances * m_numSplitThreads : 1;
+#endif
+}
+
+#if HHI_WPP_PARALLELISM
+void Scheduler::wait( const int ctuPosX, const int ctuPosY )
+{
+  if( m_numWppThreads == m_numWppDataInstances )
+  {
+    if( ctuPosY > 0 && ctuPosX+1 < m_ctuXsize)
+    {
+      m_SyncObjs[ctuPosY-1]->wait( ctuPosX+1, ctuPosY-1 );
+    }
+    return;
+  }
+
+  m_SyncObjs[ctuPosY]->wait( ctuPosX, ctuPosY );
+}
+
+void Scheduler::setReady(const int ctuPosX, const int ctuPosY)
+{
+  if( m_numWppThreads == m_numWppDataInstances )
+  {
+    m_SyncObjs[ctuPosY]->set( ctuPosX, ctuPosY);
+    return;
+  }
+
+  std::unique_lock< std::mutex > lock( m_mutex );
+
+  if( ctuPosX+1 == m_ctuXsize )
+  {
+    m_LineProc[ctuPosY] = true; //prevent line from be further evaluated
+    m_LineDone[ctuPosY] = std::numeric_limits<int>::max();
+    m_firstNonFinishedLine = ctuPosY+1;
+  }
+  else
+  {
+    m_LineDone[ctuPosY] = ctuPosX;
+    m_LineProc[ctuPosY] = false;    // mark currently not processed
+  }
+
+  int lastLine = m_firstNonFinishedLine + m_numWppDataInstances;
+  lastLine = std::min( m_ctuYsize, lastLine )-1-m_firstNonFinishedLine;
+
+  m_numWppThreadsRunning--;
+
+  Position pos;
+  //if the current encoder is the last
+  const bool c1 = (ctuPosY == m_firstNonFinishedLine + m_numWppThreads - 1);
+  const bool c2 = (ctuPosY+1 <= m_firstNonFinishedLine+lastLine);
+  const bool c3 = (ctuPosX >= m_ctuXsize/4);
+  if( c1 && c2 && c3 && getNextCtu( pos, ctuPosY+1, 4 ) )
+  {
+    //  try to continue in the next row
+    // go on in the current line
+    m_SyncObjs[pos.y]->set(pos.x, pos.y);
+    m_numWppThreadsRunning++;
+  }
+  else if( getNextCtu( pos, ctuPosY, 1 ) )
+  {
+    //  try to continue in the same row
+    // go on in the current line
+    m_SyncObjs[pos.y]->set(pos.x, pos.y);
+    m_numWppThreadsRunning++;
+  }
+  for( int i = m_numWppThreadsRunning; i < m_numWppThreads; i++ )
+  {
+   // just go and get a job
+    for( int y = 0; y <= lastLine; y++ )
+    {
+      if( getNextCtu( pos, m_firstNonFinishedLine+y, 1 ))
+      {
+        m_SyncObjs[pos.y]->set(pos.x, pos.y);
+        m_numWppThreadsRunning++;
+        break;
+      }
+    }
+  }
+}
+
+
+bool Scheduler::getNextCtu( Position& pos, int ctuLine, int offset)
+{
+  int x = m_LineDone[ctuLine] + 1;
+  if( ! m_LineProc[ctuLine] )
+  {
+    int maxXOffset = x+offset >= m_ctuXsize ? m_ctuXsize-1 : x+offset;
+    if( (ctuLine == 0 || m_LineDone[ctuLine-1]>=maxXOffset) && (x==0 || m_LineDone[ctuLine]>=+x-1))
+    {
+      m_LineProc[ctuLine] = true;
+      pos.x = x; pos.y = ctuLine;
+      return true;
+    }
+  }
+  return false;
+}
+
+#endif
+#endif
+
 
 // ---------------------------------------------------------------------------
 // picture methods
@@ -325,20 +718,24 @@ Picture::Picture()
   neededForOutput      = false;
   referenced           = false;
   layer                = std::numeric_limits<UInt>::max();
+  fieldPic             = false;
+  topField             = false;
+  for( int i = 0; i < MAX_NUM_CHANNEL_TYPE; i++ )
+  {
+    m_prevQP[i] = -1;
+  }
 }
-
 
 Void Picture::create(const ChromaFormat &_chromaFormat, const Size &size, const unsigned _maxCUSize, const unsigned _margin, const bool _decoder)
 {
   UnitArea::operator=( UnitArea( _chromaFormat, Area( Position{ 0, 0 }, size ) ) );
   margin            =  _margin;
-
   const Area a      = Area( Position(), size );
-  m_bufs[PIC_RECONSTRUCTION].create( _chromaFormat, a, _maxCUSize, _margin, MEMORY_ALIGN_DEF_SIZE );
+  M_BUFS( 0, PIC_RECONSTRUCTION ).create( _chromaFormat, a, _maxCUSize, _margin, MEMORY_ALIGN_DEF_SIZE );
 
   if( !_decoder )
   {
-    m_bufs[PIC_ORIGINAL].    create( chromaFormat, a );
+    M_BUFS( 0, PIC_ORIGINAL ).    create( _chromaFormat, a );
   }
 #if !KEEP_PRED_AND_RESI_SIGNALS
 
@@ -348,9 +745,16 @@ Void Picture::create(const ChromaFormat &_chromaFormat, const Size &size, const 
 
 Void Picture::destroy()
 {
+#if HHI_SPLIT_PARALLELISM
+#if HHI_WPP_PARALLELISM
+  for( int jId = 0; jId < ( HHI_SPLIT_MAX_NUM_THREADS * HHI_WPP_MAX_NUM_THREADS ); jId++ )
+#else
+  for( int jId = 0; jId < HHI_SPLIT_MAX_NUM_THREADS; jId++ )
+#endif
+#endif
   for (UInt t = 0; t < NUM_PIC_TYPES; t++)
   {
-    m_bufs[t].destroy();
+    M_BUFS( jId, t ).destroy();
   }
 
   if( cs )
@@ -388,17 +792,35 @@ Void Picture::createTempBuffers( const unsigned _maxCUSize )
   const Area a = m_ctuArea.Y();
 #endif
 
-  m_bufs[PIC_PREDICTION].create( chromaFormat, a, _maxCUSize );
-  m_bufs[PIC_RESIDUAL].  create( chromaFormat, a, _maxCUSize );
+#if HHI_SPLIT_PARALLELISM
+  scheduler.startParallel();
+
+  for( int jId = 0; jId < scheduler.getNumPicInstances(); jId++ )
+#endif
+  {
+    M_BUFS( jId, PIC_PREDICTION                   ).create( chromaFormat, a,   _maxCUSize );
+    M_BUFS( jId, PIC_RESIDUAL                     ).create( chromaFormat, a,   _maxCUSize );
+#if HHI_SPLIT_PARALLELISM
+    if( jId > 0 ) M_BUFS( jId, PIC_RECONSTRUCTION ).create( chromaFormat, Y(), _maxCUSize, margin, MEMORY_ALIGN_DEF_SIZE );
+#endif
+  }
 
   if( cs ) cs->rebindPicBufs();
 }
 
 Void Picture::destroyTempBuffers()
 {
+#if HHI_SPLIT_PARALLELISM
+  scheduler.finishParallel();
+
+  for( int jId = 0; jId < scheduler.getNumPicInstances(); jId++ )
+#endif
   for( UInt t = 0; t < NUM_PIC_TYPES; t++ )
   {
-    if( t != PIC_RECONSTRUCTION && t != PIC_ORIGINAL ) m_bufs[t].destroy();
+    if( t == PIC_RESIDUAL || t == PIC_PREDICTION ) M_BUFS( jId, t ).destroy();
+#if HHI_SPLIT_PARALLELISM
+    if( t == PIC_RECONSTRUCTION &&       jId > 0 ) M_BUFS( jId, t ).destroy();
+#endif
   }
 
   if( cs ) cs->rebindPicBufs();
@@ -408,8 +830,8 @@ Void Picture::destroyTempBuffers()
 const CPelBuf     Picture::getOrigBuf(const CompArea &blk)  const { return getBuf(blk,  PIC_ORIGINAL); }
        PelUnitBuf Picture::getOrigBuf(const UnitArea &unit)       { return getBuf(unit, PIC_ORIGINAL); }
 const CPelUnitBuf Picture::getOrigBuf(const UnitArea &unit) const { return getBuf(unit, PIC_ORIGINAL); }
-       PelUnitBuf Picture::getOrigBuf()                           { return m_bufs[PIC_ORIGINAL]; }
-const CPelUnitBuf Picture::getOrigBuf()                     const { return m_bufs[PIC_ORIGINAL]; }
+       PelUnitBuf Picture::getOrigBuf()                           { return M_BUFS(0,    PIC_ORIGINAL); }
+const CPelUnitBuf Picture::getOrigBuf()                     const { return M_BUFS(0,    PIC_ORIGINAL); }
 
        PelBuf     Picture::getPredBuf(const CompArea &blk)        { return getBuf(blk,  PIC_PREDICTION); }
 const CPelBuf     Picture::getPredBuf(const CompArea &blk)  const { return getBuf(blk,  PIC_PREDICTION); }
@@ -421,14 +843,14 @@ const CPelBuf     Picture::getResiBuf(const CompArea &blk)  const { return getBu
        PelUnitBuf Picture::getResiBuf(const UnitArea &unit)       { return getBuf(unit, PIC_RESIDUAL); }
 const CPelUnitBuf Picture::getResiBuf(const UnitArea &unit) const { return getBuf(unit, PIC_RESIDUAL); }
 
-       PelBuf     Picture::getRecoBuf(const CompArea &blk)        { return getBuf(blk,  PIC_RECONSTRUCTION); }
-const CPelBuf     Picture::getRecoBuf(const CompArea &blk)  const { return getBuf(blk,  PIC_RECONSTRUCTION); }
-       PelUnitBuf Picture::getRecoBuf(const UnitArea &unit)       { return getBuf(unit, PIC_RECONSTRUCTION); }
-const CPelUnitBuf Picture::getRecoBuf(const UnitArea &unit) const { return getBuf(unit, PIC_RECONSTRUCTION); }
-       PelUnitBuf Picture::getRecoBuf()                           { return m_bufs[PIC_RECONSTRUCTION]; }
-const CPelUnitBuf Picture::getRecoBuf()                     const { return m_bufs[PIC_RECONSTRUCTION]; }
-
-
+       PelBuf     Picture::getRecoBuf(const ComponentID compID)       { return getBuf(compID,                    PIC_RECONSTRUCTION); }
+const CPelBuf     Picture::getRecoBuf(const ComponentID compID) const { return getBuf(compID,                    PIC_RECONSTRUCTION); }
+       PelBuf     Picture::getRecoBuf(const CompArea &blk)            { return getBuf(blk,                       PIC_RECONSTRUCTION); }
+const CPelBuf     Picture::getRecoBuf(const CompArea &blk)      const { return getBuf(blk,                       PIC_RECONSTRUCTION); }
+       PelUnitBuf Picture::getRecoBuf(const UnitArea &unit)           { return getBuf(unit,                      PIC_RECONSTRUCTION); }
+const CPelUnitBuf Picture::getRecoBuf(const UnitArea &unit)     const { return getBuf(unit,                      PIC_RECONSTRUCTION); }
+       PelUnitBuf Picture::getRecoBuf()                               { return M_BUFS(scheduler.getSplitPicId(), PIC_RECONSTRUCTION); }
+const CPelUnitBuf Picture::getRecoBuf()                         const { return M_BUFS(scheduler.getSplitPicId(), PIC_RECONSTRUCTION); }
 
 Void Picture::finalInit( const SPS& sps, const PPS& pps )
 {
@@ -456,7 +878,7 @@ Void Picture::finalInit( const SPS& sps, const PPS& pps )
   }
   else
   {
-    cs = new CodingStructure;
+    cs = new CodingStructure( g_globalUnitCache.cuCache, g_globalUnitCache.puCache, g_globalUnitCache.tuCache );
     cs->sps = &sps;
     cs->create( chromaFormatIDC, Area( 0, 0, iWidth, iHeight ), true );
   }
@@ -466,8 +888,6 @@ Void Picture::finalInit( const SPS& sps, const PPS& pps )
   cs->pps     = &pps;
   cs->vps     = nullptr;
   cs->pcv     = pps.pcv;
-
-  cs->chType  = CHANNEL_TYPE_LUMA;
 
   tileMap = new TileMap;
   tileMap->create( sps, pps );
@@ -508,6 +928,40 @@ void Picture::clearSliceBuffer()
   slices.clear();
 }
 
+#if HHI_SPLIT_PARALLELISM
+
+void Picture::finishParallelPart( const UnitArea& area )
+{
+  const UnitArea clipdArea = clipArea( area, *this );
+  const int      sourceID  = scheduler.getSplitPicId( 0 );
+  CHECK( scheduler.getSplitJobId() > 0, "Finish-CU cannot be called from within a mode- or split-parallelized block!" );
+
+  // distribute the reconstruction across all of the parallel workers
+  for( int tId = 1; tId < scheduler.getNumSplitThreads(); tId++ )
+  {
+    const int destID = scheduler.getSplitPicId( tId );
+
+    M_BUFS( destID, PIC_RECONSTRUCTION ).subBuf( clipdArea ).copyFrom( M_BUFS( sourceID, PIC_RECONSTRUCTION ).subBuf( clipdArea ) );
+  }
+}
+
+#if HHI_WPP_PARALLELISM
+void Picture::finishCtuPart( const UnitArea& ctuArea )
+{
+  const UnitArea clipdArea = clipArea( ctuArea, *this );
+  const int      sourceID  = scheduler.getSplitPicId( 0 );
+  // distribute the reconstruction across all of the parallel workers
+  for( int dataId = 0; dataId < scheduler.getNumPicInstances(); dataId++ )
+  {
+    if( dataId == sourceID ) continue;
+
+    M_BUFS( dataId, PIC_RECONSTRUCTION ).subBuf( clipdArea ).copyFrom( M_BUFS( sourceID, PIC_RECONSTRUCTION ).subBuf( clipdArea ) );
+  }
+}
+#endif
+
+#endif
+
 void Picture::extendPicBorder()
 {
   if ( m_bIsBorderExtended )
@@ -518,7 +972,7 @@ void Picture::extendPicBorder()
   for(Int comp=0; comp<getNumberValidComponents( cs->area.chromaFormat ); comp++)
   {
     ComponentID compID = ComponentID( comp );
-    PelBuf p = m_bufs[PIC_RECONSTRUCTION].get( compID );
+    PelBuf p = M_BUFS( 0, PIC_RECONSTRUCTION ).get( compID );
     Pel *piTxt = p.bufAt(0,0);
     int xmargin = margin >> getComponentScaleX( compID, cs->area.chromaFormat );
     int ymargin = margin >> getComponentScaleY( compID, cs->area.chromaFormat );
@@ -555,14 +1009,27 @@ void Picture::extendPicBorder()
   m_bIsBorderExtended = true;
 }
 
-
-PelBuf Picture::getBuf(const CompArea &blk, const PictureType &type)
+PelBuf Picture::getBuf( const ComponentID compID, const PictureType &type )
 {
-  if (!blk.valid())
+  return M_BUFS( type == PIC_ORIGINAL ? 0 : scheduler.getSplitPicId(), type ).getBuf( compID );
+}
+
+const CPelBuf Picture::getBuf( const ComponentID compID, const PictureType &type ) const
+{
+  return M_BUFS( type == PIC_ORIGINAL ? 0 : scheduler.getSplitPicId(), type ).getBuf( compID );
+}
+
+PelBuf Picture::getBuf( const CompArea &blk, const PictureType &type )
+{
+  if( !blk.valid() )
   {
     return PelBuf();
   }
 
+#if HHI_SPLIT_PARALLELISM
+  const int jId = type == PIC_ORIGINAL ? 0 : scheduler.getSplitPicId();
+
+#endif
 #if !KEEP_PRED_AND_RESI_SIGNALS
   if( type == PIC_RESIDUAL || type == PIC_PREDICTION )
   {
@@ -570,20 +1037,24 @@ PelBuf Picture::getBuf(const CompArea &blk, const PictureType &type)
     localBlk.x &= ( cs->pcv->maxCUWidthMask  >> getComponentScaleX( blk.compID, blk.chromaFormat ) );
     localBlk.y &= ( cs->pcv->maxCUHeightMask >> getComponentScaleY( blk.compID, blk.chromaFormat ) );
 
-    return m_bufs[type].getBuf( localBlk );
+    return M_BUFS( jId, type ).getBuf( localBlk );
   }
 #endif
 
-  return m_bufs[type].getBuf(blk);
+  return M_BUFS( jId, type ).getBuf( blk );
 }
 
-const CPelBuf Picture::getBuf(const CompArea &blk, const PictureType &type) const
+const CPelBuf Picture::getBuf( const CompArea &blk, const PictureType &type ) const
 {
-  if (!blk.valid())
+  if( !blk.valid() )
   {
     return PelBuf();
   }
 
+#if HHI_SPLIT_PARALLELISM
+  const int jId = type == PIC_ORIGINAL ? 0 : scheduler.getSplitPicId();
+
+#endif
 #if !KEEP_PRED_AND_RESI_SIGNALS
   if( type == PIC_RESIDUAL || type == PIC_PREDICTION )
   {
@@ -591,152 +1062,34 @@ const CPelBuf Picture::getBuf(const CompArea &blk, const PictureType &type) cons
     localBlk.x &= ( cs->pcv->maxCUWidthMask  >> getComponentScaleX( blk.compID, blk.chromaFormat ) );
     localBlk.y &= ( cs->pcv->maxCUHeightMask >> getComponentScaleY( blk.compID, blk.chromaFormat ) );
 
-    return m_bufs[type].getBuf( localBlk );
+    return M_BUFS( jId, type ).getBuf( localBlk );
   }
 #endif
 
-  return m_bufs[type].getBuf( blk );
+  return M_BUFS( jId, type ).getBuf( blk );
 }
 
-PelUnitBuf Picture::getBuf(const UnitArea &unit, const PictureType &type)
+PelUnitBuf Picture::getBuf( const UnitArea &unit, const PictureType &type )
 {
-  if( chromaFormat == CHROMA_400)
+  if( chromaFormat == CHROMA_400 )
   {
-    return PelUnitBuf(chromaFormat, getBuf(unit.Y(), type));
+    return PelUnitBuf( chromaFormat, getBuf( unit.Y(), type ) );
   }
   else
   {
-    return PelUnitBuf(chromaFormat, getBuf(unit.Y(), type), getBuf(unit.Cb(), type), getBuf(unit.Cr(), type));
+    return PelUnitBuf( chromaFormat, getBuf( unit.Y(), type ), getBuf( unit.Cb(), type ), getBuf( unit.Cr(), type ) );
   }
 }
 
-const CPelUnitBuf Picture::getBuf(const UnitArea &unit, const PictureType &type) const
+const CPelUnitBuf Picture::getBuf( const UnitArea &unit, const PictureType &type ) const
 {
-  if (chromaFormat == CHROMA_400)
+  if( chromaFormat == CHROMA_400 )
   {
-    return CPelUnitBuf(chromaFormat, getBuf(unit.Y(), type));
+    return CPelUnitBuf( chromaFormat, getBuf( unit.Y(), type ) );
   }
   else
   {
-    return CPelUnitBuf(chromaFormat, getBuf(unit.Y(), type), getBuf(unit.Cb(), type), getBuf(unit.Cr(), type));
+    return CPelUnitBuf( chromaFormat, getBuf( unit.Y(), type ), getBuf( unit.Cb(), type ), getBuf( unit.Cr(), type ) );
   }
 }
-
-template <int N>
-Int average(const std::vector<Pel> &r,unsigned i0, unsigned j0, unsigned uiHeight, unsigned uiWidth)
-{
-  Int s=0;
-  for(int i=-N/2;i<=N/2;++i)
-  {
-    const int ii=(i0+i+uiHeight)%uiHeight;
-    for(int j=-N/2;j<=N/2;++j)
-    {
-      const int jj=(j0+j+uiWidth)%uiWidth;
-      s+=r[ii*uiWidth+jj];
-    }
-  }
-  return (s+(N*N)/2)/(N*N);
-}
-
-void smoothResidual( std::vector<Pel> &res, const std::vector<char> &bmM, const ClpRng& clpRng, unsigned uiHeight, unsigned uiWidth)
-{
-  // find boundaries of the res
-  static std::vector<Pel> r;
-  r=res;
-
-  const int cptmax = 4;
-  int  cpt = 0;
-  bool cont=true;
-  while( cpt < cptmax && cont)
-  {
-    cont=false;
-    for( unsigned i = 0; i < uiHeight; i++)
-    {
-      for( unsigned j = 0; j < uiWidth; j++)
-      {
-        const unsigned k = i*uiWidth+j;
-        if( bmM[k] == -1 )
-        { // we can lower the res
-          int s=average<3>(res,i,j,uiHeight,uiWidth);
-          if( s < res[k] )
-          {
-            r[k]=s;
-            cont=true;
-          }
-        }
-        else if( bmM[k] == 1 )
-        { // we can inc the res
-          int s=average<3>(res,i,j,uiHeight,uiWidth);
-          if( s > res[k] )
-          {
-            r[k]=s;
-            cont=true;
-          }
-        }
-      }
-    }
-    ++cpt;
-    if( cont )
-    {
-      std::copy(r.begin(),r.end(),res.begin());
-    }
-  }
-}
-
-void smoothResidual( PelBuf& resBuf, const CPelBuf& orgBuf, const ClpRng& clpRng )
-{
-  const unsigned uiWidth      = orgBuf.width;
-  const unsigned uiHeight     = orgBuf.height;
-  const unsigned uiStrideOrg  = orgBuf.stride;
-  const Pel*     piOrg        = orgBuf.buf;
-  Pel*           piResi       = resBuf.buf;
-  const unsigned uiStrideRes  = resBuf.stride;
-
-  const unsigned areaSize     = uiWidth*uiHeight;
-  const unsigned cpySize      = uiWidth*sizeof(Pel);
-
-  static std::vector<char> bmM;
-  bmM.resize( areaSize );
-  memset( &bmM[0], 0, areaSize );
-
-  bool activate=false;
-  for( unsigned k = 0, h = 0; h < uiHeight; h++)
-  {
-    for( unsigned w = 0; w < uiWidth; w++, k++)
-    {
-      const Pel orgPel = piOrg[w+h*uiStrideOrg];
-
-      if( orgPel <= clpRng.min)      { bmM[k]=-1; activate=true; }
-      else if( orgPel >= clpRng.max) { bmM[k]=+1; activate=true; }
-    }
-  }
-
-  if (activate)
-  {
-    static std::vector<Pel> r; // avoid realloc
-    r.resize( areaSize );
-
-    for( unsigned h = 0; h < uiHeight; h++)
-    {
-      memcpy( &r[h*uiWidth], &piResi[h*uiStrideRes], cpySize);
-    }
-
-    smoothResidual( r, bmM, clpRng, uiHeight, uiWidth);
-
-    // copy back
-    for( unsigned h = 0; h < uiHeight; h++)
-    {
-      memcpy( &piResi[h*uiStrideRes], &r[h*uiWidth], cpySize);
-    }
-  }
-}
-
-void smoothResidual( PelUnitBuf& resBuf, const CPelUnitBuf& orgBuf, const ClpRngs& clpRngs)
-{
-  for(size_t comp=0; comp< resBuf.bufs.size(); ++comp)
-  {
-    const ComponentID compID = ComponentID(comp);
-    smoothResidual( resBuf.get(compID), orgBuf.get(compID), clpRngs.comp[compID]);
-  }
-} // anom
 

@@ -242,7 +242,10 @@ Void HLSWriter::codePPS( const PPS* pcPPS )
   WRITE_FLAG( pcPPS->getUseWP() ? 1 : 0,  "weighted_pred_flag" );   // Use of Weighting Prediction (P_SLICE)
   WRITE_FLAG( pcPPS->getWPBiPred() ? 1 : 0, "weighted_bipred_flag" );  // Use of Weighting Bi-Prediction (B_SLICE)
   WRITE_FLAG( pcPPS->getTransquantBypassEnabledFlag()  ? 1 : 0, "transquant_bypass_enabled_flag" );
-  WRITE_FLAG( pcPPS->getTilesEnabledFlag()             ? 1 : 0, "tiles_enabled_flag" );
+  WRITE_FLAG( pcPPS->getTilesEnabledFlag() ? 1 : 0, "tiles_enabled_flag" );
+#if HHI_MCTS_FLAG
+  WRITE_FLAG( pcPPS->getMctsOneRegionPerTileFlag(), "mcts_one_region_per_tile_flag" );
+#endif
   WRITE_FLAG( pcPPS->getEntropyCodingSyncEnabledFlag() ? 1 : 0, "entropy_coding_sync_enabled_flag" );
   if( pcPPS->getTilesEnabledFlag() )
   {
@@ -517,47 +520,30 @@ Void HLSWriter::codeHrdParameters( const HRD *hrd, Bool commonInfPresentFlag, UI
 }
 
 
-Void HLSWriter::codeSPSNext( const SPSNext& spsNext )
+Void HLSWriter::codeSPSNext( const SPSNext& spsNext, const bool usePCM )
 {
   // tool enabling flags
   WRITE_FLAG( spsNext.getUseQTBT() ? 1 : 0,                                                     "qtbt_flag" );
-  WRITE_FLAG( spsNext.getUseNSST() ? 1 : 0,                                                     "nsst_enabled_flag" );
-  WRITE_FLAG( spsNext.getUseIntra4Tap() ? 1 : 0,                                                "intra_4tap_flag" );
-  WRITE_FLAG( spsNext.getUseIntra65Ang() ? 1 : 0,                                               "intra_65ang_flag" );
+  WRITE_FLAG( spsNext.getUseGenBinSplit() ? 1 : 0,                                              "gen_bin_split_enabled_flag" );
   WRITE_FLAG( spsNext.getUseLargeCTU() ? 1 : 0,                                                 "large_ctu_flag" );
-  WRITE_FLAG( spsNext.getUseIntraBoundaryFilter() ? 1 : 0,                                      "intra_boundary_filter_enabled_flag" );
-  WRITE_FLAG( spsNext.getUseSubPuMvp() ? 1: 0,                                                  "subpu_tmvp_flag" );
-  WRITE_FLAG( spsNext.getModifiedCABACEngine() ? 1 : 0,                                         "modified_cabac_engine_flag" );
-  WRITE_FLAG( spsNext.getUseIMV() ? 1 : 0,                                                      "imv_enable_flag" );
-  WRITE_FLAG( spsNext.getUseAltResiComp() ? 1 : 0,                                              "alternative_residual_compression_flag" );
-  WRITE_FLAG( spsNext.getUseHighPrecMv() ? 1 : 0,                                               "high_precision_motion_vectors" );
-  WRITE_FLAG( spsNext.getUseBIO() ? 1 : 0,                                                      "bio_enable_flag" );
   WRITE_FLAG( spsNext.getDisableMotCompress() ? 1 : 0,                                          "disable_motion_compression_flag" );
-  WRITE_FLAG( spsNext.getLICEnabled() ? 1 : 0,                                                  "lic_enabled_flag" );
-  WRITE_FLAG( spsNext.getUseIntraPDPC() ? 1 : 0,                                                "intra_pdpc_enable_flag" );
-  WRITE_FLAG( spsNext.getALFEnabled() ? 1 : 0,                                                  "alf_enabled_flag" );
-  WRITE_FLAG( spsNext.getUseLMChroma() ? 1 : 0,                                                 "lm_chroma_enabled_flag" );
-  WRITE_FLAG( spsNext.getUseIntraEMT() ? 1 : 0,                                                 "emt_intra_enabled_flag" );
-  WRITE_FLAG( spsNext.getUseInterEMT() ? 1 : 0,                                                 "emt_inter_enabled_flag" );
-  WRITE_FLAG( spsNext.getUseOBMC() ? 1 : 0,                                                     "obmc_flag" );
-  WRITE_FLAG( spsNext.getUseFRUCMrgMode() ? 1 : 0,                                              "fruc_merge_flag" );
-  WRITE_FLAG( spsNext.getUseAffine() ? 1 : 0,                                                   "affine_flag" );
-  WRITE_FLAG( spsNext.getUseAClip() ? 1 : 0,                                                    "adaptive_clipping_flag" );
-  WRITE_FLAG( spsNext.getUseCIPF() ? 1 : 0,                                                     "cipf_flag" );
-  WRITE_FLAG( spsNext.getUseBIF() ? 1 : 0,                                                      "bilateral_filter_flag" );
-  WRITE_FLAG( spsNext.getUseDMVR() ? 1 : 0,                                                     "dmvr_flag" );
-  WRITE_FLAG( spsNext.getUseMDMS() ? 1 : 0,                                                     "mdms_flag" );
 
   for( int k = 0; k < SPSNext::NumReservedFlags; k++ )
   {
     WRITE_FLAG( 0,                                                                              "reserved_flag" );
   }
 
+  WRITE_FLAG( spsNext.getMTTEnabled() ? 1 : 0,                                                  "mtt_enabled_flag" );
+#if HHI_WPP_PARALLELISM
+  WRITE_FLAG( spsNext.getUseNextDQP(),                                                          "next_dqp_enabled_flag" );
+#else
+  WRITE_FLAG( 0,                                                                                "reserved" );
+#endif
 
   // additional parameters
-  if( spsNext.getUseQTBT() )
+  if( spsNext.getUseGenBinSplit() || spsNext.getUseQTBT() )
   {
-    WRITE_FLAG( spsNext.getUseDualITree(),                                                       "qtbt_dual_intra_tree" );
+    WRITE_FLAG( spsNext.getUseDualITree(),                                                      "qtbt_dual_intra_tree" );
     WRITE_UVLC( g_aucLog2[spsNext.getCTUSize()]                                 - MIN_CU_LOG2,  "log2_CTU_size_minus2" );
     WRITE_UVLC( g_aucLog2[spsNext.getMinQTSize( I_SLICE ) ]                     - MIN_CU_LOG2,  "log2_minQT_ISlice_minus2" );
     WRITE_UVLC( g_aucLog2[spsNext.getMinQTSize( B_SLICE ) ]                     - MIN_CU_LOG2,  "log2_minQT_PBSlice_minus2" );
@@ -570,68 +556,31 @@ Void HLSWriter::codeSPSNext( const SPSNext& spsNext )
     }
   }
 
-  if( spsNext.getUseSubPuMvp() )
+
+
+  if( spsNext.getMTTEnabled() )
   {
-    WRITE_CODE( spsNext.getSubPuMvpLog2Size() - MIN_CU_LOG2, 3,                                 "log2_sub_pu_tmvp_size_minus2" );
+    WRITE_UVLC( spsNext.getMTTMode() - 1,                                                       "mtt_mode_minus1" );
   }
 
-  if( spsNext.getModifiedCABACEngine() )
+  if( spsNext.getUseGenBinSplit() )
   {
-    WRITE_UVLC( spsNext.getCABACEngineMode() - 1,                                               "cabac_engine_mode_minus1" );
-  }
+    WRITE_FLAG( spsNext.getGbsAllowFourths(),                                                   "gbs_allow_fourths_split" );
+    WRITE_FLAG( spsNext.getGbsAllowEights(),                                                    "gbs_allow_eights_split" );
+    WRITE_FLAG( spsNext.getGbsNonLog2Halving(),                                                 "gbs_allow_non_log2_halving" );
+    WRITE_FLAG( spsNext.getGbsNonLog2CUs(),                                                     "gbs_allow_non_log2_cus" );
+    WRITE_FLAG( spsNext.getGbsForceSplitToLog2(),                                               "gbs_force_split_to_log2" );
 
-  if( spsNext.getUseIMV() )
-  {
-    WRITE_UVLC( spsNext.getImvMode()-1,                                                         "imv_mode_minus1");
+    if( spsNext.getGbsAllowFourths() || spsNext.getGbsAllowEights() )
+    {
+      WRITE_UVLC(   g_aucLog2[spsNext.getMaxAsymTSizeI()]       - MIN_CU_LOG2,                  "log2_maxAsymSize_ISlice_minus2" );
+      WRITE_UVLC(   g_aucLog2[spsNext.getMaxAsymTSize()]        - MIN_CU_LOG2,                  "log2_maxAsymSize_PBSlice_minus2" );
+      if( spsNext.getUseDualITree() )
+      {
+        WRITE_UVLC( g_aucLog2[spsNext.getMaxAsymTSizeIChroma()] - MIN_CU_LOG2,                  "log2_maxAsymSize_ISliceChroma_minus2" );
+      }
+    }
   }
-
-  if( spsNext.getLICEnabled() )
-  {
-    WRITE_UVLC( spsNext.getLICMode() - 1,                                                       "lic_mode_minus1" );
-  }
-
-  if( spsNext.getUseAltResiComp() )
-  {
-    WRITE_UVLC( spsNext.getAltResiCompId() - 1,                                                 "alt_resi_comp_minus1" );
-  }
-
-  if( spsNext.getUseOBMC() )
-  {
-    WRITE_UVLC( spsNext.getOBMCBlkSize(),                                                       "obmc_blk_size" );
-  }
-
-  if( spsNext.getUseFRUCMrgMode() )
-  {
-    WRITE_UVLC( spsNext.getFRUCRefineFilter(),                                                  "fruc_refine_filter" );
-    WRITE_UVLC( spsNext.getFRUCRefineRange() >> (2 + VCEG_AZ07_MV_ADD_PRECISION_BIT_FOR_STORE), "fruc_refine_range_in_pixel" );
-    WRITE_UVLC( spsNext.getFRUCSmallBlkRefineDepth(),                                           "fruc_small_blk_refine_depth" );
-  }
-
-  if( spsNext.getUseAClip() )
-  {
-    WRITE_CODE( spsNext.getAClipQuant() / 2, 2,                                                 "aclip_quant" );
-  }
-
-  if( spsNext.getUseLMChroma() )
-  {
-    WRITE_UVLC( spsNext.getELMMode(),                                                           "elm_mode" );
-  }
-
-  if( spsNext.getUseIntraPDPC() )
-  {
-    WRITE_FLAG( spsNext.getIntraPDPCMode() - 1,                                                 "planar_pdpc_flag" );
-  }
-
-  if( spsNext.getALFEnabled() )
-  {
-#if GALF
-    CHECK( false == spsNext.getGALFEnabled(), "currently no support of ALF=1 with GALF enabled" );
-#else
-    CHECK( true == spsNext.getGALFEnabled(),  "currently no support of ALF=2 with GALF disabled" );
-#endif
-    WRITE_FLAG( spsNext.getGALFEnabled(),                                                       "galf_enabled_flag" );
-  }
-
   // ADD_NEW_TOOL : (sps extension writer) write tool enabling flags and associated parameters here
 }
 
@@ -801,7 +750,7 @@ Void HLSWriter::codeSPS( const SPS* pcSPS )
         }
         case SPS_EXT__NEXT:
         {
-          codeSPSNext( pcSPS->getSpsNext() );
+          codeSPSNext( pcSPS->getSpsNext(), pcSPS->getUsePCM() );
           break;
         }
         default:
@@ -1180,11 +1129,7 @@ Void HLSWriter::codeSliceHeader         ( Slice* pcSlice )
     {
       xCodePredWeightTable( pcSlice );
     }
-    if( pcSlice->getSPS()->getSpsNext().getLICMode() && !pcSlice->isIntra() )
-    {
-      WRITE_FLAG( pcSlice->getUseLIC() ? 1 : 0, "slice_lic_enable_flag" );
-    }
-    if( pcSlice->getSPS()->getSpsNext().getUseQTBT() )
+    if( cs.sps->getSpsNext().getUseGenBinSplit() || pcSlice->getSPS()->getSpsNext().getUseQTBT() )
     {
       if( !pcSlice->isIntra() )
       {
@@ -1200,8 +1145,8 @@ Void HLSWriter::codeSliceHeader         ( Slice* pcSlice )
     }
     if( !pcSlice->isIntra() )
     {
-      CHECK( pcSlice->getMaxNumMergeCand() > ( MRG_MAX_NUM_CANDS - ( pcSlice->getSPS()->getSpsNext().getUseSubPuMvp() ? 0 : 2 ) ), "More merge candidates signalled than supported" );
-      WRITE_UVLC( MRG_MAX_NUM_CANDS - pcSlice->getMaxNumMergeCand() - ( pcSlice->getSPS()->getSpsNext().getUseSubPuMvp() ? 0 : 2 ), pcSlice->getSPS()->getSpsNext().getUseSubPuMvp() ? "seven_minus_max_num_merge_cand" : "five_minus_max_num_merge_cand" );
+      CHECK( pcSlice->getMaxNumMergeCand() > ( MRG_MAX_NUM_CANDS - 2 ), "More merge candidates signalled than supported" );
+      WRITE_UVLC( MRG_MAX_NUM_CANDS - pcSlice->getMaxNumMergeCand() - 2, "five_minus_max_num_merge_cand" );
     }
     Int iCode = pcSlice->getSliceQp() - ( pcSlice->getPPS()->getPicInitQPMinus26() + 26 );
     WRITE_SVLC( iCode, "slice_qp_delta" );
@@ -1249,129 +1194,11 @@ Void HLSWriter::codeSliceHeader         ( Slice* pcSlice )
     }
   }
 
-
-  if( sliceSegmentRsAddress==0 && pcSlice->getSPS()->getSpsNext().getUseAClip() )
-  {
-    const SPS* sps = pcSlice->getSPS();
-    const ClpRngs& clpRngs = pcSlice->clpRngs();
-
-    WRITE_FLAG(clpRngs.used?1:0, "slice_ClipAdaptive_flag");
-
-    if( clpRngs.used )
-    {
-      const unsigned lumaBits = sps->getBitDepth( CHANNEL_TYPE_LUMA ) - sps->getSpsNext().getAClipQuant();
-
-      unsigned code = clpRngs.comp[COMPONENT_Y].min >> sps->getSpsNext().getAClipQuant();
-      WRITE_CODE( code, lumaBits, "slice_ClipAdaptive_Y_MIN");
-
-      code = clpRngs.comp[COMPONENT_Y].max >> sps->getSpsNext().getAClipQuant();
-      WRITE_CODE( code, lumaBits, "slice_ClipAdaptive_Y_MAX");
-
-      WRITE_FLAG(clpRngs.chroma?1:0, "slice_ClipAdaptive_flag_chroma");
-      if( clpRngs.chroma )
-      {
-        const unsigned chromaBits = sps->getBitDepth( CHANNEL_TYPE_CHROMA ) - sps->getSpsNext().getAClipQuant();
-        code = clpRngs.comp[COMPONENT_Cb].min >> sps->getSpsNext().getAClipQuant();
-        WRITE_CODE( code, chromaBits, "slice_ClipAdaptive_C0_MIN");
-
-        code = clpRngs.comp[COMPONENT_Cb].max >> sps->getSpsNext().getAClipQuant();
-        WRITE_CODE( code, chromaBits, "slice_ClipAdaptive_C0_MAX");
-
-        code = clpRngs.comp[COMPONENT_Cr].min >> sps->getSpsNext().getAClipQuant();
-        WRITE_CODE( code, chromaBits, "slice_ClipAdaptive_C1_MIN");
-
-        code = clpRngs.comp[COMPONENT_Cr].max >> sps->getSpsNext().getAClipQuant();
-        WRITE_CODE( code, chromaBits, "slice_ClipAdaptive_C1_MAX");
-      }
-    }
-  }
-
-
   if(pcSlice->getPPS()->getSliceHeaderExtensionPresentFlag())
   {
     WRITE_UVLC(0,"slice_segment_header_extension_length");
   }
 
-  xCodeCABACWSizes( pcSlice );
-}
-
-
-void HLSWriter::xCodeCABACWSizes( Slice* pcSlice )
-{
-  const unsigned CABACEngineMode = pcSlice->getSPS()->getSpsNext().getCABACEngineMode();
-  const int      mode            = pcSlice->getCabacWinUpdateMode();
-  if( CABACEngineMode != 2 && CABACEngineMode != 3 )
-  {
-    CHECK( mode != 0, "invalid cabac window update mode for non-adapt. window engine" );
-    return;
-  }
-  CHECK( mode < 0 || mode > 2, "invalid cabac window update mode" );
-
-  unsigned  updateFlag  = ( mode > 0 ? 1 : 0 );
-  unsigned  reuseFlag   = ( mode > 1 ? 1 : 0 );
-  if( updateFlag )
-  {
-    CHECK( !m_CABACEncoder->validWinSizes( pcSlice ), "invalid value of cabac window update mode" );
-  }
-
-  WRITE_FLAG( updateFlag, "cabac_newWindow_flag" );
-  if( !updateFlag )
-  {
-    return;
-  }
-  WRITE_FLAG( reuseFlag, "cabac_reusePrevFrame_flag" );
-  if( reuseFlag )
-  {
-    return;
-  }
-
-  //----- write window sizes as run-level ----
-  const std::vector<uint8_t>& writeBuffer = m_CABACEncoder->getWSizeWriteBuffer(pcSlice);
-  {
-    const std::size_t numCtx  = writeBuffer.size();
-    // code runs
-    {
-      std::size_t n       = 0;
-      unsigned    run     = 0;
-      bool        runMode = true;
-      while( n < numCtx )
-      {
-        while( runMode )
-        {
-          if( writeBuffer[n] == 0 )
-          {
-            run++;
-          }
-          else
-          {
-            runMode = false;
-            n++;
-            break;
-          }
-          if( n == numCtx-1 )
-          {
-            runMode = false;
-          }
-          n++;
-        }
-        WRITE_UVLC( run, "CtxUpdateMap" );
-        run     = 0;
-        runMode = true;
-      }
-    }
-    // code levels
-    {
-      for( std::size_t n = 0; n < numCtx; n++ )
-      {
-        if( writeBuffer[n] )
-        {
-          unsigned level = unsigned( writeBuffer[n] - 1 );;
-          WRITE_UVLC( level, "wind diff" );
-        }
-      }
-    }
-  }
-  m_CABACEncoder->setWSizeSetCoded(pcSlice);
 }
 
 

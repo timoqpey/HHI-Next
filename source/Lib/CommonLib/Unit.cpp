@@ -239,8 +239,8 @@ const UnitArea UnitArea::singleChan(const ChannelType chType) const
 // coding unit method definitions
 // ---------------------------------------------------------------------------
 
-CodingUnit::CodingUnit(const UnitArea &unit)                                : UnitArea(unit),                 cs(nullptr), slice(nullptr), next(nullptr), firstPU(nullptr), lastPU(nullptr), firstTU(nullptr), lastTU(nullptr) { initData(); }
-CodingUnit::CodingUnit(const ChromaFormat _chromaFormat, const Area &_area) : UnitArea(_chromaFormat, _area), cs(nullptr), slice(nullptr), next(nullptr), firstPU(nullptr), lastPU(nullptr), firstTU(nullptr), lastTU(nullptr) { initData(); }
+CodingUnit::CodingUnit(const UnitArea &unit)                                : UnitArea(unit),                 cs(nullptr), slice(nullptr), chType( CH_L ), next(nullptr), firstPU(nullptr), lastPU(nullptr), firstTU(nullptr), lastTU(nullptr) { initData(); }
+CodingUnit::CodingUnit(const ChromaFormat _chromaFormat, const Area &_area) : UnitArea(_chromaFormat, _area), cs(nullptr), slice(nullptr), chType( CH_L ), next(nullptr), firstPU(nullptr), lastPU(nullptr), firstTU(nullptr), lastTU(nullptr) { initData(); }
 
 CodingUnit& CodingUnit::operator=( const CodingUnit& other )
 {
@@ -250,23 +250,15 @@ CodingUnit& CodingUnit::operator=( const CodingUnit& other )
   qtDepth           = other.qtDepth;
   depth             = other.depth;
   btDepth           = other.btDepth;
+  mtDepth           = other.mtDepth;
   splitSeries       = other.splitSeries;
   skip              = other.skip;
-  affine            = other.affine;
   transQuantBypass  = other.transQuantBypass;
-  pdpc              = other.pdpc;
   ipcm              = other.ipcm;
   qp                = other.qp;
   chromaQpAdj       = other.chromaQpAdj;
   rootCbf           = other.rootCbf;
-  nsstIdx           = other.nsstIdx;
-  emtFlag           = other.emtFlag;
-  LICFlag           = other.LICFlag;
   tileIdx           = other.tileIdx;
-  imv               = other.imv;
-  imvNumCand        = other.imvNumCand;
-  obmcFlag          = other.obmcFlag;
-
 
   return *this;
 }
@@ -278,23 +270,15 @@ Void CodingUnit::initData()
   qtDepth           = 0;
   depth             = 0;
   btDepth           = 0;
+  mtDepth           = 0;
   splitSeries       = 0;
   skip              = false;
-  affine            = false;
   transQuantBypass  = false;
-  pdpc              = false;
   ipcm              = false;
   qp                = 0;
   chromaQpAdj       = 0;
   rootCbf           = true;
-  nsstIdx           = 0;
-  emtFlag           = 0;
-  LICFlag           = false;
   tileIdx           = 0;
-  imv               = 0;
-  imvNumCand        = 0;
-  obmcFlag          = false;
-
 }
 
 
@@ -302,8 +286,8 @@ Void CodingUnit::initData()
 // prediction unit method definitions
 // ---------------------------------------------------------------------------
 
-PredictionUnit::PredictionUnit(const UnitArea &unit)                                : UnitArea(unit)                , cu(nullptr), cs(nullptr), next(nullptr) { initData(); }
-PredictionUnit::PredictionUnit(const ChromaFormat _chromaFormat, const Area &_area) : UnitArea(_chromaFormat, _area), cu(nullptr), cs(nullptr), next(nullptr) { initData(); }
+PredictionUnit::PredictionUnit(const UnitArea &unit)                                : UnitArea(unit)                , cu(nullptr), cs(nullptr), chType( CH_L ), next(nullptr) { initData(); }
+PredictionUnit::PredictionUnit(const ChromaFormat _chromaFormat, const Area &_area) : UnitArea(_chromaFormat, _area), cu(nullptr), cs(nullptr), chType( CH_L ), next(nullptr) { initData(); }
 
 Void PredictionUnit::initData()
 {
@@ -316,9 +300,6 @@ Void PredictionUnit::initData()
   mergeIdx    = MAX_UCHAR;
   interDir    = MAX_UCHAR;
   mergeType   = MRG_TYPE_DEFAULT_N;
-  frucMrgMode = 0;
-  mvRefine    = false;
-
   for (UInt i = 0; i < NUM_REF_PIC_LIST_01; i++)
   {
     mvpIdx[i] = MAX_UCHAR;
@@ -345,9 +326,6 @@ PredictionUnit& PredictionUnit::operator=(const InterPredictionData& predData)
   mergeIdx    = predData.mergeIdx;
   interDir    = predData.interDir;
   mergeType   = predData.mergeType;
-  frucMrgMode = predData.frucMrgMode;
-  mvRefine    = predData.mvRefine;
-
   for (UInt i = 0; i < NUM_REF_PIC_LIST_01; i++)
   {
     mvpIdx[i]   = predData.mvpIdx[i];
@@ -371,9 +349,6 @@ PredictionUnit& PredictionUnit::operator=( const PredictionUnit& other )
   mergeIdx    = other.mergeIdx;
   interDir    = other.interDir;
   mergeType   = other.mergeType;
-  frucMrgMode = other.frucMrgMode;
-  mvRefine    = other.mvRefine;
-
   for (UInt i = 0; i < NUM_REF_PIC_LIST_01; i++)
   {
     mvpIdx[i]   = other.mvpIdx[i];
@@ -420,27 +395,12 @@ CMotionBuf PredictionUnit::getMotionBuf() const
   return cs->getMotionBuf( *this );
 }
 
-const MotionInfo& PredictionUnit::getMotionInfoFRUC() const
-{
-  return cs->getMotionInfoFRUC( lumaPos() );
-}
-
-const MotionInfo& PredictionUnit::getMotionInfoFRUC( const Position& pos ) const
-{
-  CHECKD( !Y().contains( pos ), "Trying to access motion info outsied of PU" );
-  return cs->getMotionInfoFRUC( pos );
-}
-
-MotionBuf PredictionUnit::getMotionBufFRUC()
-{
-  return cs->getMotionBufFRUC( *this );
-}
 
 // ---------------------------------------------------------------------------
 // transform unit method definitions
 // ---------------------------------------------------------------------------
 
-TransformUnit::TransformUnit(const UnitArea& unit) : UnitArea(unit), cu(nullptr), cs(nullptr), next( nullptr )
+TransformUnit::TransformUnit(const UnitArea& unit) : UnitArea(unit), cu(nullptr), cs(nullptr), chType( CH_L ), next( nullptr )
 {
   for( unsigned i = 0; i < MAX_NUM_TBLOCKS; i++ )
   {
@@ -451,7 +411,7 @@ TransformUnit::TransformUnit(const UnitArea& unit) : UnitArea(unit), cu(nullptr)
   initData();
 }
 
-TransformUnit::TransformUnit(const ChromaFormat _chromaFormat, const Area &_area) : UnitArea(_chromaFormat, _area), cu(nullptr), cs(nullptr), next( nullptr )
+TransformUnit::TransformUnit(const ChromaFormat _chromaFormat, const Area &_area) : UnitArea(_chromaFormat, _area), cu(nullptr), cs(nullptr), chType( CH_L ), next( nullptr )
 {
   for( unsigned i = 0; i < MAX_NUM_TBLOCKS; i++ )
   {
@@ -471,8 +431,6 @@ Void TransformUnit::initData()
     transformSkip[i] = false;
     compAlpha[i]     = 0;
   }
-  depth              = 0;
-  emtIdx             = 0;
 
 }
 
@@ -506,8 +464,6 @@ TransformUnit& TransformUnit::operator=(const TransformUnit& other)
     transformSkip[i] = other.transformSkip[i];
     compAlpha[i]     = other.compAlpha[i];
   }
-  depth              = other.depth;
-  emtIdx             = other.emtIdx;
   return *this;
 }
 
@@ -527,11 +483,8 @@ Void TransformUnit::copyComponentFrom(const TransformUnit& other, const Componen
   transformSkip[i] = other.transformSkip[i];
   compAlpha[i]     = other.compAlpha[i];
 
-  depth            = other.depth;
-
   if( isLuma( i ) )
   {
-    emtIdx         = other.emtIdx;
   }
 }
 

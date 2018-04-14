@@ -56,13 +56,6 @@ struct AMVPInfo
   unsigned numCand;                       ///< number of motion vector predictor candidates
 };
 
-struct AffineAMVPInfo
-{
-  Mv       mvCandLT[ AMVP_MAX_NUM_CANDS_MEM ];  ///< array of affine motion vector predictor candidates for left-top corner
-  Mv       mvCandRT[ AMVP_MAX_NUM_CANDS_MEM ];  ///< array of affine motion vector predictor candidates for right-top corner
-  Mv       mvCandLB[ AMVP_MAX_NUM_CANDS_MEM ];  ///< array of affine motion vector predictor candidates for left-bottom corner
-  unsigned numCand;                       ///< number of motion vector predictor candidates
-};
 
 // ====================================================================================================================
 // Class definition
@@ -101,17 +94,15 @@ struct MvField
 struct MotionInfo
 {
   bool     isInter;
-  bool     usesLIC;
   char     interDir;
   UShort   sliceIdx;
 
   Mv      mv     [ NUM_REF_PIC_LIST_01 ];
-  Mv      mvdAffi[ NUM_REF_PIC_LIST_01 ];
   Short   refIdx [ NUM_REF_PIC_LIST_01 ];
 
-  MotionInfo()        : isInter(  false ), usesLIC( false ), interDir( 0 ), sliceIdx( 0 ), refIdx{ NOT_VALID, NOT_VALID } { }
+  MotionInfo()        : isInter(  false ), interDir( 0 ), sliceIdx( 0 ), refIdx{ NOT_VALID, NOT_VALID } { }
   // ensure that MotionInfo(0) produces '\x000....' bit pattern - needed to work with AreaBuf - don't use this constructor for anything else
-  MotionInfo( int i ) : isInter( i != 0 ), usesLIC( false ), interDir( 0 ), sliceIdx( 0 ), refIdx{         0,         0 } { CHECKD( i != 0, "The argument for this constructor has to be '0'" ); }
+  MotionInfo( int i ) : isInter( i != 0 ), interDir( 0 ), sliceIdx( 0 ), refIdx{         0,         0 } { CHECKD( i != 0, "The argument for this constructor has to be '0'" ); }
 
   bool operator==( const MotionInfo& mi ) const
   {
@@ -119,7 +110,6 @@ struct MotionInfo
     if( isInter )
     {
       if( sliceIdx != mi.sliceIdx ) return false;
-      if( usesLIC  != mi.usesLIC  ) return false;
       if( interDir != mi.interDir ) return false;
 
       if( interDir != 2 )

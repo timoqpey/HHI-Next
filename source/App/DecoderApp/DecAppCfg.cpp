@@ -80,7 +80,7 @@ Bool DecAppCfg::parseCfg( Int argc, TChar* argv[] )
 #if HHI_SIMD_OPT
   ("SIMD",                      ignore,                                string(""), "SIMD extension to use (SCALAR, SSE41, SSE42, AVX, AVX2, AVX512), default: the highest supported extension\n")
 #endif
-      
+
   ("WarnUnknowParameter,w",     warnUnknowParameter,                   0,          "warn for unknown configuration parameters instead of failing")
   ("SkipFrames,s",              m_iSkipFrame,                          0,          "number of frames to skip before random access")
   ("OutputBitDepth,d",          m_outputBitDepth[CHANNEL_TYPE_LUMA],   0,          "bit depth of YUV output luma component (default: use 0 for native depth)")
@@ -100,6 +100,9 @@ Bool DecAppCfg::parseCfg( Int argc, TChar* argv[] )
   ("TraceChannelsList",         bTracingChannelsList,                        false, "List all available tracing channels" )
   ("TraceRule",                 sTracingRule,                         string( "" ), "Tracing rule (ex: \"D_CABAC:poc==8\" or \"D_REC_CB_LUMA:poc==8\")" )
   ("TraceFile",                 sTracingFile,                         string( "" ), "Tracing file" )
+#endif
+#if MCTS_ENC_CHECK
+  ( "TMCTSCheck",               m_tmctsCheck,                           false, "    If enabled, the decoder checks for violations of mc_exact_sample_value_match_flag in Temporal MCTS " )
 #endif
   ;
 
@@ -217,6 +220,9 @@ DecAppCfg::DecAppCfg()
 , m_respectDefDispWindow(0)
 , m_outputDecodedSEIMessagesFilename()
 , m_bClipOutputVideoToRec709Range(false)
+#if MCTS_ENC_CHECK
+, m_tmctsCheck( false )
+#endif
 {
   for (UInt channelTypeIndex = 0; channelTypeIndex < MAX_NUM_CHANNEL_TYPE; channelTypeIndex++)
   {
@@ -224,11 +230,11 @@ DecAppCfg::DecAppCfg()
   }
 }
 
-DecAppCfg::~DecAppCfg() 
+DecAppCfg::~DecAppCfg()
 {
 #if ENABLE_TRACING
   tracing_uninit( g_trace_ctx );
-#endif 
+#endif
 }
 
 //! \}

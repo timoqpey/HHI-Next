@@ -34,7 +34,7 @@
 /** \file     dtrace_next.h
  *  \brief    DTrace support for next software
  */
- 
+
 #ifndef _DTRACE_NEXT_H_
 #define _DTRACE_NEXT_H_
 
@@ -122,11 +122,13 @@ enum DTRACE_CHANNEL
   D_ME,                   // Motion Estimation
   D_CABAC,                // CABAC engine
   D_SYNTAX,               // syntax
+  D_SYNTAX_RESI,          // syntax of the residual coding
   D_BEST_MODE,            // Cost for coding mode (encoder only)
   D_MODE_COST,            // Cost for coding mode (encoder only)
   D_QP_PRED,              // QP Prediction for DQP process
   D_DQP,                  // Delta QP read/write
   D_QP,                   // final CU QP at reading/writing stage
+  D_QP_PER_CTU,           // final QP per CTU at reading
   D_SAVE_LOAD,            // save load encoder info
   D_MISC,                 // Miscellaneous
   D_DECISIONTREE,         // decision tree tracing
@@ -139,7 +141,8 @@ enum DTRACE_CHANNEL
   D_RDOQ,
   D_RDOQ_MORE,
   D_RDOQ_COST,
-  D_TMP
+  D_TMP,
+  D_CRC
 };
 
 #define _CNL_DEF(_s) {_s,(std::string(#_s))}
@@ -217,11 +220,13 @@ inline CDTrace* tracing_init( std::string& sTracingFile, std::string& sTracingRu
     _CNL_DEF( D_ME ),
     _CNL_DEF( D_CABAC ),
     _CNL_DEF( D_SYNTAX ),
+    _CNL_DEF( D_SYNTAX_RESI ),
     _CNL_DEF( D_BEST_MODE ),
     _CNL_DEF( D_MODE_COST ),
     _CNL_DEF( D_QP_PRED ),
     _CNL_DEF( D_DQP ),
     _CNL_DEF( D_QP ),
+    _CNL_DEF( D_QP_PER_CTU ),
     _CNL_DEF( D_SAVE_LOAD ),
     _CNL_DEF( D_MISC ),
     _CNL_DEF( D_DECISIONTREE ),
@@ -234,7 +239,8 @@ inline CDTrace* tracing_init( std::string& sTracingFile, std::string& sTracingRu
     _CNL_DEF( D_RDOQ ),
     _CNL_DEF( D_RDOQ_MORE ),
     _CNL_DEF( D_RDOQ_COST ),
-    _CNL_DEF( D_TMP )
+    _CNL_DEF( D_TMP ),
+    _CNL_DEF( D_CRC )
   };
   dtrace_channels_t channels( next_channels, &next_channels[sizeof( next_channels ) / sizeof( next_channels[0] )] );
 

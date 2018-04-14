@@ -49,7 +49,6 @@
 #include "CommonLib/InterPrediction.h"
 #include "CommonLib/IntraPrediction.h"
 #include "CommonLib/LoopFilter.h"
-#include "CommonLib/AdaptiveLoopFilter.h"
 #include "CommonLib/SEI.h"
 #include "CommonLib/Unit.h"
 
@@ -58,7 +57,7 @@ class InputNALUnit;
 //! \ingroup DecoderLib
 //! \{
 
-bool tryDecodePicture( Picture* pcPic, const std::string& bitstreamFileName, bool bDecodeUntilPocFound = false );
+bool tryDecodePicture( Picture* pcPic, const int expectedPoc, const std::string& bitstreamFileName, bool bDecodeUntilPocFound = false );
 
 // ====================================================================================================================
 // Class definition
@@ -92,7 +91,6 @@ private:
   SEIReader               m_seiReader;
   LoopFilter              m_cLoopFilter;
   SampleAdaptiveOffset    m_cSAO;
-  AdaptiveLoopFilter      m_cALF;
   // decoder side RD cost computation
   RdCost                  m_cRdCost;                      ///< RD cost computation class
 
@@ -113,6 +111,9 @@ private:
   std::ostream           *m_pDecodedSEIOutputStream;
 
   Int                     m_decodedPictureHashSEIEnabled;  ///< Checksum(3)/CRC(2)/MD5(1)/disable(0) acting on decoded picture hash SEI message
+#if MCTS_ENC_CHECK
+  Bool                    m_tmctsCheckEnabled;
+#endif
   UInt                    m_numberOfChecksumErrorsDetected;
 
   Bool                    m_warningMessageSkipPicture;
@@ -126,7 +127,10 @@ public:
   Void  create  ();
   Void  destroy ();
 
-  Void setDecodedPictureHashSEIEnabled(Int enabled) { m_decodedPictureHashSEIEnabled=enabled; }
+  Void  setDecodedPictureHashSEIEnabled(Int enabled) { m_decodedPictureHashSEIEnabled=enabled; }
+#if MCTS_ENC_CHECK
+  Void setTMctsCheckEnabled(Bool enabled) { m_tmctsCheckEnabled = enabled; }
+#endif  
 
   Void  init();
   Bool  decode(InputNALUnit& nalu, Int& iSkipFrame, Int& iPOCLastDisplay);

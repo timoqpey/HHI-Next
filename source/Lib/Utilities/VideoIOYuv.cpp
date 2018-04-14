@@ -761,7 +761,8 @@ Bool VideoIOYuv::read ( PelUnitBuf& pic, PelUnitBuf& picOrg, const InputColourSp
  * @param format           chroma format
  * @return true for success, false in case of error
  */
-Bool VideoIOYuv::write( const CPelUnitBuf& pic, const InputColourSpaceConversion ipCSC, Int confLeft, Int confRight, Int confTop, Int confBottom, ChromaFormat format, const Bool bClipToRec709 )
+Bool VideoIOYuv::write( const CPelUnitBuf& pic,
+                        const InputColourSpaceConversion ipCSC, Int confLeft, Int confRight, Int confTop, Int confBottom, ChromaFormat format, const Bool bClipToRec709 )
 {
   PelStorage interm;
 
@@ -832,7 +833,8 @@ Bool VideoIOYuv::write( const CPelUnitBuf& pic, const InputColourSpaceConversion
     const UInt        csy         = ::getComponentScaleY(compID, format);
     const CPelBuf     area        = picO.get(compID);
     const Int         planeOffset = (confLeft >> csx) + (confTop >> csy) * area.stride;
-    if (!writePlane (m_cHandle, area.bufAt (0, 0) + planeOffset, is16bit, area.stride, width444, height444, compID, picO.chromaFormat, format, m_fileBitdepth[ch]))
+    if (!writePlane (m_cHandle, area.bufAt (0, 0) + planeOffset, is16bit, area.stride,
+                     width444, height444, compID, picO.chromaFormat, format, m_fileBitdepth[ch]))
     {
       retval = false;
     }
