@@ -51,7 +51,8 @@
 // ====================================================================================================================
 
 InterPrediction::InterPrediction()
-: m_currChromaFormat( NUM_CHROMA_FORMAT )
+:
+  m_currChromaFormat( NUM_CHROMA_FORMAT )
 , m_maxCompIDToPred ( MAX_NUM_COMPONENT )
 , m_pcRdCost        ( nullptr )
 , m_pGradX0         ( nullptr )
@@ -79,6 +80,7 @@ InterPrediction::InterPrediction()
       m_filteredBlockTmp[i][c] = nullptr;
     }
   }
+
   m_LICMultApprox[0] = 0;
   for( int k = 1; k < 64; k++ )
   {
@@ -142,12 +144,14 @@ Void InterPrediction::destroy()
     xFree( m_cYuvPredTempDMVR[ch] );
     m_cYuvPredTempDMVR[ch] = nullptr;
   }
+  m_additionalHypothesisStorage.destroy();
 }
 
 Void InterPrediction::init( RdCost* pcRdCost, ChromaFormat chromaFormatIDC )
 {
   m_pcRdCost = pcRdCost;
 
+  m_mdbpPred.init( pcRdCost );
 
   // if it has been initialised before, but the chroma format has changed, release the memory and start again.
   if( m_acYuvPred[REF_PIC_LIST_0][COMPONENT_Y] != nullptr && m_currChromaFormat != chromaFormatIDC )
@@ -163,7 +167,6 @@ Void InterPrediction::init( RdCost* pcRdCost, ChromaFormat chromaFormatIDC )
     {
       Int extWidth  = MAX_CU_SIZE + DMVR_INTME_RANGE*2 + 16;
       Int extHeight = MAX_CU_SIZE + DMVR_INTME_RANGE*2 + 1;
-
       for( UInt i = 0; i < LUMA_INTERPOLATION_FILTER_SUB_SAMPLE_POSITIONS; i++ )
       {
         m_filteredBlockTmp[i][c] = ( Pel* ) xMalloc( Pel, ( extWidth + 4 ) * ( extHeight + 7 + 4 ) );
@@ -180,15 +183,14 @@ Void InterPrediction::init( RdCost* pcRdCost, ChromaFormat chromaFormatIDC )
         m_acYuvPred[i][c] = ( Pel* ) xMalloc( Pel, MAX_CU_SIZE * MAX_CU_SIZE );
       }
     }
+    m_additionalHypothesisStorage.create( UnitArea( chromaFormatIDC, Area( 0, 0, MAX_CU_SIZE, MAX_CU_SIZE ) ) );
 
-#define BIO_TEMP_BUFFER_SIZE ( MAX_CU_SIZE ) * ( MAX_CU_SIZE )
-
+    m_iRefListIdx = -1;
+    
     m_pGradX0     = ( Pel* ) xMalloc( Pel, BIO_TEMP_BUFFER_SIZE );
     m_pGradY0     = ( Pel* ) xMalloc( Pel, BIO_TEMP_BUFFER_SIZE );
     m_pGradX1     = ( Pel* ) xMalloc( Pel, BIO_TEMP_BUFFER_SIZE );
     m_pGradY1     = ( Pel* ) xMalloc( Pel, BIO_TEMP_BUFFER_SIZE );
-
-    m_iRefListIdx = -1;
 
     m_tmpObmcBuf.create( UnitArea( chromaFormatIDC, Area( 0, 0, MAX_CU_SIZE, MAX_CU_SIZE ) ) );
 
@@ -286,6 +288,7 @@ Bool InterPrediction::xCheckIdenticalMotion( const PredictionUnit &pu )
 
 Void InterPrediction::xSubPuMC( PredictionUnit& pu, PelUnitBuf& predBuf, const RefPicList &eRefPicList /*= REF_PIC_LIST_X*/ )
 {
+  CHECK( !pu.addHypData.empty(), "Multi Hyp: !pu.addHypData.empty()" );
   const SPSNext& spsNext  = pu.cs->sps->getSpsNext();
 
   // compute the location of the current PU
@@ -358,6 +361,11 @@ Void InterPrediction::xPredInterUni(const PredictionUnit& pu, const RefPicList& 
   }
   clipMv(mv[0], pu.cu->lumaPos(), sps);
 
+  MdbpMode mdbpMode;
+  if( PU::isMdbpPredEnabled( pu, mv[0] ) && !pu.cu->affine && !bDMVRApplied )
+  {
+    m_mdbpPred.estimateMdbpMode( COMPONENT_Y, pu, pu.cu->slice->getRefPic( eRefPicList, iRefIdx ), mv[0], mdbpMode );
+  }
 
   for( UInt comp = COMPONENT_Y; comp < pcYuvPred.bufs.size() && comp <= m_maxCompIDToPred; comp++ )
   {
@@ -369,7 +377,10 @@ Void InterPrediction::xPredInterUni(const PredictionUnit& pu, const RefPicList& 
     }
     else
     {
-      xPredInterBlk( compID, pu, pu.cu->slice->getRefPic( eRefPicList, iRefIdx ), mv[0], pcYuvPred, bi, pu.cu->slice->clpRng( compID ), bBIOApplied, bDMVRApplied, FRUC_MERGE_OFF, true );
+      xPredInterBlk( compID, pu, pu.cu->slice->getRefPic( eRefPicList, iRefIdx ), mv[0], pcYuvPred, bi, pu.cu->slice->clpRng( compID )
+                     , bBIOApplied, bDMVRApplied, FRUC_MERGE_OFF, true
+                     , mdbpMode
+                    );
     }
   }
 }
@@ -438,7 +449,9 @@ Void InterPrediction::xPredInterBi(PredictionUnit& pu, PelUnitBuf &pcYuvPred, Bo
 
     if (pu.refIdx[0] >= 0 && pu.refIdx[1] >= 0)
     {
-      xPredInterUni ( pu, eRefPicList, pcMbBuf, true, bBIOApplied, bDMVRApplied );
+      xPredInterUni ( pu, eRefPicList, pcMbBuf, true
+                      , bBIOApplied, bDMVRApplied
+                     );
     }
     else
     {
@@ -464,7 +477,6 @@ Void InterPrediction::xPredInterBi(PredictionUnit& pu, PelUnitBuf &pcYuvPred, Bo
   CPelUnitBuf srcPred1 = ( pu.chromaFormat == CHROMA_400 ?
                            CPelUnitBuf(pu.chromaFormat, PelBuf(m_acYuvPred[1][0], pcYuvPred.Y())) :
                            CPelUnitBuf(pu.chromaFormat, PelBuf(m_acYuvPred[1][0], pcYuvPred.Y()), PelBuf(m_acYuvPred[1][1], pcYuvPred.Cb()), PelBuf(m_acYuvPred[1][2], pcYuvPred.Cr())) );
-
   if( !pu.cu->LICFlag && pps.getWPBiPred() && slice.getSliceType() == B_SLICE )
   {
     xWeightedPredictionBi( pu, srcPred0, srcPred1, pcYuvPred, m_maxCompIDToPred );
@@ -479,8 +491,464 @@ Void InterPrediction::xPredInterBi(PredictionUnit& pu, PelUnitBuf &pcYuvPred, Bo
   }
 }
 
+// ====================================================================================================================
+// MDBP: Multi direction boundary padding
+// ====================================================================================================================
 
-Void InterPrediction::xPredInterBlk ( const ComponentID& compID, const PredictionUnit& pu, const Picture* refPic, const Mv& _mv, PelUnitBuf& dstPic, const Bool& bi, const ClpRng& clpRng, const Bool& bBIOApplied /*=false*/, const Bool& bDMVRApplied /*= false*/, const Int& nFRUCMode /*= FRUC_MERGE_OFF*/, const Bool& doLic /*= true*/ )
+//                                             Idx:   0,    1,    2,    3,    4,    5,    6,    7,    8,    9,   10,   11,   12,   13,   14,   15,   16
+static const int mdbpAngTable[MDBP_MAX_MODE + 1]  = { 0,    1,    2,    3,    5,    7,    9,   11,   13,   15,   17,   19,   21,   23,   26,   29,   32 };
+
+void MdbpPrediction::xCopyRefPart( CPelBuf refBuf, PelBuf mdbpBuf, const Area& refArea, const Area& copyArea )
+{
+  const Pel* src = refBuf.buf  + refBuf.stride  * ( copyArea.y - refArea.y ) + ( copyArea.x - refArea.x );
+  Pel* dst       = mdbpBuf.buf + mdbpBuf.stride * ( copyArea.y - refArea.y ) + ( copyArea.x - refArea.x );
+
+  for ( int i = 0; i < copyArea.height; i++ )
+  {
+    for ( int j = 0; j < copyArea.width; j++ )
+    {
+      *dst++ = *src++;
+    }
+    src += refBuf.stride - copyArea.width;
+    dst += mdbpBuf.stride - copyArea.width;
+  }
+}
+
+void MdbpPrediction::xFetchBorder( CPelBuf refBuf, Pel* borderBuf, const Area& refArea, const Position& leftBorderPos, const int width, const int addLeft, const int addRight, const int padLeft, const int padRight, const int borderNext )
+{
+  const Pel* src   = refBuf.buf + refBuf.stride * ( leftBorderPos.y - refArea.y ) + ( leftBorderPos.x - refArea.x ) - ( addLeft - padLeft ) * borderNext;
+  Pel* dst         = borderBuf - addLeft;
+  const int numPel = addLeft + width + addRight;
+
+  const Pel leftEdgePix  = *( src );
+  for ( int i = 0; i < padLeft; i++ )
+  {
+    *dst++ = leftEdgePix;
+  }
+
+  for ( int i = padLeft; i < ( numPel - padRight ); i++ )
+  {
+    *dst++ = *src;
+    src += borderNext;
+  }
+
+  const Pel rightEdgePix  = *( src - borderNext );
+  for ( int i = ( numPel - padRight ); i < numPel; i++ )
+  {
+    *dst++ = rightEdgePix;
+  }
+}
+
+void MdbpPrediction::predictMdbpBlk( const ComponentID &compID, const PredictionUnit& pu, const Picture* refPic, const Mv &mv, const MdbpMode& mdbpMode )
+{
+  const ChromaFormat chFmt = pu.chromaFormat;
+  const SPS& sps           = *pu.cs->sps;
+  const ClpRng& clpRng     = pu.cu->cs->slice->clpRng(compID);
+
+  int iAddPrecShift = mv.highPrec ? VCEG_AZ07_MV_ADD_PRECISION_BIT_FOR_STORE : 0;
+  int shiftHor      = 2 + iAddPrecShift + ::getComponentScaleX( compID, chFmt );
+  int shiftVer      = 2 + iAddPrecShift + ::getComponentScaleY( compID, chFmt );
+
+  // get referenced area: move component area by full-pel motion vector and increase area by pixels needed for sup-pel filter
+  static_assert( MDBP_SUBPEL_OFFSET_LUMA >= BIO_FILTER_LENGTH_MINUS_1, "MDBP offset will not cover additional reference buffer size required for BIO" );
+  const int spOffset  = isLuma( compID ) ? MDBP_SUBPEL_OFFSET_LUMA : MDBP_SUBPEL_OFFSET_CHROMA;
+  const CompArea cmp  = pu.blocks[ compID ];
+  const Area refArea  = Area( cmp.offset( ( mv.hor >> shiftHor ) - spOffset, ( mv.ver >> shiftVer ) - spOffset ), Size( cmp.width + 2*spOffset, cmp.height + 2*spOffset ) );
+  const Size compSize = refPic->getRecoBuf().get( compID );
+  CPelBuf refBuf      = refPic->getRecoBuf( CompArea( compID, chFmt, refArea.pos(), refArea.size() ) );
+  PelBuf mdbpBuf      = PelBuf( m_mdbpTmp - spOffset * MDBP_PRED_BUF_STRIDE - spOffset, MDBP_PRED_BUF_STRIDE, refArea.size() );
+
+  // determine number of lines, which lay out of reference picture
+  const int lOutHor = ( refArea.x < 0 ) ? ( -refArea.x ) : ( ( refArea.x + refArea.width  > compSize.width  ) ? ( refArea.x + refArea.width  - compSize.width  ) : ( 0 ) );
+  const int lOutVer = ( refArea.y < 0 ) ? ( -refArea.y ) : ( ( refArea.y + refArea.height > compSize.height ) ? ( refArea.y + refArea.height - compSize.height ) : ( 0 ) );
+  CHECK( lOutHor <= 0 && lOutVer <= 0, "incorrect number of lines out of area" );
+
+  Position leftBorderPos;
+  int numLines    = 0;
+  int linesOffset = 0;
+  int width       = 0;
+  switch ( mdbpMode.mdDir )
+  {
+    case MDBP_DIR_TOP:
+      leftBorderPos = Position( refArea.x, 0 );
+      numLines      = std::min<int>( refArea.height, lOutVer );
+      linesOffset   = std::max<int>( 0, lOutVer - refArea.height );
+      width         = refArea.width;
+      break;
+    case MDBP_DIR_RIGHT:
+      leftBorderPos = Position( compSize.width - 1, refArea.y );
+      numLines      = std::min<int>( lOutHor, refArea.width );
+      linesOffset   = std::max<int>( 0, lOutHor - refArea.width );
+      width         = refArea.height;
+      break;
+    case MDBP_DIR_DOWN:
+      leftBorderPos = Position( refArea.x + ( refArea.width - 1 ), compSize.height - 1 );
+      numLines      = std::min<int>( refArea.height, lOutVer );
+      linesOffset   = std::max<int>( 0, lOutVer - refArea.height );
+      width         = refArea.width;
+      break;
+    case MDBP_DIR_LEFT:
+      leftBorderPos = Position( 0, refArea.y + ( refArea.height - 1) );
+      numLines      = std::min<int>( lOutHor, refArea.width );
+      linesOffset   = std::max<int>( 0, lOutHor - refArea.width );
+      width         = refArea.height;
+      break;
+    default:
+      THROW( "not possible" );
+  }
+
+  xPredictMdbp( sps, refBuf, mdbpBuf, compSize, refArea, leftBorderPos, numLines, linesOffset, width, mdbpMode, clpRng );
+}
+
+void MdbpPrediction::xPredictMdbp( const SPS& sps, CPelBuf refBuf, PelBuf mdbpBuf, const Size& compSize, const Area& refArea, const Position& leftBorderPos, const int numLines, const int linesOffset, const int width, const MdbpMode& mdbpMode, const ClpRng& clpRng )
+{
+  // number of additionally required border pixels (+2 for four-pel intra filter)
+  const int addBorderLeft  = ( mdbpMode.mdMode < 0 ) ? ( -( ( -( mdbpAngTable[ -mdbpMode.mdMode ] ) * ( linesOffset + numLines ) ) >> 5 ) + 2 ) : ( 2 );  // use negative value for shift, to mimic rounding behaviour in prediction function
+  const int addBorderRight = ( mdbpMode.mdMode > 0 ) ? (  ( (  ( mdbpAngTable[  mdbpMode.mdMode ] ) * ( linesOffset + numLines ) ) >> 5 ) + 2 ) : ( 2 );
+
+  Area copyArea;                // part of reference block, which has to be copied
+  // relative positions based on the orientation of the prediction side (always looking into the direction of the prediction)
+  Position leftPredPos;         // position of first (left most nearest to border) out of border pixel in reference frame
+  int borderNext     = 0;       // offset to next (to right) border pixel in reference frame
+  int mdbpBufNext    = 0;       // offset to next (to right) pixel in temporary prediction buffer
+  int mdbpBufOrt     = 0;       // offset to next (from border) line in temporary prediction buffer (orthogonal to next right pixel)
+  int padBorderLeft  = 0;       // number of border pixels, which must be padded (because they are out of reference frame) to the left
+  int padBorderRight = 0;       // number of border pixels, which must be padded (because they are out of reference frame) to the right
+  switch ( mdbpMode.mdDir )
+  {
+    case MDBP_DIR_TOP:
+      copyArea       = Area( refArea.x, 0,         width,                                        std::max<int>( 0, refArea.height - numLines ) );
+      leftPredPos    = leftBorderPos.offset( 0, -( linesOffset + 1 ) );
+      borderNext     = 1;
+      mdbpBufNext    = 1;
+      mdbpBufOrt     = -mdbpBuf.stride;
+      padBorderLeft  = std::max<int>( 0, -( leftBorderPos.x         - addBorderLeft ) );
+      padBorderRight = std::max<int>( 0,  ( leftBorderPos.x + width + addBorderRight - compSize.width ) );
+      break;
+    case MDBP_DIR_RIGHT:
+      copyArea       = Area( refArea.x, refArea.y, std::max<int>( 0, refArea.width - numLines ), width );
+      leftPredPos    = leftBorderPos.offset( linesOffset + 1, 0 );
+      borderNext     = refBuf.stride;
+      mdbpBufNext    = mdbpBuf.stride;
+      mdbpBufOrt     = 1;
+      padBorderLeft  = std::max<int>( 0, -( leftBorderPos.y         - addBorderLeft ) );
+      padBorderRight = std::max<int>( 0,  ( leftBorderPos.y + width + addBorderRight - compSize.height ) );
+      break;
+    case MDBP_DIR_DOWN:
+      copyArea       = Area( refArea.x, refArea.y, width,                                        std::max<int>( 0, refArea.height - numLines ) );
+      leftPredPos    = leftBorderPos.offset( 0, linesOffset + 1 );
+      borderNext     = -1;
+      mdbpBufNext    = -1;
+      mdbpBufOrt     = mdbpBuf.stride;
+      padBorderLeft  = std::max<int>( 0,  ( leftBorderPos.x + 1         + addBorderLeft - compSize.width ) );
+      padBorderRight = std::max<int>( 0, -( leftBorderPos.x + 1 - width - addBorderRight ) );
+      break;
+    case MDBP_DIR_LEFT:
+      copyArea       = Area( 0,         refArea.y, std::max<int>( 0, refArea.width - numLines ), width );
+      leftPredPos    = leftBorderPos.offset( -( linesOffset + 1 ), 0 );
+      borderNext     = -refBuf.stride;
+      mdbpBufNext    = -mdbpBuf.stride;
+      mdbpBufOrt     = -1;
+      padBorderLeft  = std::max<int>( 0,  ( leftBorderPos.y + 1         + addBorderLeft - compSize.height ) );
+      padBorderRight = std::max<int>( 0, -( leftBorderPos.y + 1 - width - addBorderRight ) );
+      break;
+    default:
+      THROW( "not possible" );
+  }
+
+  // copy part of block, which is inside the reference frame
+  if ( copyArea.width > 0 && copyArea.height > 0 )
+  {
+    xCopyRefPart( refBuf, mdbpBuf, refArea, copyArea );
+  }
+
+  xFetchBorder( refBuf, m_mdbpBorder, refArea, leftBorderPos, width, addBorderLeft, addBorderRight, padBorderLeft, padBorderRight, borderNext );
+
+  Pel* dstBase = mdbpBuf.buf + mdbpBuf.stride * ( leftPredPos.y - refArea.y ) + ( leftPredPos.x - refArea.x );
+  xPredictMdbpPart( sps, m_mdbpBorder, dstBase, mdbpBufNext, mdbpBufOrt, numLines, linesOffset, width, mdbpMode, clpRng );
+}
+
+void MdbpPrediction::xPredictMdbpPart( const SPS& sps, const Pel* borderBuf, Pel* dstBase, const int dstNext, const int dstOrt, const int numLines, const int linesOffset, const int width, const MdbpMode& mdbpMode, const ClpRng& clpRng )
+{
+  Pel* dst                 = dstBase;
+  const int absAngMode     = std::abs( mdbpMode.mdMode );
+  const int signAng        = mdbpMode.mdMode < 0 ? -1 : 1;
+  const int absAng         = mdbpAngTable[ absAngMode ];
+  const int intraPredAngle = signAng * absAng;
+
+  if ( intraPredAngle == 0 ) // vertical or horizontal mode
+  {
+    for ( int l = linesOffset; l < ( numLines + linesOffset ); l++ )
+    {
+      const Pel* src = borderBuf;
+      for ( int i = 0; i < width; i++ )
+      {
+        *dst = *src++;
+        dst += dstNext;
+      }
+      dst += dstOrt - ( width * dstNext );
+    }
+  }
+  else
+  {
+    int deltaPos = (linesOffset + 1) * intraPredAngle;
+    for ( int l = linesOffset; l < ( numLines + linesOffset ); l++, deltaPos+=intraPredAngle )
+    {
+      const int deltaInt   = deltaPos >> 5;
+      const int deltaFract = deltaPos & (32 - 1);
+
+      if ( deltaFract )
+      {
+        if ( sps.getSpsNext().getUseIntra4Tap() )
+        {
+          const Pel* src       = borderBuf + deltaInt;
+          bool  useCubicFilter = ( width <= 8 );
+          const int  *f        = ( useCubicFilter ) ? g_intraCubicFilter[ deltaFract ] : g_intraGaussFilter[ deltaFract ];
+          int   p[4];
+          for ( int i = 0; i < width; i++ )
+          {
+            p[0] = *(src - 1);
+            p[1] = *(src    );
+            p[2] = *(src + 1);
+            p[3] = *(src + 2);
+
+            *dst = (Pel)( ( f[0] * p[0] + f[1] * p[1] + f[2] * p[2] + f[3] * p[3] + 128 ) >> 8 );
+
+            if ( useCubicFilter ) // only cubic filter has negative coefficients and requires clipping
+            {
+              *dst = ClipPel( *dst, clpRng );
+            }
+
+            dst += dstNext;
+            src += 1;
+          }
+        }
+        else
+        {
+          // do linear filtering
+          const Pel* src = borderBuf + deltaInt;
+          int lastRefMainPel = *src++;
+          for ( int i = 0; i < width; i++ )
+          {
+            int thisRefMainPel = *src;
+            *dst = (Pel)( ( ( 32 - deltaFract ) * lastRefMainPel + deltaFract * thisRefMainPel + 16 ) >> 5 );
+            lastRefMainPel = thisRefMainPel;
+
+            dst += dstNext;
+            src += 1;
+          }
+        }
+      }
+      else
+      {
+        // just copy the integer samples
+        const Pel* src = borderBuf + deltaInt;
+        for ( int i = 0; i < width; i++ )
+        {
+          *dst = *src++;
+          dst += dstNext;
+        }
+      }
+      dst += dstOrt - ( width * dstNext );
+    }
+  }
+}
+
+inline void MdbpPrediction::xClipAreaHor( Area& refArea, const Size& compSize )
+{
+  const int refWidth = refArea.width;
+  if ( refArea.x + refWidth < -1 )
+  {
+    refArea.x = -refWidth - 1;
+  }
+  const int compWidth = compSize.width;
+  if ( refArea.x > compWidth + 1 )
+  {
+    refArea.x = compWidth + 1;
+  }
+}
+
+inline void MdbpPrediction::xClipAreaVer( Area& refArea, const Size& compSize )
+{
+  const int refHeight = refArea.height;
+  if ( refArea.y + refHeight < -1 )
+  {
+    refArea.y = -refHeight - 1;
+  }
+  const int compHeight = compSize.height;
+  if ( refArea.y > compHeight + 1 )
+  {
+    refArea.y = compHeight + 1;
+  }
+}
+
+#define MDBP_PAD_ESTI_BLOCK                                 1
+#define MDBP_INV_LINES                                      2
+#define MDBP_SKIP_ANG_MASK                                  0
+
+void MdbpPrediction::estimateMdbpMode( const ComponentID &compID, const PredictionUnit& pu, const Picture* refPic, const Mv &mv, MdbpMode& mdbpMode )
+{
+  const ChromaFormat chFmt = pu.chromaFormat;
+  const SPS& sps           = *pu.cs->sps;
+  const int bitDepth       = sps.getBitDepth( toChannelType( compID ) );
+  const ClpRng& clpRng     = pu.cu->cs->slice->clpRng(compID);
+  int iAddPrecShift = mv.highPrec ? VCEG_AZ07_MV_ADD_PRECISION_BIT_FOR_STORE : 0;
+  int shiftHor      = 2 + iAddPrecShift + ::getComponentScaleX( compID, chFmt );
+  int shiftVer      = 2 + iAddPrecShift + ::getComponentScaleY( compID, chFmt );
+  // get referenced area: move component area by full-pel motion vector
+  const int spOffset  = MDBP_PAD_ESTI_BLOCK; // necessary, to handle mv which is only a fractional pel outside of reference frame
+  const CompArea cmp  = pu.blocks[ compID ];
+  const Area refArea  = Area( cmp.offset( ( mv.hor >> shiftHor ) - spOffset, ( mv.ver >> shiftVer ) - spOffset ), Size( cmp.width + 2*spOffset, cmp.height + 2*spOffset ) );
+  const Size compSize = refPic->getRecoBuf().get( compID );
+
+  // determine number of lines, which lay out of reference picture
+  const int lOutHor = ( refArea.x < 0 ) ? ( -refArea.x ) : ( ( refArea.x + refArea.width  > compSize.width  ) ? ( refArea.x + refArea.width  - compSize.width  ) : ( 0 ) );
+  const int lOutVer = ( refArea.y < 0 ) ? ( -refArea.y ) : ( ( refArea.y + refArea.height > compSize.height ) ? ( refArea.y + refArea.height - compSize.height ) : ( 0 ) );
+  CHECK( lOutHor <= 0 && lOutVer <= 0, "incorrect number of lines out of area" );
+
+  // direction of prediction
+  const MdbpPredDir predDir = ( lOutHor > lOutVer ) ? ( refArea.x < 0 ? MDBP_DIR_LEFT : MDBP_DIR_RIGHT ) : ( refArea.y < 0 ? MDBP_DIR_TOP : MDBP_DIR_DOWN );
+
+  MdbpPredDir invPredDir = MDBP_DIR_TOP;
+  int bottomLineOffset   = 0;
+  int topLineOffset      = 0;
+  int width              = 0;
+  Size bufSize;
+  switch ( predDir )
+  {
+    case MDBP_DIR_TOP:
+      invPredDir       = MDBP_DIR_DOWN;
+      bottomLineOffset = std::max<int>( 0, lOutVer - refArea.height ) + 1;
+      topLineOffset    = std::max<int>( 1, lOutVer );
+      width            = refArea.width;
+      bufSize          = Size( width, MDBP_INV_LINES );
+      break;
+    case MDBP_DIR_RIGHT:
+      invPredDir       = MDBP_DIR_LEFT;
+      bottomLineOffset = std::max<int>( 0, lOutHor - refArea.width ) + 1;
+      topLineOffset    = std::max<int>( 1, lOutHor );
+      width            = refArea.height;
+      bufSize          = Size( MDBP_INV_LINES, width );
+      break;
+    case MDBP_DIR_DOWN:
+      invPredDir       = MDBP_DIR_TOP;
+      bottomLineOffset = std::max<int>( 0, lOutVer - refArea.height ) + 1;
+      topLineOffset    = std::max<int>( 1, lOutVer );
+      width            = refArea.width;
+      bufSize          = Size( width, MDBP_INV_LINES );
+      break;
+    case MDBP_DIR_LEFT:
+      invPredDir       = MDBP_DIR_RIGHT;
+      bottomLineOffset = std::max<int>( 0, lOutHor - refArea.width ) + 1;
+      topLineOffset    = std::max<int>( 1, lOutHor );
+      width            = refArea.height;
+      bufSize          = Size( MDBP_INV_LINES, width );
+      break;
+    default:
+      THROW( "not possible" );
+  }
+
+  PelBuf mdbpBuf      = PelBuf( m_mdbpTmp, MDBP_PRED_BUF_STRIDE, bufSize );
+  Distortion bestDist = std::numeric_limits<Distortion>::max();
+  MdbpMode bestMode   = MdbpMode( MDBP_MODE_OFF, predDir );
+  for ( int mode = MDBP_MIN_MODE; mode <= MDBP_MAX_MODE; mode++ )
+  {
+    if ( mode & MDBP_SKIP_ANG_MASK )
+      continue;
+
+    const MdbpMode curMode = MdbpMode( mode, predDir );
+    Distortion curDist     = 0;
+    Position invLeftBorderPos;
+    Area invRefArea;
+    int deltaIntRefArea;
+
+    // match bottom line
+    {
+      deltaIntRefArea = ( curMode.mdMode < 0 ) ? ( ( -mdbpAngTable[ -curMode.mdMode ] * ( bottomLineOffset + 1 ) ) >> 5 ) : ( ( mdbpAngTable[ curMode.mdMode ] * ( bottomLineOffset + 1 ) ) >> 5 );
+      switch ( curMode.mdDir )
+      {
+        case MDBP_DIR_TOP:
+          invRefArea       = Area( refArea.x + deltaIntRefArea, 1, width, MDBP_INV_LINES );
+          xClipAreaHor( invRefArea, compSize );
+          invLeftBorderPos = Position( invRefArea.x + ( invRefArea.width - 1 ), 0 );
+          break;
+        case MDBP_DIR_RIGHT:
+          invRefArea       = Area( compSize.width - MDBP_INV_LINES - 1, refArea.y + deltaIntRefArea, MDBP_INV_LINES, width );
+          xClipAreaVer( invRefArea, compSize );
+          invLeftBorderPos = Position( compSize.width - 1, invRefArea.y + ( invRefArea.height - 1 ) );
+          break;
+        case MDBP_DIR_DOWN:
+          invRefArea       = Area( refArea.x - deltaIntRefArea, compSize.height - MDBP_INV_LINES - 1, width, MDBP_INV_LINES );
+          xClipAreaHor( invRefArea, compSize );
+          invLeftBorderPos = Position( invRefArea.x, compSize.height - 1 );
+          break;
+        case MDBP_DIR_LEFT:
+          invRefArea       = Area( 1, refArea.y - deltaIntRefArea, MDBP_INV_LINES, width );
+          xClipAreaVer( invRefArea, compSize );
+          invLeftBorderPos = Position( 0, invRefArea.y );
+          break;
+        default:
+          THROW( "not possible" );
+      }
+      const MdbpMode curInvMode = MdbpMode( curMode.mdMode, invPredDir );
+      CPelBuf refBufBottom      = refPic->getRecoBuf( CompArea( compID, chFmt, invRefArea.pos(), invRefArea.size() ) );
+      xPredictMdbp( sps, refBufBottom, mdbpBuf, compSize, invRefArea, invLeftBorderPos, MDBP_INV_LINES, 0, width, curInvMode, clpRng );
+      curDist += m_pcRdCost->getDistPart( refBufBottom, mdbpBuf, bitDepth, compID, DF_SAD_FULL_NBIT );
+    }
+
+    // match top line
+    if ( topLineOffset != bottomLineOffset )
+    {
+      deltaIntRefArea = ( curMode.mdMode < 0 ) ? ( ( -mdbpAngTable[ -curMode.mdMode ] * ( topLineOffset + 1 ) ) >> 5 ) : ( ( mdbpAngTable[ curMode.mdMode ] * ( topLineOffset + 1 ) ) >> 5 );
+      switch ( curMode.mdDir )
+      {
+        case MDBP_DIR_TOP:
+          invRefArea       = Area( refArea.x + deltaIntRefArea, 1, width, MDBP_INV_LINES );
+          xClipAreaHor( invRefArea, compSize );
+          invLeftBorderPos = Position( invRefArea.x + ( invRefArea.width - 1 ), 0 );
+          break;
+        case MDBP_DIR_RIGHT:
+          invRefArea       = Area( compSize.width - MDBP_INV_LINES - 1, refArea.y + deltaIntRefArea, MDBP_INV_LINES, width );
+          xClipAreaVer( invRefArea, compSize );
+          invLeftBorderPos = Position( compSize.width - 1, invRefArea.y + ( invRefArea.height - 1 ) );
+          break;
+        case MDBP_DIR_DOWN:
+          invRefArea       = Area( refArea.x - deltaIntRefArea, compSize.height - MDBP_INV_LINES - 1, width, MDBP_INV_LINES );
+          xClipAreaHor( invRefArea, compSize );
+          invLeftBorderPos = Position( invRefArea.x, compSize.height - 1 );
+          break;
+        case MDBP_DIR_LEFT:
+          invRefArea       = Area( 1, refArea.y - deltaIntRefArea, MDBP_INV_LINES, width );
+          xClipAreaVer( invRefArea, compSize );
+          invLeftBorderPos = Position( 0, invRefArea.y );
+          break;
+        default:
+          THROW( "not possible" );
+      }
+      const MdbpMode curInvMode = MdbpMode( curMode.mdMode, invPredDir );
+      CPelBuf refBufTop         = refPic->getRecoBuf( CompArea( compID, chFmt, invRefArea.pos(), invRefArea.size() ) );
+      xPredictMdbp( sps, refBufTop, mdbpBuf, compSize, invRefArea, invLeftBorderPos, MDBP_INV_LINES, 0, width, curInvMode, clpRng );
+      curDist += m_pcRdCost->getDistPart( refBufTop, mdbpBuf, bitDepth, compID, DF_SAD_FULL_NBIT );
+    }
+
+    if ( curDist < bestDist
+        || ( curDist == bestDist && ( std::abs( curMode.mdMode - MDBP_MODE_OFF ) < std::abs( bestMode.mdMode - MDBP_MODE_OFF ) ) ) ) // in case same distortion, prefer mdbp off default behaviour
+    {
+      bestDist = curDist;
+      bestMode = curMode;
+    }
+  }
+
+  // return best found mode
+  mdbpMode = bestMode;
+}
+
+// ====================================================================================================================
+
+Void InterPrediction::xPredInterBlk ( const ComponentID& compID, const PredictionUnit& pu, const Picture* refPic, const Mv& _mv, PelUnitBuf& dstPic, const Bool& bi, const ClpRng& clpRng
+                                      , const Bool& bBIOApplied /*=false*/, const Bool& bDMVRApplied /*= false*/, const Int& nFRUCMode /*= FRUC_MERGE_OFF*/, const Bool& doLic /*= true*/
+                                      , const MdbpMode& mdbpMode /*= MdbpMode()*/
+                                    )
 {
   const Int       nFilterIdx = nFRUCMode ? pu.cs->slice->getSPS()->getSpsNext().getFRUCRefineFilter() : 0;
   const ChromaFormat  chFmt  = pu.chromaFormat;
@@ -512,6 +980,12 @@ Void InterPrediction::xPredInterBlk ( const ComponentID& compID, const Predictio
   unsigned height = dstBuf.height;
 
   CPelBuf refBuf;
+  if( PU::isMdbpPredEnabled( pu, _mv ) && mdbpMode.mdMode != MDBP_MODE_OFF )
+  {
+    m_mdbpPred.predictMdbpBlk( compID, pu, refPic, _mv, mdbpMode );
+    refBuf = m_mdbpPred.getMdbpBuf( pu.blocks[ compID ].size() );
+  }
+  else
   {
     Position offset = pu.blocks[compID].pos().offset( _mv.getHor() >> shiftHor, _mv.getVer() >> shiftVer );
     refBuf = refPic->getRecoBuf( CompArea( compID, chFmt, offset, pu.blocks[compID].size() ) );
@@ -562,7 +1036,6 @@ Void InterPrediction::xPredInterBlk ( const ComponentID& compID, const Predictio
     }
     m_if.filterHor(compID, (Pel*) refBuf.buf - ((vFilterSize >> 1) - 1) * refBuf.stride, refBuf.stride, tmpBuf.buf, tmpBuf.stride, width, height + vFilterSize - 1, xFrac, false,         chFmt, clpRng, nFilterIdx);
     m_if.filterVer(compID, (Pel*) tmpBuf.buf + ((vFilterSize >> 1) - 1) * tmpBuf.stride, tmpBuf.stride, dstBuf.buf, dstBuf.stride, width, height,                   yFrac, false, rndRes, chFmt, clpRng, nFilterIdx);
-
   }
 
   if( pu.cu->LICFlag && doLic )
@@ -688,7 +1161,7 @@ Void InterPrediction::xPredAffineBlk(const ComponentID& compID, const Prediction
         yFrac = iMvScaleTmpVer & 31;
       }
 
-      const CPelBuf refBuf = refPic->getRecoBuf(CompArea(compID, chFmt, pu.blocks[compID].offset(xInt + w, yInt + h), pu.blocks[compID]));
+      const CPelBuf refBuf = refPic->getRecoBuf( CompArea( compID, chFmt, pu.blocks[compID].offset(xInt + w, yInt + h), pu.blocks[compID] ) );
       PelBuf &dstBuf = dstPic.bufs[compID];
 
       if ( yFrac == 0 )
@@ -840,7 +1313,7 @@ void InterPrediction::xGetLICParams( const CodingUnit& cu,
   const int scaleShiftA   = scaleShiftA2 + 15 - shift - scaleShiftA1;
             a1            =               a1 >> scaleShiftA1;
             a2            = Clip3( 0, 63, a2 >> scaleShiftA2 );
-            scale         = int( ( int64_t(a1) * int64_t(m_LICMultApprox[a2]) ) >> scaleShiftA );
+            scale         = int( ( int64_t( a1 ) * int64_t( m_LICMultApprox[a2] ) ) >> scaleShiftA );
             scale         = Clip3( 0, 1 << ( shift + 2 ), scale );
   const int maxOffset     = ( 1 << ( bitDepth - 1 ) ) - 1;
   const int minOffset     = -1 - maxOffset;
@@ -856,6 +1329,7 @@ void InterPrediction::xLocalIlluComp( const PredictionUnit& pu,
                                             PelBuf&         dstBuf )
 {
   int shift = 0, scale = 0, offset = 0;
+
   xGetLICParams( *pu.cu, compID, refPic, mv, shift, scale, offset );
 
   const int bitDepth   = pu.cs->sps->getBitDepth( toChannelType( compID ) );
@@ -876,12 +1350,6 @@ void InterPrediction::xLocalIlluComp( const PredictionUnit& pu,
 
 void InterPrediction::applyBiOptFlow( const PredictionUnit &pu, const CPelUnitBuf &pcYuvSrc0, const CPelUnitBuf &pcYuvSrc1, const Int &iRefIdx0, const Int &iRefIdx1, PelUnitBuf &pcYuvDst, const BitDepths &clipBitDepths )
 {
-  static Int64 m_piDotProduct1[BIO_TEMP_BUFFER_SIZE];
-  static Int64 m_piDotProduct2[BIO_TEMP_BUFFER_SIZE];
-  static Int64 m_piDotProduct3[BIO_TEMP_BUFFER_SIZE];
-  static Int64 m_piDotProduct5[BIO_TEMP_BUFFER_SIZE];
-  static Int64 m_piDotProduct6[BIO_TEMP_BUFFER_SIZE];
-
   const int     iHeight     = pcYuvDst.Y().height;
   const int     iWidth      = pcYuvDst.Y().width;
   int           iHeightG    = iHeight;
@@ -1061,14 +1529,21 @@ Void InterPrediction::xWeightedAverage( const PredictionUnit& pu, const CPelUnit
   }
 }
 
-Void InterPrediction::motionCompensation( PredictionUnit &pu, PelUnitBuf &predBuf, const RefPicList &eRefPicList )
+Void InterPrediction::motionCompensation( PredictionUnit &pu, PelUnitBuf &predBuf, const RefPicList &eRefPicList, Bool bOBMC )
 {
+  if( !pu.addHypData.empty() )
+  {
+    CHECK(eRefPicList != REF_PIC_LIST_X, "Multi Hyp: eRefPicList != REF_PIC_LIST_X");
+    xAddHypMC( pu, predBuf, bOBMC );
+    return;
+  }
         CodingStructure &cs = *pu.cs;
   const PPS &pps            = *cs.pps;
   const SliceType sliceType =  cs.slice->getSliceType();
 
   if( eRefPicList != REF_PIC_LIST_X )
   {
+    CHECK( bOBMC, "Multi Hyp: bOBMC" );
     if( !pu.cu->LICFlag && ( ( sliceType == P_SLICE && pps.getUseWP() ) || ( sliceType == B_SLICE && pps.getWPBiPred() ) ) )
     {
       xPredInterUni         ( pu,          eRefPicList, predBuf, true );
@@ -1083,6 +1558,7 @@ Void InterPrediction::motionCompensation( PredictionUnit &pu, PelUnitBuf &predBu
   {
     if( pu.mergeType != MRG_TYPE_DEFAULT_N )
     {
+      CHECK( bOBMC, "Multi Hyp: bOBMC" );
       xSubPuMC( pu, predBuf, eRefPicList );
     }
     else if( xCheckIdenticalMotion( pu ) )
@@ -1091,7 +1567,7 @@ Void InterPrediction::motionCompensation( PredictionUnit &pu, PelUnitBuf &predBu
     }
     else
     {
-      xPredInterBi( pu, predBuf );
+      xPredInterBi( pu, predBuf, bOBMC );
     }
   }
   return;
@@ -1190,13 +1666,12 @@ Void InterPrediction::subBlockOBMC( PredictionUnit  &pu, PelUnitBuf* pDst, Bool 
     i1stPUHeight /= uiMinCUW;
   }
 
-  const Int avgLength      = ( cs.pcv->rectCUs ) ? 1 << ( ( ( ( int ) log2( pu.cu->lumaSize().width ) + ( int ) log2( pu.cu->lumaSize().height ) - 3 ) >> 1 ) + MIN_CU_LOG2 ) : pu.cu->lumaSize().width;
-  const Int nRefineBlkSize = std::max( avgLength >> pu.cs->slice->getSPS()->getSpsNext().getFRUCSmallBlkRefineDepth(), FRUC_MERGE_REFINE_MINBLKSIZE );
+  const Int nRefineBlkSize = xFrucGetSubBlkSize( pu, uiWidth, uiHeight );
 
   const Bool bNormal2Nx2N  = ePartSize == SIZE_2Nx2N && !bATMVP && !bFruc && !bAffine;
   const Bool bSubMotion    = ePartSize == SIZE_NxN || ( ePartSize == SIZE_2Nx2N && ( bATMVP || bFruc || bAffine ) );
 
-  MotionInfo currMi  = pu.getMotionInfo();
+  const InterPredictionData currMi = pu;
   MotionInfo NeighMi = MotionInfo();
 
   Int maxDir =  bNormal2Nx2N ? 2 : 4;
@@ -1257,7 +1732,8 @@ Void InterPrediction::subBlockOBMC( PredictionUnit  &pu, PelUnitBuf* pDst, Bool 
         bSubBlockOBMCSimp |= ( bFruc && nRefineBlkSize == 4 );
         bSubBlockOBMCSimp |= bAffine;
 
-        if( PU::getNeighborMotion( pu, NeighMi, Position( iSubX * uiMinCUW, iSubY * uiMinCUW ), iDir, ( bATMVP || bFruc || bAffine ) ) )
+        const PredictionUnit *neighPu = nullptr;
+        if( PU::getNeighborMotion( pu, NeighMi, Position( iSubX * uiMinCUW, iSubY * uiMinCUW ), iDir, (bATMVP || bFruc || bAffine), neighPu ) )
         {
           //store temporary motion information
           pu              = NeighMi;
@@ -1270,7 +1746,10 @@ Void InterPrediction::subBlockOBMC( PredictionUnit  &pu, PelUnitBuf* pDst, Bool 
           PelUnitBuf cPred = pcYuvPred    .subBuf( predArea );
           PelUnitBuf cTmp1 = pcYuvTmpPred1.subBuf( predArea );
 
-          xSubBlockMotionCompensation( pu, cTmp1 );
+          pu.mergeFlag = neighPu->mergeFlag;
+          pu.mergeType = MRG_TYPE_DEFAULT_N; // avoid call to xSubPuMC()
+          pu.addHypData = neighPu->addHypData;
+          motionCompensation( pu, cTmp1, REF_PIC_LIST_X, true );
 
           if( bOBMC4ME )
           {
@@ -1467,17 +1946,6 @@ Void InterPrediction::xSubtractOBMC( PredictionUnit &pu, PelUnitBuf &pcYuvPredDs
   }
 }
 
-Void InterPrediction::xSubBlockMotionCompensation( PredictionUnit &pu, PelUnitBuf &pcYuvPred )
-{
-  if( xCheckIdenticalMotion( pu ) )
-  {
-    xPredInterUni( pu, REF_PIC_LIST_0, pcYuvPred, false );
-  }
-  else
-  {
-    xPredInterBi( pu, pcYuvPred, true );
-  }
-}
 
 Void InterPrediction::xGradFilterX( const Pel* piRefY, Int iRefStride, Pel* piDstY, Int iDstStride, Int iWidth, Int iHeight, Int iMVyFrac, Int iMVxFrac, const Int bitDepth )
 {
@@ -2056,7 +2524,7 @@ Void InterPrediction::xFrucCollectBlkStartMv( PredictionUnit& pu, const MergeCtx
 
   for( Int nMergeIndex = 0; nMergeIndex < mergeCtx.numValidMergeCand << 1; nMergeIndex++ )
   {
-    Bool mrgTpDflt = ( pu.cs->sps->getSpsNext().getUseSubPuMvp() ) ? mergeCtx.mrgTypeNeighnours[nMergeIndex>>1] == MRG_TYPE_DEFAULT_N : true;
+    Bool mrgTpDflt = ( pu.cs->sps->getSpsNext().getUseSubPuMvp() ) ? mergeCtx.mrgTypeNeighbours[nMergeIndex>>1] == MRG_TYPE_DEFAULT_N : true;
     if( mergeCtx.mvFieldNeighbours[nMergeIndex].refIdx >= 0 && mrgTpDflt )
     {
       if( nTargetRefIdx >= 0 && ( mergeCtx.mvFieldNeighbours[nMergeIndex].refIdx != nTargetRefIdx || ( nMergeIndex & 0x01 ) != ( Int )eTargetRefList ) )
@@ -2108,27 +2576,27 @@ Void InterPrediction::xFrucCollectBlkStartMv( PredictionUnit& pu, const MergeCtx
     if (neighbor == 0)       // top neighbor
     {
       neibPos = pu.lumaPos().offset( 0, -1 );
-      neibPU  = pu.cs->getPURestricted( neibPos, pu );
+      neibPU  = pu.cs->getPURestricted( neibPos, pu, pu.chType );
     }
     else if (neighbor == 1)  // left neighbor
     {
       neibPos = pu.lumaPos().offset( -1, 0 );
-      neibPU  = pu.cs->getPURestricted( neibPos, pu );
+      neibPU  = pu.cs->getPURestricted( neibPos, pu, pu.chType );
     }
     else if (neighbor == 2)  // top-left neighbor
     {
       neibPos = pu.lumaPos().offset( -1, -1 );
-      neibPU  = pu.cs->getPURestricted( neibPos, pu );
+      neibPU  = pu.cs->getPURestricted( neibPos, pu, pu.chType );
     }
     else if (neighbor == 3)  // top-right neighbor
     {
       neibPos = pu.Y().topRight().offset( 1, -1 );
-      neibPU  = pu.cs->getPURestricted( neibPos, pu );
+      neibPU  = pu.cs->getPURestricted( neibPos, pu, pu.chType );
     }
     else if (neighbor == 4)  // below-left neighbor
     {
       neibPos = pu.Y().bottomLeft().offset( -1, 1 );
-      neibPU  = pu.cs->getPURestricted( neibPos, pu );
+      neibPU  = pu.cs->getPURestricted( neibPos, pu, pu.chType );
     }
     else
     {
@@ -2171,27 +2639,27 @@ Void InterPrediction::xFrucCollectSubBlkStartMv( PredictionUnit& pu, const Merge
     if (neighbor == 0)       // top neighbor
     {
       neibPos = pu.lumaPos().offset( 0, -1 );
-      neibPU  = pu.cs->getPURestricted( neibPos, pu );
+      neibPU  = pu.cs->getPURestricted( neibPos, pu, pu.chType );
     }
     else if (neighbor == 1)  // left neighbor
     {
       neibPos = pu.lumaPos().offset( -1, 0 );
-      neibPU  = pu.cs->getPURestricted( neibPos, pu );
+      neibPU  = pu.cs->getPURestricted( neibPos, pu, pu.chType );
     }
     else if (neighbor == 2)  // top-left neighbor
     {
       neibPos = pu.lumaPos().offset( -1, -1 );
-      neibPU  = pu.cs->getPURestricted( neibPos, pu );
+      neibPU  = pu.cs->getPURestricted( neibPos, pu, pu.chType );
     }
     else if (neighbor == 3)  // top-right neighbor
     {
       neibPos = pu.Y().topRight().offset( 1, -1 );
-      neibPU  = pu.cs->getPURestricted( neibPos, pu );
+      neibPU  = pu.cs->getPURestricted( neibPos, pu, pu.chType );
     }
     else if (neighbor == 4)  // below-left neighbor
     {
       neibPos = pu.Y().bottomLeft().offset( -1, 1 );
-      neibPU  = pu.cs->getPURestricted( neibPos, pu );
+      neibPU  = pu.cs->getPURestricted( neibPos, pu, pu.chType );
     }
     else
     {
@@ -2258,6 +2726,7 @@ Void InterPrediction::xFrucCollectSubBlkStartMv( PredictionUnit& pu, const Merge
 
   if( pu.cs->sps->getSpsNext().getUseSubPuMvp() )
   {
+    // TODO: C. Bartnik, revise how this behaves with JVET_E0060_FRUC_CAND
     //add supPu merge candidates
     Position subPos   = pu.lumaPos() - basePuPos;
     int iNumPartLine  = std::max( pu.lumaSize().width  >> pu.cs->sps->getSpsNext().getSubPuMvpLog2Size(), 1u );
@@ -2344,7 +2813,7 @@ UInt InterPrediction::xFrucFindBestMvFromList( MvField* pBestMvField, RefPicList
   return uiMinCost;
 }
 
-Bool InterPrediction::deriveFRUCMV( PredictionUnit &pu )
+Bool InterPrediction::deriveFRUCMV( PredictionUnit &pu, MergeCtx * const pSaveMrgCtx )
 {
   CHECK( !pu.mergeFlag, "merge mode must be used here" );
 
@@ -2359,11 +2828,14 @@ Bool InterPrediction::deriveFRUCMV( PredictionUnit &pu )
   }
 
   PU::getInterMergeCandidates( pu, mrgCtx );
+  if( pSaveMrgCtx )
+    *pSaveMrgCtx = mrgCtx;
 
   bAvailable = xFrucFindBlkMv( pu, mrgCtx );
   if( bAvailable )
   {
     xFrucRefineSubBlkMv( pu, mrgCtx, pu.frucMrgMode == FRUC_MERGE_TEMPLATE );
+    PU::restrictFRUCRefList( pu, mrgCtx );
   }
 
   return bAvailable;
@@ -2833,7 +3305,7 @@ Bool InterPrediction::xFrucIsTopTempAvailable( PredictionUnit& pu )
 {
   const CodingStructure &cs     = *pu.cs;
         Position posRT          = pu.Y().topRight();
-  const PredictionUnit *puAbove = cs.getPURestricted( posRT.offset( 0, -1 ), pu );
+  const PredictionUnit *puAbove = cs.getPURestricted( posRT.offset( 0, -1 ), pu, pu.chType );
 
   return ( puAbove && pu.cu != puAbove->cu );
 }
@@ -2842,7 +3314,7 @@ Bool InterPrediction::xFrucIsLeftTempAvailable( PredictionUnit& pu )
 {
   const CodingStructure &cs    = *pu.cs;
         Position posLB         = pu.Y().bottomLeft();
-  const PredictionUnit *puLeft = cs.getPURestricted( posLB.offset( -1, 0 ), pu );
+  const PredictionUnit *puLeft = cs.getPURestricted( posLB.offset( -1, 0 ), pu, pu.chType );
 
   return ( puLeft && pu.cu !=puLeft->cu );
 }
@@ -2912,7 +3384,6 @@ Void InterPrediction::xPredInterLines( const PredictionUnit& pu, const Picture* 
 
   Position offset      = pu.blocks[compID].pos().offset( _mv.getHor() >> shiftHor, _mv.getVer() >> shiftVer );
   const CPelBuf refBuf = refPic->getRecoBuf( CompArea( compID, chFmt, offset, pu.blocks[compID].size() ) );
-
   PelBuf &dstBuf = dstPic.bufs[compID];
 
   int xFrac = _mv.hor & ( ( 1 << shiftHor ) - 1 );
@@ -3094,6 +3565,7 @@ Void InterPrediction::xProcessDMVR( PredictionUnit& pu, PelUnitBuf &pcYuvDst, co
                          PelUnitBuf(pu.chromaFormat, PelBuf(m_acYuvPred[1][0], pcYuvDst.Y())) :
                          PelUnitBuf(pu.chromaFormat, PelBuf(m_acYuvPred[1][0], pcYuvDst.Y()), PelBuf(m_acYuvPred[1][1], pcYuvDst.Cb()), PelBuf(m_acYuvPred[1][2], pcYuvDst.Cr())) );
 
+
   //mv refinement
   UInt searchStepShift = 2;
   if( pu.cu->slice->getSPS()->getSpsNext().getUseHighPrecMv() )
@@ -3103,7 +3575,7 @@ Void InterPrediction::xProcessDMVR( PredictionUnit& pu, PelUnitBuf &pcYuvDst, co
     pu.mv[1].setHighPrec();
   }
 
-  pcYuvDst.addAvg ( srcPred0, srcPred1, clpRngs, false, true );
+  pcYuvDst.addAvg( srcPred0, srcPred1, clpRngs, false, true );
 
   //list 0
   //get init cost
@@ -3119,12 +3591,17 @@ Void InterPrediction::xProcessDMVR( PredictionUnit& pu, PelUnitBuf &pcYuvDst, co
 
   clipMv( mv, pu.lumaPos(), *pu.cs->sps );
 
+  MdbpMode mdbpMode;
+  if( PU::isMdbpPredEnabled( pu, mv ) )
+  {
+    m_mdbpPred.estimateMdbpMode( COMPONENT_Y, pu, pu.cu->slice->getRefPic( REF_PIC_LIST_0, iRefIdx0 ), mv, mdbpMode );
+  }
 
   for( UInt comp = COMPONENT_Y; comp < srcPred0.bufs.size() && comp <= m_maxCompIDToPred; comp++ )
   {
     const ComponentID compID = ComponentID( comp );
 
-    xPredInterBlk( compID, pu, pu.cu->slice->getRefPic( REF_PIC_LIST_0, iRefIdx0 ), mv, srcPred0, true, clpRngs.comp[compID], bBIOApplied, false, FRUC_MERGE_OFF, true );
+    xPredInterBlk( compID, pu, pu.cu->slice->getRefPic( REF_PIC_LIST_0, iRefIdx0 ), mv, srcPred0, true, clpRngs.comp[compID], bBIOApplied, false, FRUC_MERGE_OFF, true, mdbpMode );
   }
 
   //list 1
@@ -3141,16 +3618,215 @@ Void InterPrediction::xProcessDMVR( PredictionUnit& pu, PelUnitBuf &pcYuvDst, co
 
   clipMv( mv, pu.lumaPos(), *pu.cs->sps );
 
+  mdbpMode.reset();
+  if( PU::isMdbpPredEnabled( pu, mv ) )
+  {
+    m_mdbpPred.estimateMdbpMode( COMPONENT_Y, pu, pu.cu->slice->getRefPic( REF_PIC_LIST_1, iRefIdx1 ), mv, mdbpMode );
+  }
 
   for( UInt comp = COMPONENT_Y; comp < srcPred1.bufs.size() && comp <= m_maxCompIDToPred; comp++ )
   {
     const ComponentID compID = ComponentID( comp );
 
-    xPredInterBlk( compID, pu, pu.cu->slice->getRefPic( REF_PIC_LIST_1, iRefIdx1 ), mv, srcPred1, true, clpRngs.comp[compID], bBIOApplied, false, FRUC_MERGE_OFF, true );
+    xPredInterBlk( compID, pu, pu.cu->slice->getRefPic( REF_PIC_LIST_1, iRefIdx1 ), mv, srcPred1, true, clpRngs.comp[compID], bBIOApplied, false, FRUC_MERGE_OFF, true, mdbpMode );
   }
 
   PU::spanMotionInfo( pu );
 }
 
+void InterPrediction::xAddHypMC( PredictionUnit& pu, PelUnitBuf& predBuf, Bool bOBMC )
+{
+  // save and strip off last hypothesis
+  const MultiHypPredictionData mhData = pu.addHypData.back();
+  pu.addHypData.pop_back();
+
+  // get prediction without last hypothesis
+  motionCompensation( pu, predBuf, REF_PIC_LIST_X, bOBMC );
+  // get legacy ref list and ref idx
+  const auto &MHRefPics = pu.cs->slice->getMultiHypRefPicList();
+  CHECK(mhData.refIdx < 0, "Multi Hyp: mhData.refIdx < 0");
+  CHECK(mhData.refIdx >= MHRefPics.size(), "Multi Hyp: mhData.refIdx >= MHRefPics.size()");
+  const int iRefPicList = MHRefPics[mhData.refIdx].refList;
+  const int iRefIdx =  MHRefPics[mhData.refIdx].refIdx;
+
+  // construct fake object using legacy indexing
+  InterPredictionData fakePredData;
+  fakePredData.interDir = iRefPicList + 1;
+  fakePredData.mv[iRefPicList] = mhData.mv;
+  fakePredData.refIdx[iRefPicList] = iRefIdx;
+  fakePredData.refIdx[1-iRefPicList] = -1;
+  fakePredData.mergeFlag = false;
+  fakePredData.mergeType = MRG_TYPE_DEFAULT_N;
+  fakePredData.mvRefine  = false;
+  // set up PU with fake prediction data
+  const InterPredictionData savedPredData( pu );
+  const auto savedAffine = pu.cu->affine;
+  pu = fakePredData;
+  pu.cu->affine = false;
+  CHECK(!pu.addHypData.empty(),"Multi Hyp: !pu.addHypData.empty()");
+
+  // get prediction for current additional hypothesis
+  const UnitArea unitAreaFromPredBuf( predBuf.chromaFormat, Area( Position(0, 0), predBuf.Y() ) );
+  PelUnitBuf tempBuf = m_additionalHypothesisStorage.getBuf( unitAreaFromPredBuf );
+  motionCompensation( pu, tempBuf, REF_PIC_LIST_X, bOBMC );
+  // restore PU
+  pu = savedPredData;
+  pu.cu->affine = savedAffine;
+  pu.addHypData.push_back( mhData );
+
+  CHECK(mhData.weightIdx < 0, "Multi Hyp: mhData.weightIdx < 0");
+  CHECK(mhData.weightIdx >= HHI_MULTI_HYPOTHESEIS_NUM_WEIGHTS, "Multi Hyp: mhData.weightIdx >= HHI_MULTI_HYPOTHESEIS_NUM_WEIGHTS");
+  predBuf.addHypothesisAndClip( tempBuf, g_addHypWeight[mhData.weightIdx], pu.cs->slice->clpRngs() );
+}
+
+#if MCTS_ENC_CHECK
+Void getRefPUPartPos(PredictionUnit& pu, Int xOff, Int yOff, const Mv& mv, Int& ruiPredXLeft, Int& ruiPredYTop, Int& ruiPredXRight, Int& ruiPredYBottom)
+{
+  Mv _mv = mv;
+  _mv.setHighPrec();
+
+  Int predShift = (2 + VCEG_AZ07_MV_ADD_PRECISION_BIT_FOR_STORE);
+  
+  ruiPredXLeft   = (_mv.getHor() >> predShift) + pu.lx() + xOff;
+  ruiPredYTop    = (_mv.getVer() >> predShift) + pu.ly() + yOff;
+  ruiPredXRight  = ruiPredXLeft + pu.lwidth() - 1;
+  ruiPredYBottom = ruiPredYTop + pu.lheight() - 1;
+}
+
+Bool checkMVPRange(const Mv& mv, UInt ctuLength, UInt tileXPosInCtus, UInt tileYPosInCtus, UInt tileWidthtInCtus, UInt tileHeightInCtus, Int PredXLeft, Int PredXRight, Int PredYTop, Int PredYBottom, ChromaFormat chromaFormat)
+{
+  // all calculations in High Precision
+  Mv _mv=mv;
+  _mv.setHighPrec();
+
+  // filter length of sub-sample generation filter to be considered
+  const UInt LumaLTSampleOffset = 3;
+  const UInt LumaRBSampleOffset = 4;
+  const UInt CromaLTSampleoffset = 1;
+  const UInt CromaRBSampleoffset = 2;
+
+  // tile position in full pel
+  const Int leftTopPelPosX = ctuLength * tileXPosInCtus;
+  const Int leftTopPelPosY = ctuLength * tileYPosInCtus;
+  const Int rightBottomPelPosX = ((tileWidthtInCtus + tileXPosInCtus) * ctuLength) - 1;
+  const Int rightBottomPelPosY = ((tileHeightInCtus + tileYPosInCtus) * ctuLength) - 1;
+
+  int fracDiv = 1 << (2 + VCEG_AZ07_MV_ADD_PRECISION_BIT_FOR_STORE);
+
+  // Luma MV range check
+  const Bool isFullPelHorLuma = (_mv.getHor() % fracDiv == 0);
+  const Bool isFullPelVerLuma = (_mv.getVer() % fracDiv == 0);
+
+  const Int lRangeXLeft = leftTopPelPosX + (isFullPelHorLuma ? 0 : LumaLTSampleOffset);
+  const Int lRangeYTop = leftTopPelPosY + (isFullPelVerLuma ? 0 : LumaLTSampleOffset);
+  const Int lRangeXRight = rightBottomPelPosX - (isFullPelHorLuma ? 0 : LumaRBSampleOffset);
+  const Int lRangeYBottom = rightBottomPelPosY - (isFullPelVerLuma ? 0 : LumaRBSampleOffset);
+
+  if (!(PredXLeft >= lRangeXLeft && PredXLeft <= lRangeXRight) || !(PredXRight >= lRangeXLeft && PredXRight <= lRangeXRight))
+  {
+    return false;
+  }
+  else if (!(PredYTop >= lRangeYTop && PredYTop <= lRangeYBottom) || !(PredYBottom >= lRangeYTop && PredYBottom <= lRangeYBottom))
+  {
+    return false;
+  }
+
+  if ((chromaFormat != CHROMA_444) && (chromaFormat != CHROMA_400))
+  {
+    // Chroma MV range check
+    int fracDiv = 1 << ( 3 + VCEG_AZ07_MV_ADD_PRECISION_BIT_FOR_STORE );
+
+    const Bool isFullPelHorChroma = (_mv.getHor() % fracDiv == 0);
+    const Bool isFullPelVerChroma = (_mv.getVer() % fracDiv == 0);
+
+    const Int cRangeXLeft = leftTopPelPosX + (isFullPelHorChroma ? 0 : CromaLTSampleoffset);
+    const Int cRangeYTop = leftTopPelPosY + (isFullPelVerChroma ? 0 : CromaLTSampleoffset);
+    const Int cRangeXRight = rightBottomPelPosX - (isFullPelHorChroma ? 0 : CromaRBSampleoffset);
+    const Int cRangeYBottom = rightBottomPelPosY - (isFullPelVerChroma ? 0 : CromaRBSampleoffset);
+
+    if (!(PredXLeft >= cRangeXLeft && PredXLeft <= cRangeXRight) || !(PredXRight >= cRangeXLeft && PredXRight <= cRangeXRight))
+    {
+      return false;
+    }
+    else if ((!(PredYTop >= cRangeYTop && PredYTop <= cRangeYBottom) || !(PredYBottom >= cRangeYTop && PredYBottom <= cRangeYBottom)) && (chromaFormat != CHROMA_422))
+    {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+Bool InterPrediction::checkTMctsMv(PredictionUnit &pu)
+{
+  UInt  tileXPosInCtus = 0;
+  UInt  tileYPosInCtus = 0;
+  UInt  tileWidthtInCtus = 0;
+  UInt  tileHeightInCtus = 0;
+
+  getTilePosition(pu, tileXPosInCtus, tileYPosInCtus, tileWidthtInCtus, tileHeightInCtus);
+
+  const UInt            ctuLength = pu.cs->sps->getMaxCUWidth();
+  const ChromaFormat chromaFormat = pu.cs->sps->getChromaFormatIdc();
+
+  Int   predXLeft;
+  Int   predYTop;
+  Int   predXRight;
+  Int   predYBottom;
+
+
+  const MotionBuf mb = pu.getMotionBuf();
+
+  for (int y = 0; y < mb.height; y++)
+  {
+    for (int x = 0; x < mb.width; x++)
+    {
+      const MotionInfo &mi = mb.at(x, y);
+
+      CHECK(!mi.isInter, "But it should be!");
+
+      int xOff = x << g_miScaling.posx;
+      int yOff = y << g_miScaling.posy;
+
+      if (xCheckIdenticalMotion(pu))
+      {
+        RefPicList eRefPicList = REF_PIC_LIST_0;
+        const Mv mv = mi.mv[eRefPicList];
+        getRefPUPartPos(pu, xOff, yOff, mv, predXLeft, predYTop, predXRight, predYBottom);
+        if (!checkMVPRange(mv, ctuLength, tileXPosInCtus, tileYPosInCtus, tileWidthtInCtus, tileHeightInCtus, predXLeft, predXRight, predYTop, predYBottom, chromaFormat))
+        {
+          return false;
+        }
+      }
+      else
+      {
+        for (UInt refList = 0; refList < NUM_REF_PIC_LIST_01; refList++)
+        {
+          RefPicList eRefPicList = (refList ? REF_PIC_LIST_1 : REF_PIC_LIST_0);
+
+          const Mv mv = mi.mv[eRefPicList];;
+          getRefPUPartPos(pu, xOff, yOff, mv, predXLeft, predYTop, predXRight, predYBottom);
+          if (!checkMVPRange(mv, ctuLength, tileXPosInCtus, tileYPosInCtus, tileWidthtInCtus, tileHeightInCtus, predXLeft, predXRight, predYTop, predYBottom, chromaFormat))
+          {
+            return false;
+          }
+        }
+      }
+    }
+  }
+
+  for (const MultiHypPredictionData &hyp : pu.addHypData)
+  {
+    const Mv mv = hyp.mv;
+    getRefPUPartPos(pu, 0, 0, mv, predXLeft, predYTop, predXRight, predYBottom);
+    if (!checkMVPRange(mv, ctuLength, tileXPosInCtus, tileYPosInCtus, tileWidthtInCtus, tileHeightInCtus, predXLeft, predXRight, predYTop, predYBottom, chromaFormat))
+    {
+      return false;
+    }
+  }
+  return true;
+}
+
+#endif
 
 //! \}

@@ -86,6 +86,12 @@ UInt DecApp::decode()
 
   InputByteStream bytestream(bitstreamFile);
 
+  bitstreamFile.seekg( 0, ios::end );
+
+  streampos lastPos = bitstreamFile.tellg();
+
+  bitstreamFile.clear();
+  bitstreamFile.seekg( 0, ios::beg );
   if (!m_outputDecodedSEIMessagesFilename.empty() && m_outputDecodedSEIMessagesFilename!="-")
   {
     m_seiMessageFileStream.open(m_outputDecodedSEIMessagesFilename.c_str(), std::ios::out);
@@ -114,6 +120,11 @@ UInt DecApp::decode()
   Bool openedReconFile = false; // reconstruction file not yet opened. (must be performed after SPS is seen)
   Bool loopFiltered = false;
 
+  unsigned numBitsFrame = 0;
+
+  streampos picStartLocation = bitstreamFile.tellg();
+  streampos picEndLocation   = bitstreamFile.tellg();
+  int subbits = 0;
   while (!!bitstreamFile)
   {
     /* location serves to work around a design fault in the decoder, whereby
@@ -145,6 +156,11 @@ UInt DecApp::decode()
     else
     {
       read(nalu);
+
+      if(( m_bDiscardPrefixSEIBits && nalu.m_nalUnitType == NAL_UNIT_PREFIX_SEI ) || ( m_bDiscardSuffixSEIBits && nalu.m_nalUnitType == NAL_UNIT_SUFFIX_SEI ))
+      {
+        subbits += stats.m_numBytesInNALUnit + stats.m_numStartCodePrefixBytes;
+      }
       if( (m_iMaxTemporalLayer >= 0 && nalu.m_temporalId > m_iMaxTemporalLayer) || !isNaluWithinTargetDecLayerIdSet(&nalu)  )
       {
         bNewPicture = false;
@@ -167,6 +183,7 @@ UInt DecApp::decode()
           bitstreamFile.seekg(location-streamoff(3));
           bytestream.reset();
 #endif
+          picEndLocation = bitstreamFile.tellg();
         }
       }
     }
@@ -175,10 +192,16 @@ UInt DecApp::decode()
 
     if( ( bNewPicture || !bitstreamFile || nalu.m_nalUnitType == NAL_UNIT_EOS ) && !m_cDecLib.getFirstSliceInSequence() )
     {
+      if( !bitstreamFile )
+      {
+        picEndLocation = lastPos;
+      }
+
+      numBitsFrame   = unsigned( picEndLocation - picStartLocation - subbits) << 3;
       if (!loopFiltered || bitstreamFile)
       {
         m_cDecLib.executeLoopFilters();
-        m_cDecLib.finishPicture(poc, pcListPic);
+        m_cDecLib.finishPicture( poc, pcListPic, numBitsFrame );
       }
       loopFiltered = (nalu.m_nalUnitType == NAL_UNIT_EOS);
       if (nalu.m_nalUnitType == NAL_UNIT_EOS)
@@ -186,6 +209,11 @@ UInt DecApp::decode()
         m_cDecLib.setFirstSliceInSequence(true);
       }
 
+      if( bitstreamFile )
+      {
+        subbits = 0;
+        picStartLocation = bitstreamFile.tellg();
+      }
     }
     else if ( (bNewPicture || !bitstreamFile || nalu.m_nalUnitType == NAL_UNIT_EOS ) &&
               m_cDecLib.getFirstSliceInSequence () )
@@ -270,12 +298,17 @@ UInt DecApp::decode()
 Void DecApp::xCreateDecLib()
 {
   initROM();
+
   // create decoder class
   m_cDecLib.create();
 
   // initialize decoder class
   m_cDecLib.init();
   m_cDecLib.setDecodedPictureHashSEIEnabled(m_decodedPictureHashSEIEnabled);
+#if MCTS_ENC_CHECK
+  m_cDecLib.setTMctsCheckEnabled( m_tmctsCheck );
+
+#endif
   if (!m_outputDecodedSEIMessagesFilename.empty())
   {
     std::ostream &os=m_seiMessageFileStream.is_open() ? m_seiMessageFileStream : std::cout;

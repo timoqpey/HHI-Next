@@ -27,6 +27,7 @@ endif()
 add_executable( ${EXE_NAME} ${SRC_FILES} ${INC_FILES} ${NATVIS_FILES} ${CMAKE_CURRENT_BINARY_DIR}/svnheader.h )
 # include the output directory, where the svnrevision.h file is generated
 include_directories(${CMAKE_CURRENT_BINARY_DIR})
+
 if( SET_ENABLE_TRACING )
   if( ENABLE_TRACING )
     target_compile_definitions( ${EXE_NAME} PUBLIC ENABLE_TRACING=1 )
@@ -34,6 +35,32 @@ if( SET_ENABLE_TRACING )
     target_compile_definitions( ${EXE_NAME} PUBLIC ENABLE_TRACING=0 )
   endif()
 endif()
+
+if( ${CMAKE_SYSTEM_NAME} MATCHES "Darwin" )
+  target_compile_definitions( ${EXE_NAME} PUBLIC HHI_SPLIT_PARALLELISM=0 )
+  target_compile_definitions( ${EXE_NAME} PUBLIC HHI_WPP_PARALLELISM=0 )
+else()
+  if( SET_HHI_SPLIT_PARALLELISM )
+    if( HHI_SPLIT_PARALLELISM )
+      target_compile_definitions( ${EXE_NAME} PUBLIC HHI_SPLIT_PARALLELISM=1 )
+    else()
+      target_compile_definitions( ${EXE_NAME} PUBLIC HHI_SPLIT_PARALLELISM=0 )
+    endif()
+  endif()
+  if( SET_HHI_WPP_PARALLELISM )
+    if( HHI_WPP_PARALLELISM )
+      target_compile_definitions( ${EXE_NAME} PUBLIC HHI_WPP_PARALLELISM=1 )
+    else()
+      target_compile_definitions( ${EXE_NAME} PUBLIC HHI_WPP_PARALLELISM=0 )
+    endif()
+  endif()
+endif()
+
+if( CMAKE_COMPILER_IS_GNUCC AND BUILD_STATIC )
+  set( ADDITIONAL_LIBS ${ADDITIONAL_LIBS} -static -static-libgcc -static-libstdc++ )
+  target_compile_definitions( ${EXE_NAME} PUBLIC HHI_WPP_STATIC_LINK=1 )
+endif()
+
 target_link_libraries( ${EXE_NAME} CommonLib EncoderLib DecoderLib Utilities Threads::Threads ${ADDITIONAL_LIBS} )
 
 # Add a SVN revision generator
@@ -62,12 +89,12 @@ if( CMAKE_SYSTEM_NAME STREQUAL "Linux" )
                                                           $<$<CONFIG:Release>:${CMAKE_SOURCE_DIR}/bin/EncoderAppStatic>
                                                           $<$<CONFIG:RelWithDebInfo>:${CMAKE_SOURCE_DIR}/bin/EncoderAppStaticp>
                                                           $<$<CONFIG:MinSizeRel>:${CMAKE_SOURCE_DIR}/bin/EncoderAppStaticm> )
-endif()                    
+endif()
 
 # example: place header files in different folders
 source_group( "Natvis Files" FILES ${NATVIS_FILES} )
 
 # set the folder where to place the projects
-set_target_properties( ${EXE_NAME}  PROPERTIES FOLDER app )
+set_target_properties( ${EXE_NAME}  PROPERTIES FOLDER app LINKER_LANGUAGE CXX )
 set_target_properties( EncSvnHeader PROPERTIES FOLDER svn )
 

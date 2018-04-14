@@ -106,6 +106,7 @@ unsigned BinDecoderBase::decodeBinEP()
     m_Value          += m_Bitstream->readByte();
     m_bitsNeeded      = -8;
   }
+
   unsigned bin = 0;
   unsigned SR  = m_Range << 7;
   if( m_Value >= SR )
@@ -334,7 +335,7 @@ unsigned TBinDecoder<BinProbModel>::decodeBin( unsigned ctxId )
   unsigned      bin         = rcProbModel.mps();
   uint32_t      LPS         = rcProbModel.getLPS( m_Range );
 
-  DTRACE( g_trace_ctx, D_CABAC, "%d" "  " "%d" "  " "[%d:%d]" "  " "%2d(MPS=%d)"  "  " , DTRACE_GET_COUNTER( g_trace_ctx, D_CABAC ), m_Range, m_Range-LPS, LPS, ( unsigned int )( rcProbModel.state() ), m_Value < ( ( m_Range - LPS ) << 7 ) );
+  DTRACE( g_trace_ctx, D_CABAC, "%d" " %d " "%d" "  " "[%d:%d]" "  " "%2d(MPS=%d)"  "  " , DTRACE_GET_COUNTER( g_trace_ctx, D_CABAC ), ctxId, m_Range, m_Range-LPS, LPS, ( unsigned int )( rcProbModel.state() ), m_Value < ( ( m_Range - LPS ) << 7 ) );
 
   m_Range   -=  LPS;
   uint32_t      SR          = m_Range << 7;
@@ -387,4 +388,7 @@ template class TBinDecoder<BinProbModel_Std>;
 template class TBinDecoder<BinProbModel_JMP>;
 template class TBinDecoder<BinProbModel_JAW>;
 template class TBinDecoder<BinProbModel_JMPAW>;
+template class TBinDecoder<BinProbModel_MP>;
+template class TBinDecoder<BinProbModel_MPI>;
+template class TBinDecoder<BinProbModel_MPCW>;
 

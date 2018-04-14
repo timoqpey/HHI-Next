@@ -48,10 +48,18 @@ namespace CS
 {
   UInt64 getEstBits                   ( const CodingStructure &cs );
   void   initFrucMvp                  (       CodingStructure &cs );
-  UnitArea getArea                    ( const CodingStructure &cs, const UnitArea &area );
+  UnitArea getArea                    ( const CodingStructure &cs, const UnitArea &area, const ChannelType chType );
   bool   isDualITree                  ( const CodingStructure &cs );
 }
 
+struct CIPFSpec
+{
+  bool  loadCtx;
+  bool  storeCtx;
+  int   ctxId;
+};
+
+CIPFSpec getCIPFSpec( const Slice* slice, const int ctuXPosInCtus, const int ctuYPosInCtus );
 
 // CU tools
 namespace CU
@@ -82,6 +90,7 @@ namespace CU
   UInt getNumNonZeroCoeffNonTs        (const CodingUnit& cu);
   bool isLICFlagPresent               (const CodingUnit& cu);
   bool isObmcFlagCoded                (const CodingUnit& cu);
+  bool isDiffIdxPresent               (const CodingUnit& cu);
 
   PUTraverser traversePUs             (      CodingUnit& cu);
   TUTraverser traverseTUs             (      CodingUnit& cu);
@@ -91,6 +100,19 @@ namespace CU
   bool  hasSubCUNonZeroMVd            (const CodingUnit& cu);
   int   getMaxNeighboriMVCandNum      (const CodingStructure& cs, const Position& pos);
   void  resetMVDandMV2Int             (      CodingUnit& cu, InterPrediction *interPred );
+
+  bool divideTuInRows                 (const CodingUnit &cu);
+  bool firstTest1dHorSplit            (const CodingUnit &cu, const ComponentID &compID, const CodingUnit *cuLeft = nullptr, const CodingUnit *cuAbove = nullptr);
+  bool firstTest1dHorSplit            (const int width, const int height, const int cuLeftWidth = -1, const int cuLeftHeight = -1, const int cuAboveWidth = -1, const int cuAboveHeight = -1, const int cuLeft1dSplit = 0, const int cuAbove1dSplit = 0);
+  PartSplit select1dPartitionType     (const CodingUnit &cu, const ComponentID &compID);
+  PartSplit select1dPartitionType     (const CodingUnit &cu, const PredictionUnit &pu, const ComponentID &compID);
+  PartSplit select1dPartitionTypeFromIntraMode
+                                      (const CodingUnit &cu,UInt intraMode);
+  bool isFirst1dPartition             (const CodingUnit &cu, CompArea tuArea,                          const ComponentID &compID);
+  bool isLast1dPartition              (const CodingUnit &cu, CompArea tuArea,                          const ComponentID &compID);
+  bool isLast1dPartition              (const CodingUnit &cu, CompArea tuArea, PartSplit partitionType, const ComponentID &compID);
+  bool useRedTrafoSet                 (const CodingUnit &cu);
+
 }
 // PU tools
 namespace PU
@@ -100,8 +122,11 @@ namespace PU
   int  getDMModes                     (const PredictionUnit &pu, unsigned *modeList);
   void getIntraChromaCandModes        (const PredictionUnit &pu, unsigned modeList[NUM_CHROMA_MODE]);
   UInt getFinalIntraMode              (const PredictionUnit &pu, const ChannelType &chType);
+  void  getIntraFtmRegs               (const PredictionUnit &pu, unsigned RegList[NUM_FTM_REG], unsigned &numReg);
 
   void getInterMergeCandidates        (const PredictionUnit &pu, MergeCtx& mrgCtx, const int& mrgCandIdx = -1 );
+  void restrictInterMergeCandidatesForRefPicList(MergeCtx& mrgCtx, const RefPicList &eRefPicList, const Slice &slice);
+  void restrictFRUCRefList            (PredictionUnit &pu, const MergeCtx& mrgCtx);
   bool isDiffMER                      (const PredictionUnit &pu, const PredictionUnit &pu2);
   bool getColocatedMVP                (const PredictionUnit &pu, const RefPicList &eRefPicList, const Position &pos, Mv& rcMv, const int &refIdx, bool* pLICFlag = 0 );
   void fillMvpCand                    (      PredictionUnit &pu, const RefPicList &eRefPicList, const int &refIdx, AMVPInfo &amvpInfo, InterPrediction *interPred = NULL);
@@ -123,7 +148,7 @@ namespace PU
   bool isBIOLDB                       (const PredictionUnit &pu);
   bool isBiPredFromDifferentDir       (const PredictionUnit &pu);
   void restrictBiPredMergeCands       (const PredictionUnit &pu, MergeCtx& mrgCtx);
-  bool getNeighborMotion              (      PredictionUnit &pu, MotionInfo& mi, Position off, Int iDir, Bool bSubPu );
+  bool getNeighborMotion              (      PredictionUnit &pu, MotionInfo& mi, Position off, Int iDir, Bool bSubPu, const PredictionUnit *&neighPu );
   bool getMvPair                      (const PredictionUnit &pu, RefPicList eCurRefPicList, const MvField & rCurMvField, MvField &rMvPair);
   bool isSameMVField                  (const PredictionUnit &pu, RefPicList eListA, MvField &rMVFieldA, RefPicList eListB, MvField &rMVFieldB);
   Mv   scaleMv                        (const Mv &rColMV, Int iCurrPOC, Int iCurrRefPOC, Int iColPOC, Int iColRefPOC, Slice *slice);
@@ -132,6 +157,12 @@ namespace PU
   bool isMFLMEnabled                  (const PredictionUnit &pu);
   bool isLMCModeEnabled               (const PredictionUnit &pu, unsigned mode);
   bool isChromaIntraModeCrossCheckMode(const PredictionUnit &pu);
+
+  Mv   getMultiHypMVP                 ( PredictionUnit &pu, const MultiHypPredictionData &mhData );
+  AMVPInfo getMultiHypMVPCands        ( PredictionUnit &pu, const int mhRefIdx );
+
+  bool isMdbpPredEnabled              (const PredictionUnit &pu, const Mv& mv);
+  bool isRefOutOfPic                  (const PredictionUnit &pu, const int x, const int y);
 }
 
 // TU tools
@@ -148,33 +179,63 @@ namespace TU
   UInt getCoefScanIdx                 (const TransformUnit &tu, const ComponentID &compID);
   bool isProcessingAllQuadrants       (const UnitArea      &tuArea);
   bool hasCrossCompPredInfo           (const TransformUnit &tu, const ComponentID &compID);
-  bool needsSqrt2Scale                (const Size& size);
-}
 
-// Other tools
+  bool needsSqrt2Scale                ( const Size& size );
+  int  getBlockSizeTrafoScaleForQuant         ( const Size& size );
+  int  getBlockSizeTrafoScaleForDeQuant       ( const Size& size );
+  bool needsBlockSizeTrafoScale       ( const Size& size );
+  TransformUnit* getPrevTU            (const TransformUnit &tu, const ComponentID &compID);
+  bool           getPrevTuCbfAtDepth  (const TransformUnit &currentTu, UInt trDepth, const ComponentID &compID);
+  UInt           getPartitionIndex    (const TransformUnit &tu,                              const ComponentID compID);
+  UInt           getPartitionIndex    (const CodingUnit    &cu, const Position currentTuPos, const ComponentID compID);
+  UInt           get1dTransformType   (const TransformUnit &tu, const ComponentID compID);
+  UInt           getTrKey             (const TransformUnit &tu, const ComponentID &compID);
+  UInt           getEmtNsstTrKey      (const TransformUnit &tu, const ComponentID &compID);
+  bool           useNonSepPrTrafo     (const TransformUnit &tu, const ComponentID compID);
+  bool           useSecTrafo          (const TransformUnit &tu, const ComponentID compID);
+  UInt           getNonSepSecIdx      (const TransformUnit &tu, const ComponentID compID);
+  UInt           getNonSepPrimIdx     (const TransformUnit &tu, const ComponentID compID);
+  bool           isIntraNNTransform   (const TransformUnit &tu, const ComponentID compID);
+  bool           isIntraNNPrimTrSize  (const TransformUnit &TU, const ComponentID compID);
+  bool           useEMT               (const UInt trKey);
+  bool           useNSST              (const UInt trKey);
+  TransType      getPrimTrV           (const UInt trKey);
+  TransType      getPrimTrH           (const UInt trKey);
+  UChar          getNsstIdx           (const UInt trKey);
+}
 
 UInt getCtuAddr        (const Position& pos, const PreCalcValues &pcv);
 
 template<typename T, size_t N>
-UInt updateCandList( T uiMode, Double uiCost, static_vector<T, N>& candModeList, static_vector<Double, N>& candCostList, size_t uiFastCandNum = N )
+UInt updateCandList( T uiMode, Double uiCost, static_vector<T, N>& candModeList, static_vector<double, N>& candCostList, size_t uiFastCandNum = N )
 {
-  UInt i;
-  UInt shift = 0;
+  CHECK( std::min( uiFastCandNum, candModeList.size() ) != std::min( uiFastCandNum, candCostList.size() ), "Sizes do not match!" );
+  CHECK( uiFastCandNum > candModeList.capacity(), "The vector is to small to hold all the candidates!" );
 
-  while( shift < uiFastCandNum && uiCost < candCostList[uiFastCandNum - 1 - shift] )
+  size_t i;
+  size_t shift = 0;
+  size_t currSize = std::min( uiFastCandNum, candCostList.size() );
+
+  while( shift < uiFastCandNum && shift < currSize && uiCost < candCostList[currSize - 1 - shift] )
   {
     shift++;
   }
 
-  if( shift != 0 )
+  if( candModeList.size() >= uiFastCandNum && shift != 0 )
   {
     for( i = 1; i < shift; i++ )
     {
-      candModeList[ uiFastCandNum-i ] = candModeList[ uiFastCandNum-1-i ];
-      candCostList[ uiFastCandNum-i ] = candCostList[ uiFastCandNum-1-i ];
+      candModeList[currSize - i] = candModeList[currSize - 1 - i];
+      candCostList[currSize - i] = candCostList[currSize - 1 - i];
     }
-    candModeList[ uiFastCandNum-shift ] = uiMode;
-    candCostList[ uiFastCandNum-shift ] = uiCost;
+    candModeList[currSize - shift] = uiMode;
+    candCostList[currSize - shift] = uiCost;
+    return 1;
+  }
+  else if( currSize < uiFastCandNum )
+  {
+    candModeList.insert( candModeList.end() - shift, uiMode );
+    candCostList.insert( candCostList.end() - shift, uiCost );
     return 1;
   }
 
@@ -182,4 +243,8 @@ UInt updateCandList( T uiMode, Double uiCost, static_vector<T, N>& candModeList,
 }
 
 
+#endif
+
+#if MCTS_ENC_CHECK
+Void getTilePosition( const PredictionUnit& pu, UInt &tileXPosInCtus, UInt &tileYPosInCtus, UInt &tileWidthtInCtus, UInt &tileHeightInCtus );
 #endif

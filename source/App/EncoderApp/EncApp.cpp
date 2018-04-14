@@ -176,10 +176,8 @@ Void EncApp::xInitLibCfg()
   m_cEncLib.setChromaFormatIdc                                   ( m_chromaFormatIDC  );
   m_cEncLib.setUseAdaptiveQP                                     ( m_bUseAdaptiveQP  );
   m_cEncLib.setQPAdaptationRange                                 ( m_iQPAdaptationRange );
-#if HHI_HLM_USE_QPA
   m_cEncLib.setUsePerceptQPA                                     ( m_bUsePerceptQPA && !m_bUseAdaptiveQP );
   m_cEncLib.setUseWPSNR                                          ( m_bUseWPSNR );
-#endif
   m_cEncLib.setExtendedPrecisionProcessingFlag                   ( m_extendedPrecisionProcessingFlag );
   m_cEncLib.setHighPrecisionOffsetsEnabledFlag                   ( m_highPrecisionOffsetsEnabledFlag );
 
@@ -213,8 +211,8 @@ Void EncApp::xInitLibCfg()
   m_cEncLib.setNSST                                              ( m_NSST );
   m_cEncLib.setIntra4Tap                                         ( m_Intra4Tap );
   m_cEncLib.setIntra65Ang                                        ( m_Intra65Ang );
-  m_cEncLib.setLargeCTU                                          ( m_LargeCTU );
   m_cEncLib.setUseIntraBoundaryFilter                            ( m_IntraBoundaryFilter);
+  m_cEncLib.setLargeCTU                                          ( m_LargeCTU );
   m_cEncLib.setSubPuMvp                                          ( m_SubPuMvp );
   m_cEncLib.setSubPuMvpLog2Size                                  ( m_SubPuMvpLog2Size );
   m_cEncLib.setCABACEngineMode                                   ( m_CABACEngineMode );
@@ -225,7 +223,10 @@ Void EncApp::xInitLibCfg()
   m_cEncLib.setDisableMotionCompression                          ( m_DisableMotionCompression );
   m_cEncLib.setLICMode                                           ( m_LICMode );
   m_cEncLib.setFastPicLevelLIC                                   ( m_LICMode ? m_FastPicLevelLIC : false );
+  m_cEncLib.setMTTMode                                           ( m_MTT );
   m_cEncLib.setUseLMChroma                                       ( m_LMChroma );
+  m_cEncLib.setUseAltDQPCoding                                   ( m_AltDQPCoding );
+  m_cEncLib.setSkipDQPinOddPOCs                                  ( m_skipDQPinOddPOCs );
   m_cEncLib.setIntraPDPC                                         ( m_IntraPDPC );
   m_cEncLib.setALF                                               ( m_ALF );
   m_cEncLib.setIntraEMT                                          ( m_EMT & 1 );
@@ -242,12 +243,50 @@ Void EncApp::xInitLibCfg()
   m_cEncLib.setUseBIF                                            ( m_BIF );
   m_cEncLib.setUseAClip                                          ( m_AClip );
   m_cEncLib.setUseAClipEnc                                       ( m_AClipEnc );
+  m_cEncLib.setGenBinSplit                                       ( m_GenBinSplit );
+  m_cEncLib.setGbsAllowFourths                                   ( m_gbsFourths );
+  m_cEncLib.setGbsAllowEights                                    ( m_gbsEights );
+  m_cEncLib.setGbsNonLog2Halving                                 ( m_gbsNonLog2Halving );
+  m_cEncLib.setGbsNonLog2CUs                                     ( m_gbsNonLog2CUs );
+  m_cEncLib.setGbsForceSplitToLog2                               ( m_gbsForceSplitToLog2 );
+  m_cEncLib.setMaxAsymTSize                                      ( m_maxAsymTSize, m_maxAsymTSizeI, m_maxAsymTSizeIChroma );
+  m_cEncLib.setGbsFast                                           ( m_gbsFast );
+  m_cEncLib.setAnisoTVTh                                         ( m_anisoTVTh );
+  m_cEncLib.setIntraBiFi                                         ( m_IntraBiFi );
+  m_cEncLib.setUseTCQ                                            ( m_UseTCQ );
   m_cEncLib.setUseDMVR                                           ( m_DMVR );
   m_cEncLib.setMDMS                                              ( m_MDMS );
+  m_cEncLib.setMaxNumAddHyps                                     ( m_maxNumAddHyps );
+  m_cEncLib.setMaxNumAddHypWeights                               ( m_numAddHypWeights );
+  m_cEncLib.setMaxNumAddHypRefFrames                             ( m_maxNumAddHypRefFrames );
+  m_cEncLib.setAddHypTries                                       ( m_addHypTries );
+  m_cEncLib.setMDBP                                              ( m_MDBP );
+  m_cEncLib.setRestrictedMerge                                   ( m_restrictedMerge );
+  m_cEncLib.setUseIntraFTM                                       ( m_IntraFTM );
+  m_cEncLib.setIntraNN                                           ( m_Intra_NN );
+  m_cEncLib.setUseIntraNNTrafos                                  ( m_intraNNTrafos );
+  m_cEncLib.setUseSetOfTrafos                                    ( m_SetOfTrafos );
+  m_cEncLib.setRegionSizeParameter                               ( m_RegionSizeParameter );
+  m_cEncLib.setFTMMode                                           ( m_FTMmode );
+  m_cEncLib.setMode1dPartitions                                  ( m_mode1dPartitions );
+  m_cEncLib.setMode1dPartitionsFast                              ( m_mode1dPartitionsFast );
+  m_cEncLib.setDiffusionFilterMode                               ( m_DiffusionFilterMode );
+  m_cEncLib.setRestrDiffusionMode                                ( m_RestrDiffusionMode );
+  m_cEncLib.setRestrIntraDiffusionMode                           ( m_RestrIntraDiffusionMode  );
+  m_cEncLib.setNumDiffusionFiltersIntra                          ( m_NumDiffusionFiltersIntra );
+  m_cEncLib.setNumDiffusionFiltersInter                          ( m_NumDiffusionFiltersInter );
+#if THRESHOLDING
+  m_cEncLib.setUseThresholding                                   ( m_thresholding );
+  m_cEncLib.setThresholdingMaxSize                               ( m_thresholdingMaxSize[ 0 ], I_SLICE );
+  m_cEncLib.setThresholdingMaxSize                               ( m_thresholdingMaxSize[ 1 ], B_SLICE );
+  m_cEncLib.setThresholdingMaxThrs                               ( m_thresholdingMaxThrs[ 0 ], I_SLICE );
+  m_cEncLib.setThresholdingMaxThrs                               ( m_thresholdingMaxThrs[ 1 ], B_SLICE );
+#endif
+  m_cEncLib.setIntraMRL                                          ( m_IntraMRL );
   // ADD_NEW_TOOL : (encoder app) add setting of tool enabling flags and associated parameters here
 
-  m_cEncLib.setMaxCUWidth                                        ( m_QTBT ? m_uiCTUSize : m_uiMaxCUWidth );
-  m_cEncLib.setMaxCUHeight                                       ( m_QTBT ? m_uiCTUSize : m_uiMaxCUWidth );
+  m_cEncLib.setMaxCUWidth                                        ( m_GenBinSplit ? m_uiCTUSize : m_uiMaxCUWidth );
+  m_cEncLib.setMaxCUHeight                                       ( m_GenBinSplit ? m_uiCTUSize : m_uiMaxCUWidth );
   m_cEncLib.setMaxCodingDepth                                    ( m_uiMaxCodingDepth );
   m_cEncLib.setLog2DiffMaxMinCodingBlockSize                     ( m_uiLog2DiffMaxMinCodingBlockSize );
   m_cEncLib.setQuadtreeTULog2MaxSize                             ( m_quadtreeTULog2MaxSize );
@@ -383,6 +422,9 @@ Void EncApp::xInitLibCfg()
   m_cEncLib.setSOPDescriptionSEIEnabled                          ( m_SOPDescriptionSEIEnabled );
   m_cEncLib.setScalableNestingSEIEnabled                         ( m_scalableNestingSEIEnabled );
   m_cEncLib.setTMCTSSEIEnabled                                   ( m_tmctsSEIEnabled );
+#if MCTS_ENC_CHECK
+  m_cEncLib.setTMCTSSEITileConstraint                            ( m_tmctsSEITileConstraint );
+#endif
   m_cEncLib.setTimeCodeSEIEnabled                                ( m_timeCodeSEIEnabled );
   m_cEncLib.setNumberOfTimeSets                                  ( m_timeCodeSEINumTs );
   for(Int i = 0; i < m_timeCodeSEINumTs; i++)
@@ -491,10 +533,25 @@ Void EncApp::xInitLibCfg()
   m_cEncLib.setSwitchPOC                                         ( m_switchPOC );
   m_cEncLib.setSwitchDQP                                         ( m_switchDQP );
   m_cEncLib.setFastForwardToPOC                                  ( m_fastForwardToPOC );
+  m_cEncLib.setForceDecodeBitstream1                             ( m_forceDecodeBitstream1 );
   m_cEncLib.setStopAfterFFtoPOC                                  ( m_stopAfterFFtoPOC );
+  m_cEncLib.setBs2ModPOCAndType                                  ( m_bs2ModPOCAndType );
+  m_cEncLib.setMvReestIters                                      ( m_MvReestimationIters );
+  m_cEncLib.setMvReestRange                                      ( m_MvReestimationRange );
+#if HHI_SPLIT_PARALLELISM
+  m_cEncLib.setNumSplitThreads                                   ( m_numSplitThreads );
+  m_cEncLib.setForceSingleSplitThread                            ( m_forceSplitSequential );
+#endif
+#if HHI_WPP_PARALLELISM
+  m_cEncLib.setNumWppThreads                                     ( m_numWppThreads );
+  m_cEncLib.setNumWppExtraLines                                  ( m_numWppExtraLines );
+  m_cEncLib.setEnsureWppBitEqual                                 ( m_ensureWppBitEqual );
+  
+#endif
 }
 
-Void EncApp::xCreateLib( std::list<PelUnitBuf*>& recBuflist )
+Void EncApp::xCreateLib( std::list<PelUnitBuf*>& recBufList
+                        )
 {
   // Video I/O
   m_cVideoIOYuvInputFile.open( m_inputFileName,     false, m_inputBitDepth, m_MSBExtendedBitDepth, m_internalBitDepth );  // read  mode
@@ -511,7 +568,7 @@ Void EncApp::xCreateLib( std::list<PelUnitBuf*>& recBuflist )
   // create the output buffer
   for( int i = 0; i < (m_iGOPSize + 1 + (m_isField ? 1 : 0)); i++ )
   {
-    recBuflist.push_back( new PelUnitBuf );
+    recBufList.push_back( new PelUnitBuf );
   }
 }
 
@@ -527,7 +584,7 @@ Void EncApp::xDestroyLib()
 
 Void EncApp::xInitLib(Bool isFieldCoding)
 {
-  m_cEncLib.init(isFieldCoding);
+  m_cEncLib.init(isFieldCoding, this );
 }
 
 // ====================================================================================================================
@@ -544,16 +601,17 @@ Void EncApp::xInitLib(Bool isFieldCoding)
  */
 Void EncApp::encode()
 {
-  fstream bitstreamFile(m_bitstreamFileName.c_str(), fstream::binary | fstream::out);
-  if (!bitstreamFile)
+  m_bitstream.open(m_bitstreamFileName.c_str(), fstream::binary | fstream::out);
+  if (!m_bitstream)
   {
     EXIT( "failed to open bitstream file " << m_bitstreamFileName.c_str() << " for writing\n");
   }
 
-  std::list<PelUnitBuf*> recBuflist;
+  std::list<PelUnitBuf*> recBufList;
   // initialize internal class & member variables
   xInitLibCfg();
-  xCreateLib( recBuflist );
+  xCreateLib( recBufList
+             );
   xInitLib(m_isField);
 
   printChromaFormat();
@@ -564,8 +622,6 @@ Void EncApp::encode()
 
   const InputColourSpaceConversion ipCSC  =  m_inputColourSpaceConvert;
   const InputColourSpaceConversion snrCSC = (!m_snrInternalColourSpace) ? m_inputColourSpaceConvert : IPCOLOURSPACE_UNCHANGED;
-
-  list<AccessUnit> outputAccessUnits; ///< list of access units to write out.  is populated by the encoding process
 
   PelStorage trueOrgPic;
   PelStorage orgPic;
@@ -598,18 +654,20 @@ Void EncApp::encode()
     // call encoding function for one frame
     if ( m_isField )
     {
-      m_cEncLib.encode( bEos, flush ? 0 : &orgPic, flush ? 0 : &trueOrgPic, snrCSC, recBuflist, outputAccessUnits, iNumEncoded, m_isTopFieldFirst );
+      m_cEncLib.encode( bEos, flush ? 0 : &orgPic, flush ? 0 : &trueOrgPic, snrCSC, recBufList,
+                        iNumEncoded, m_isTopFieldFirst );
     }
     else
     {
-      m_cEncLib.encode( bEos, flush ? 0 : &orgPic, flush ? 0 : &trueOrgPic, snrCSC, recBuflist, outputAccessUnits, iNumEncoded );
+      m_cEncLib.encode( bEos, flush ? 0 : &orgPic, flush ? 0 : &trueOrgPic, snrCSC, recBufList,
+                        iNumEncoded );
     }
 
     // write bistream to file if necessary
     if ( iNumEncoded > 0 )
     {
-      xWriteOutput(bitstreamFile, iNumEncoded, outputAccessUnits, recBuflist);
-      outputAccessUnits.clear();
+      xWriteOutput( iNumEncoded, recBufList
+      );
     }
     // temporally skip frames
     if( m_temporalSubsampleRatio > 1 )
@@ -624,15 +682,15 @@ Void EncApp::encode()
   // delete used buffers in encoder class
   m_cEncLib.deletePicBuffer();
 
-  for( auto &p : recBuflist )
+  for( auto &p : recBufList )
   {
     delete p;
   }
-
-  // delete buffers & classes
-  recBuflist.clear();
+  recBufList.clear();
 
   xDestroyLib();
+
+  m_bitstream.close();
 
   printRateSummary();
 
@@ -649,11 +707,11 @@ Void EncApp::encode()
   \param iNumEncoded    number of encoded frames
   \param accessUnits    list of access units to be written
  */
-Void EncApp::xWriteOutput(std::ostream& bitstreamFile, Int iNumEncoded, const std::list<AccessUnit>& accessUnits, std::list<PelUnitBuf*>& recBuflist)
+Void EncApp::xWriteOutput( Int iNumEncoded, std::list<PelUnitBuf*>& recBufList
+                          )
 {
   const InputColourSpaceConversion ipCSC = (!m_outputInternalColourSpace) ? m_inputColourSpaceConvert : IPCOLOURSPACE_UNCHANGED;
-  std::list<PelUnitBuf*>::iterator iterPicYuvRec = recBuflist.end();
-  list<AccessUnit>::const_iterator iterBitstream = accessUnits.begin();
+  std::list<PelUnitBuf*>::iterator iterPicYuvRec = recBufList.end();
   Int i;
 
   for ( i = 0; i < iNumEncoded; i++ )
@@ -673,32 +731,30 @@ Void EncApp::xWriteOutput(std::ostream& bitstreamFile, Int iNumEncoded, const st
       {
         m_cVideoIOYuvReconFile.write( *pcPicYuvRecTop, *pcPicYuvRecBottom, ipCSC, m_confWinLeft, m_confWinRight, m_confWinTop, m_confWinBottom, NUM_CHROMA_FORMAT, m_isTopFieldFirst );
       }
-
-      const AccessUnit& auTop = *(iterBitstream++);
-      const vector<UInt>& statsTop = writeAnnexB(bitstreamFile, auTop);
-      rateStatsAccum(auTop, statsTop);
-
-      const AccessUnit& auBottom = *(iterBitstream++);
-      const vector<UInt>& statsBottom = writeAnnexB(bitstreamFile, auBottom);
-      rateStatsAccum(auBottom, statsBottom);
     }
   }
   else
   {
     for ( i = 0; i < iNumEncoded; i++ )
     {
-      const PelUnitBuf*  pcPicYuvRec  = *(iterPicYuvRec++);
+      const PelUnitBuf* pcPicYuvRec = *(iterPicYuvRec++);
       if (!m_reconFileName.empty())
       {
-        m_cVideoIOYuvReconFile.write( *pcPicYuvRec, ipCSC, m_confWinLeft, m_confWinRight, m_confWinTop, m_confWinBottom, NUM_CHROMA_FORMAT, m_bClipOutputVideoToRec709Range );
+        m_cVideoIOYuvReconFile.write( *pcPicYuvRec,
+                                      ipCSC, m_confWinLeft, m_confWinRight, m_confWinTop, m_confWinBottom, NUM_CHROMA_FORMAT, m_bClipOutputVideoToRec709Range );
       }
-
-      const AccessUnit& au = *(iterBitstream++);
-      const vector<UInt>& stats = writeAnnexB(bitstreamFile, au);
-      rateStatsAccum(au, stats);
     }
   }
 }
+
+
+void EncApp::outputAU( const AccessUnit& au )
+{
+  const vector<UInt>& stats = writeAnnexB(m_bitstream, au);
+  rateStatsAccum(au, stats);
+  m_bitstream.flush();
+}
+
 
 /**
  *

@@ -3,7 +3,7 @@
  * and contributor rights, including patent rights, and no such rights are
  * granted under this license.
  *
- * Copyright (c) 2010-2015, ITU/ISO/IEC
+ * Copyright (c) 2010-2017, ITU/ISO/IEC
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -34,6 +34,8 @@
 #define BILATERALFILTER_H
 
 #include "CommonDef.h"
+
+
 #include "Unit.h"
 #include "Buffer.h"
 
@@ -44,26 +46,28 @@
 class BilateralFilter
 {
 private:
-  static BilateralFilter* m_bilateralFilterInstance;
-  BilateralFilter();
-
-private:
   static const int SpatialSigmaValue;
   static const int spatialSigmaBlockLengthOffsets[5];
-  ~BilateralFilter();
   unsigned short** m_bilateralFilterTable;
   int m_bilateralCenterWeightTable[5];
   short tempblock[ MAX_CU_SIZE*MAX_CU_SIZE ];
   unsigned divToMulOneOverN[BILATERAL_FILTER_MAX_DENOMINATOR_PLUS_ONE];
   uint8_t divToMulShift[BILATERAL_FILTER_MAX_DENOMINATOR_PLUS_ONE];
+
   void smoothBlockBilateralFilter( unsigned uiWidth, unsigned uiHeight, short block[], int isInterBlock, int qp);
 
 public:
-  static BilateralFilter* instance();
+  BilateralFilter();
+  ~BilateralFilter();
+
+  void create();
+  void destroy();
+
   void createdivToMulLUTs();
   void createBilateralFilterTable(int qp);
   void bilateralFilterInter(PelBuf& resiBuf, const CPelBuf& predBuf, int qp, const ClpRng& clpRng);
   void bilateralFilterIntra(PelBuf& recoBuf, int qp);
 };
+
 
 #endif /* BILATERALFILTER_H */

@@ -56,10 +56,77 @@ class Mv;
 //! \ingroup CommonLib
 //! \{
 
+// ====================================================================================================================
+// MDBP: Multi direction boundary padding
+// ====================================================================================================================
+
+enum MdbpPredDir {
+  MDBP_DIR_TOP   = 0,
+  MDBP_DIR_RIGHT = 1,
+  MDBP_DIR_DOWN  = 2,
+  MDBP_DIR_LEFT  = 3,
+};
+
+struct MdbpMode {
+  MdbpMode()
+    : mdMode( MDBP_MODE_OFF )
+      , mdDir( MDBP_DIR_TOP )
+  {}
+  MdbpMode( int m, MdbpPredDir d )
+    : mdMode( m )
+      , mdDir( d )
+  {}
+  void reset()
+  {
+    mdMode = MDBP_MODE_OFF;
+    mdDir  = MDBP_DIR_TOP;
+  }
+  int mdMode;
+  MdbpPredDir mdDir;
+};
+
+class MdbpPrediction
+{
+  private:
+    // internal buffers
+#define MDBP_PRED_BUF_OFFSET              32
+#define MDBP_PRED_BUF_STRIDE              ( MAX_CU_SIZE + (2*MDBP_PRED_BUF_OFFSET) )
+    Pel                  m_mdbpBorderBuf[ 3*MAX_CU_SIZE + 2*MDBP_PRED_BUF_OFFSET ];
+    Pel*                 m_mdbpBorder;
+    Pel                  m_mdbpTmpBuf[ MDBP_PRED_BUF_STRIDE * MDBP_PRED_BUF_STRIDE ];
+    Pel*                 m_mdbpTmp;
+    RdCost*              m_pcRdCost;
+
+  public:
+    MdbpPrediction()
+      : m_mdbpBorder( m_mdbpBorderBuf + MDBP_PRED_BUF_OFFSET + MAX_CU_SIZE )
+        , m_mdbpTmp( m_mdbpTmpBuf + MDBP_PRED_BUF_OFFSET * MDBP_PRED_BUF_STRIDE + MDBP_PRED_BUF_OFFSET )
+        , m_pcRdCost( nullptr )
+    {}
+    ~MdbpPrediction() {}
+
+    void init( RdCost* pcRdCost ) { m_pcRdCost = pcRdCost; }
+    void destroy();
+
+    CPelBuf getMdbpBuf( const Size& size ) const { return CPelBuf( m_mdbpTmp, MDBP_PRED_BUF_STRIDE, size ); }
+
+    void predictMdbpBlk  ( const ComponentID &compID, const PredictionUnit& pu, const Picture* refPic, const Mv &mv, const MdbpMode& mdbpMode );
+    void estimateMdbpMode( const ComponentID &compID, const PredictionUnit& pu, const Picture* refPic, const Mv &mv,       MdbpMode& mdbpMode );
+
+  private:
+    void xPredictMdbp( const SPS& sps, CPelBuf refBuf, PelBuf mdbpBuf, const Size& compSize, const Area& refArea, const Position& leftBorderPos, const int numLines, const int linesOffset, const int width, const MdbpMode& mdbpMode, const ClpRng& clpRng );
+    void xPredictMdbpPart( const SPS& sps, const Pel* borderBuf, Pel* dstBase, const int dstNext, const int dstOrt, const int numLines, const int linesOffset, const int width, const MdbpMode& mdbpMode, const ClpRng& clpRng );
+    void xCopyRefPart( CPelBuf refBuf, PelBuf mdbpBuf, const Area& refArea, const Area& copyArea );
+    void xFetchBorder( CPelBuf refBuf, Pel* borderBuf, const Area& refArea, const Position& leftBorderPos, const int width, const int addLeft, const int addRight, const int padLeft, const int padRight, const int borderNext );
+    inline void xClipAreaHor( Area& refArea, const Size& compSize );
+    inline void xClipAreaVer( Area& refArea, const Size& compSize );
+};
 
 // ====================================================================================================================
 // Class definition
 // ====================================================================================================================
+
+#define BIO_TEMP_BUFFER_SIZE ( MAX_CU_SIZE ) * ( MAX_CU_SIZE )
 
 class InterPrediction : public WeightPrediction
 {
@@ -69,13 +136,21 @@ private:
   static const int  m_LICShiftDiff  = 12;
   int               m_LICMultApprox[64];
 
+  Int64 m_piDotProduct1[BIO_TEMP_BUFFER_SIZE];
+  Int64 m_piDotProduct2[BIO_TEMP_BUFFER_SIZE];
+  Int64 m_piDotProduct3[BIO_TEMP_BUFFER_SIZE];
+  Int64 m_piDotProduct5[BIO_TEMP_BUFFER_SIZE];
+  Int64 m_piDotProduct6[BIO_TEMP_BUFFER_SIZE];
+
 protected:
   InterpolationFilter  m_if;
+  MdbpPrediction       m_mdbpPred;
 
   Pel*                 m_acYuvPred            [NUM_REF_PIC_LIST_01][MAX_NUM_COMPONENT];
   Pel*                 m_filteredBlock        [LUMA_INTERPOLATION_FILTER_SUB_SAMPLE_POSITIONS][LUMA_INTERPOLATION_FILTER_SUB_SAMPLE_POSITIONS][MAX_NUM_COMPONENT];
   Pel*                 m_filteredBlockTmp     [LUMA_INTERPOLATION_FILTER_SUB_SAMPLE_POSITIONS][MAX_NUM_COMPONENT];
 
+  PelStorage           m_additionalHypothesisStorage;
 
   ChromaFormat         m_currChromaFormat;
 
@@ -83,11 +158,12 @@ protected:
 
   RdCost*              m_pcRdCost;
 
+  Int                  m_iRefListIdx;
+  
   Pel*                 m_pGradX0;
   Pel*                 m_pGradY0;
   Pel*                 m_pGradX1;
   Pel*                 m_pGradY1;
-  Int                  m_iRefListIdx;
 
   PelStorage           m_tmpObmcBuf;
 
@@ -119,11 +195,14 @@ protected:
 
   Void xPredInterUni            ( const PredictionUnit& pu, const RefPicList& eRefPicList, PelUnitBuf& pcYuvPred, const Bool& bi, const Bool& bBIOApplied = false, const Bool& bDMVRApplied = false );
   Void xPredInterBi             ( PredictionUnit& pu, PelUnitBuf &pcYuvPred, Bool obmc = false );
-  Void xPredInterBlk            ( const ComponentID& compID, const PredictionUnit& pu, const Picture* refPic, const Mv& _mv, PelUnitBuf& dstPic, const Bool& bi, const ClpRng& clpRng, const Bool& bBIOApplied = false, const Bool& bDMVRApplied = false, const Int& nFRUCMode = FRUC_MERGE_OFF, const Bool& doLic = true );
+  Void xPredInterBlk            ( const ComponentID& compID, const PredictionUnit& pu, const Picture* refPic, const Mv& _mv, PelUnitBuf& dstPic, const Bool& bi, const ClpRng& clpRng
+                                  , const Bool& bBIOApplied = false, const Bool& bDMVRApplied = false, const Int& nFRUCMode = FRUC_MERGE_OFF, const Bool& doLic = true
+                                  , const MdbpMode& mdbpMode = MdbpMode()
+                                 );
+  
   Void xPredAffineBlk           ( const ComponentID& compID, const PredictionUnit& pu, const Picture* refPic, const Mv* _mv, PelUnitBuf& dstPic, const Bool& bi, const ClpRng& clpRng, const Bool& bBIOApplied = false );
   void xGetLICParams            ( const CodingUnit& cu, const ComponentID compID, const Picture& refPic, const Mv& mv, int& shift, int& scale, int& offset );
   void xLocalIlluComp           ( const PredictionUnit& pu, const ComponentID compID, const Picture& refPic, const Mv& mv, const bool biPred, PelBuf& dstBuf );
-
   Void xWeightedAverage         ( const PredictionUnit& pu, const CPelUnitBuf& pcYuvSrc0, const CPelUnitBuf& pcYuvSrc1, PelUnitBuf& pcYuvDst, const BitDepths& clipBitDepths, const ClpRngs& clpRngs, const Bool& bBIOApplied );
 
   static Bool xCheckIdenticalMotion( const PredictionUnit& pu );
@@ -131,7 +210,7 @@ protected:
   Void xSubPuMC                 ( PredictionUnit& pu, PelUnitBuf& predBuf, const RefPicList &eRefPicList = REF_PIC_LIST_X );
   Void xSubblockOBMC            ( const ComponentID eComp, PredictionUnit &pu, PelUnitBuf &pcYuvPredDst, PelUnitBuf &pcYuvPredSrc, Int iDir, Bool bOBMCSimp );
   Void xSubtractOBMC            ( PredictionUnit &pu, PelUnitBuf &pcYuvPredDst, PelUnitBuf &pcYuvPredSrc, Int iDir, Bool bOBMCSimp );
-  Void xSubBlockMotionCompensation( PredictionUnit &pu, PelUnitBuf &pcYuvPred );
+  void xAddHypMC                ( PredictionUnit& pu, PelUnitBuf& predBuf, Bool bOBMC );
 
   Void destroy();
 
@@ -174,22 +253,25 @@ protected:
   Void xProcessDMVR             (      PredictionUnit& pu, PelUnitBuf &pcYuvDst, const ClpRngs &clpRngs, const bool bBIOApplied);
 
 public:
-
   InterPrediction();
   virtual ~InterPrediction();
 
   Void    init                (RdCost* pcRdCost, ChromaFormat chromaFormatIDC);
 
   // inter
-  Void    motionCompensation  (PredictionUnit &pu, PelUnitBuf& predBuf, const RefPicList &eRefPicList = REF_PIC_LIST_X);
+  Void    motionCompensation  (PredictionUnit &pu, PelUnitBuf& predBuf, const RefPicList &eRefPicList = REF_PIC_LIST_X, Bool bOBMC = false);
   Void    motionCompensation  (PredictionUnit &pu, const RefPicList &eRefPicList = REF_PIC_LIST_X);
   Void    motionCompensation  (CodingUnit &cu,     const RefPicList &eRefPicList = REF_PIC_LIST_X);
 
   Void    subBlockOBMC        (CodingUnit      &cu);
   Void    subBlockOBMC        (PredictionUnit  &pu, PelUnitBuf *pDst = nullptr, Bool bOBMC4ME = false);
 
-  Bool    deriveFRUCMV        (PredictionUnit &pu);
+  Bool    deriveFRUCMV        (PredictionUnit &pu, MergeCtx * const pSaveMrgCtx = nullptr );
   Bool    frucFindBlkMv4Pred  (PredictionUnit& pu, RefPicList eTargetRefPicList, const Int nTargetRefIdx, AMVPInfo* pInfo = NULL);
+#if MCTS_ENC_CHECK
+  Bool    checkTMctsMv        (PredictionUnit& pu);
+#endif
+
 };
 
 //! \}

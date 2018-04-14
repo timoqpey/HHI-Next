@@ -49,28 +49,31 @@
 #include "CommonLib/Unit.h"
 #include "CommonLib/UnitPartitioner.h"
 #include "CommonLib/RdCost.h"
+#include "CommonLib/BilateralFilter.h"
 
 //! \ingroup EncoderLib
 //! \{
 
-class EncModeCtrl;
 // ====================================================================================================================
 // Class definition
 // ====================================================================================================================
 
-static const UInt MAX_NUM_REF_LIST_ADAPT_SR=2;
-static const UInt MAX_IDX_ADAPT_SR=33;
-static const UInt NUM_MV_PREDICTORS=3;
+static const UInt MAX_NUM_REF_LIST_ADAPT_SR = 2;
+static const UInt MAX_IDX_ADAPT_SR          = 33;
+static const UInt NUM_MV_PREDICTORS         = 3;
+
+class EncModeCtrl;
 
 /// encoder search class
 class InterSearch : public InterPrediction, CrossComponentPrediction
 {
 private:
-  EncModeCtrl    *m_modeCtrl;
+  EncModeCtrl     *m_modeCtrl;
 
   PelStorage      m_tmpPredStorage              [NUM_REF_PIC_LIST_01];
   PelStorage      m_tmpStorageLCU;
   PelStorage      m_tmpAffiStorage;
+  PelStorage      m_tmpStorageMDBP;
   Int*            m_tmpAffiError;
   Double*         m_tmpAffiDeri[2];
 
@@ -89,6 +92,9 @@ protected:
 
   // interface to classes
   TrQuant*        m_pcTrQuant;
+
+  BilateralFilter*
+                  m_bilateralFilter;
 
   // ME parameters
   Int             m_iSearchRange;
@@ -111,15 +117,16 @@ protected:
 
   Bool            m_isInitialized;
 
-  MotionInfo      m_SubPuFrucBuf [( MAX_CU_SIZE * MAX_CU_SIZE ) >> ( MIN_CU_LOG2 << 1 )];
+  MotionInfo      m_SubPuFrucBuf                [( MAX_CU_SIZE * MAX_CU_SIZE ) >> ( MIN_CU_LOG2 << 1 )];
 
 public:
   InterSearch();
   virtual ~InterSearch();
 
-  Void init                         (
-                                      EncCfg*        pcEncCfg,
+  Void init                         ( EncCfg*        pcEncCfg,
                                       TrQuant*       pcTrQuant,
+                                      BilateralFilter*
+                                                     bilateralFilter,
                                       Int            iSearchRange,
                                       Int            bipredSearchRange,
                                       MESearchMethod motionEstimationSearchMethod,
@@ -135,8 +142,58 @@ public:
 
   Void setTempBuffers               (CodingStructure ****pSlitCS, CodingStructure ****pFullCS, CodingStructure **pSaveCS );
 
+#if HHI_SPLIT_PARALLELISM
+  Void copyState                    ( const InterSearch& other );
+#endif
+
 protected:
 
+#if MCTS_ENC_CHECK  
+  class MCTSTileInfo
+  {
+  private:
+    Int   m_tileLeftTopPelPosX;
+    Int   m_tileLeftTopPelPosY;
+    Int   m_tileRightBottomPelPosX;
+    Int   m_tileRightBottomPelPosY;
+
+  public:
+    MCTSTileInfo()
+      : m_tileLeftTopPelPosX( 0 )
+      , m_tileLeftTopPelPosY( 0 )
+      , m_tileRightBottomPelPosX( 0 )
+      , m_tileRightBottomPelPosY( 0 )
+    {
+    };
+
+    Int   getTileLeftTopPelPosX() const { return m_tileLeftTopPelPosX; }
+    Int   getTileLeftTopPelPosY() const { return m_tileLeftTopPelPosY; }
+    Int   getTileRightBottomPelPosX() const { return m_tileRightBottomPelPosX; }
+    Int   getTileRightBottomPelPosY() const { return m_tileRightBottomPelPosY; }
+
+    // -------------------------------------------------------------------------------------------------------------------
+    // initialization functions
+    // -------------------------------------------------------------------------------------------------------------------
+    MCTSTileInfo( Int tileLeftTopPelPosX, Int tileLeftTopPelPosY, Int tileRightBottomPelPosX, Int tileRightBottomPelPosY )
+      : m_tileLeftTopPelPosX( tileLeftTopPelPosX )
+      , m_tileLeftTopPelPosY( tileLeftTopPelPosY )
+      , m_tileRightBottomPelPosX( tileRightBottomPelPosX )
+      , m_tileRightBottomPelPosY( tileRightBottomPelPosY )
+    {
+    };
+
+    Void init( Int tileLeftTopPelPosX, Int tileLeftTopPelPosY, Int tileRightBottomPelPosX, Int tileRightBottomPelPosY )
+    {
+      m_tileLeftTopPelPosX = tileLeftTopPelPosX;
+      m_tileLeftTopPelPosY = tileLeftTopPelPosY;
+      m_tileRightBottomPelPosX = tileRightBottomPelPosX;
+      m_tileRightBottomPelPosY = tileRightBottomPelPosY;
+    }
+  };
+
+  MCTSTileInfo m_mctsTileInfo;
+
+#endif
   /// sub-function for motion vector refinement used in fractional-pel accuracy
   Distortion  xPatternRefinement    ( const CPelBuf* pcPatternKey, Mv baseRefMv, Int iFrac, Mv& rcMvFrac, Bool bAllowUseOfHadamard );
 
@@ -186,6 +243,9 @@ public:
   /// set ME search range
   Void setAdaptiveSearchRange       ( Int iDir, Int iRefIdx, Int iSearchRange) { CHECK(iDir >= MAX_NUM_REF_LIST_ADAPT_SR || iRefIdx>=Int(MAX_IDX_ADAPT_SR), "Invalid index"); m_aaiAdaptSR[iDir][iRefIdx] = iSearchRange; }
 
+  int predInterSearchAdditionalHypothesis( PredictionUnit& pu );
+  int predInterSearchMultiHypotheseis( PredictionUnit& pu, PelUnitBuf& origBuf, Distortion uiPrevCost = std::numeric_limits<Distortion>::max() );
+  inline static unsigned getAdditionalHypothesisInitialBits( const MultiHypPredictionData& mhData, const int iNumWeights, const int iNumMHRefPics );
 
 protected:
 
@@ -209,9 +269,10 @@ protected:
                                     Int&        riMVPIdx,
                                     AMVPInfo&   amvpInfo,
                                     UInt&       ruiBits,
-                                    Distortion& ruiCost,
+                                    Distortion& ruiCost
+                                    ,
                                     const UChar  imv
-    );
+                                  );
 
   Distortion xGetTemplateCost     ( const PredictionUnit& pu,
                                     PelUnitBuf&           origBuf,
@@ -244,7 +305,6 @@ protected:
                                   );
 
 
-
   // -------------------------------------------------------------------------------------------------------------------
   // motion estimation
   // -------------------------------------------------------------------------------------------------------------------
@@ -260,8 +320,13 @@ protected:
                                     Distortion&           ruiCost,
                                     const AMVPInfo&       amvpInfo,
                                     Bool                  bBi = false
+                                  , const int             weight = 0
                                   );
 
+#if MCTS_ENC_CHECK
+  Void xInitMctsTileInfo( const PredictionUnit& pu, MCTSTileInfo& mctsTileInfo );
+
+#endif
   Void xTZSearch                  ( const PredictionUnit& pu,
                                     IntTZSearchStruct&    cStruct,
                                     Mv&                   rcMv,
@@ -350,7 +415,6 @@ protected:
 
   Void xCopyAffineAMVPInfo        ( AffineAMVPInfo& src, AffineAMVPInfo& dst );
   Void xCheckBestAffineMVP        ( PredictionUnit &pu, AffineAMVPInfo &affineAMVPInfo, RefPicList eRefPicList, Mv acMv[3], Mv acMvPred[3], Int& riMVPIdx, UInt& ruiBits, Distortion& ruiCost );
-
   Void xExtDIFUpSamplingH         ( CPelBuf* pcPattern );
   Void xExtDIFUpSamplingQ         ( CPelBuf* pcPatternKey, Mv halfPelRef );
 
@@ -360,6 +424,14 @@ protected:
 
   Void  setWpScalingDistParam     ( Int iRefIdx, RefPicList eRefPicListCur, Slice *slice );
 
+  Void getMdbpModeCost            ( const PredictionUnit& pu,
+                                    const RefPicList      eRefPicList,
+                                    const Int             iRefIdx,
+                                    const Mv&             rcMv,
+                                    UInt                  imvShift,
+                                    MdbpMode&             mdbpMode,
+                                    Distortion&           ruiCost
+                                  );
 
 public:
 

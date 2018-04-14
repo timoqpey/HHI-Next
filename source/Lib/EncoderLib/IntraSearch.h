@@ -48,15 +48,20 @@
 #include "CommonLib/TrQuant.h"
 #include "CommonLib/Unit.h"
 #include "CommonLib/RdCost.h"
+#include "CommonLib/BilateralFilter.h"
+#if THRESHOLDING
+#include "CommonLib/ThresholdingSearch.h"
+#endif
+#include "CommonLib/DiffusionFilter.h"
 
 //! \ingroup EncoderLib
 //! \{
 
-class EncModeCtrl;
-
 // ====================================================================================================================
 // Class definition
 // ====================================================================================================================
+
+class EncModeCtrl;
 
 /// encoder search class
 class IntraSearch : public IntraPrediction, CrossComponentPrediction
@@ -77,6 +82,42 @@ private:
 
   Pel             **m_pLMMFPredSaved;
 
+  static_vector<UInt, FAST_UDI_MAX_RDMODE_NUM> m_ModeList_NNS;
+
+  struct tu_Diff_Datum
+  {
+    tu_Diff_Datum() : listnr(-1), intraModeIdx(-1), intraMode(-1), diffFilter(-1) {}
+    tu_Diff_Datum(UInt listnr_curr, UInt intramodeIdx_curr, UInt intra_mode_curr,  UInt diffFilter_curr) : listnr(listnr_curr), intraModeIdx(intramodeIdx_curr), intraMode(intra_mode_curr), diffFilter(diffFilter_curr) {}
+    Int listnr;
+    Int intraModeIdx;
+    Int intraMode;
+    Int diffFilter;
+  };
+  std::vector<tu_Diff_Datum> m_DiffFilterList;
+  std::vector<tu_Diff_Datum> bestDiffOpt;
+
+  static_vector< UInt, FAST_UDI_MAX_RDMODE_NUM > uiRdModeListFirst;
+  bool b_StoreFirstDir;
+
+  //cost variables for the EMT algorithm and new modes list
+  Double m_bestModeCostStore[4];                                    // RD cost of the best mode for each PU using DCT2
+  Double m_modeCostStore    [4][NUM_LUMA_MODE];                         // RD cost of each mode for each PU using DCT2
+  UInt   m_savedRdModeList  [4][NUM_LUMA_MODE], m_savedNumRdModes[4];
+
+  static_vector<UInt,   FAST_UDI_MAX_RDMODE_NUM> m_savedRdModeListFor1dPartitions;
+  static_vector<Double, FAST_UDI_MAX_RDMODE_NUM> m_savedRdModesCostsFor1dPartitions;
+  Double best2dDct2Cost;
+  static_vector< Double, FAST_UDI_MAX_RDMODE_NUM > uiRdModeListCosts;
+  UInt numberOfLinesCompleted;
+  static_vector<UInt, FAST_UDI_MAX_RDMODE_NUM> m_bestNumberOfLinesPerIntraModeGroup;
+  static_vector<UInt, FAST_UDI_MAX_RDMODE_NUM> m_intraModeGroup;
+
+  static_vector<UInt,   FAST_UDI_MAX_RDMODE_NUM> m_uiSavedRdModeListNSST;
+  UInt                                           m_uiSavedNumRdModesNSST;
+  static_vector<UInt,   FAST_UDI_MAX_RDMODE_NUM> m_uiSavedHadModeListNSST;
+  static_vector<Double, FAST_UDI_MAX_RDMODE_NUM> m_dSavedModeCostNSST;
+  static_vector<Double, FAST_UDI_MAX_RDMODE_NUM> m_dSavedHadListNSST;
+
 protected:
   // interface to option
   EncCfg*         m_pcEncCfg;
@@ -84,6 +125,15 @@ protected:
   // interface to classes
   TrQuant*        m_pcTrQuant;
   RdCost*         m_pcRdCost;
+#if THRESHOLDING
+  ThresholdingSearch*
+                  m_pcThresholding;
+#endif
+  DiffusionFilter*
+                  m_DiffusionFilter;
+
+  BilateralFilter*
+                  m_bilateralFilter;
 
   // RD computation
   CABACWriter*    m_CABACEstimator;
@@ -96,10 +146,15 @@ public:
   IntraSearch();
   ~IntraSearch();
 
-  Void init                       (
-                                    EncCfg*        pcEncCfg,
+  Void init                       ( EncCfg*        pcEncCfg,
+                                    DiffusionFilter*  diffusionFilter,
+#if THRESHOLDING
+                                    ThresholdingSearch* pcThresholding,
+#endif
                                     TrQuant*       pcTrQuant,
                                     RdCost*        pcRdCost,
+                                    BilateralFilter*
+                                                   bilateralFilter,
                                     CABACWriter*   CABACEstimator,
                                     CtxCache*      ctxCache,
                                     const UInt     maxCUWidth,
@@ -117,10 +172,14 @@ public:
 
 public:
 
-  Void estIntraPredLumaQT         (CodingUnit &cu, Partitioner& pm);
-  Void estIntraPredChromaQT       (CodingUnit &cu, Partitioner& pm);
+  Void estIntraPredLumaQT         ( CodingUnit &cu, Partitioner& pm, double bestCostSoFar = MAX_DOUBLE );
+  void FastDiffFilter(PredictionUnit &pu, const static_vector<UInt, FAST_UDI_MAX_RDMODE_NUM> uiRdModeList, static_vector<Double, FAST_UDI_MAX_RDMODE_NUM>& CandHadList, const TempCtx& ctxStartIntraMode, const double sqrtLambdaForFirstPass, std::vector<tu_Diff_Datum> & bestDiffOpt );
+  double bestCostnoDiff;
 
-  Void IPCMSearch                 (CodingStructure &cs);
+  Void setStoreFirstDir(bool b) { b_StoreFirstDir = b; }
+  Bool getStoreFirstDir() { return b_StoreFirstDir; }
+  Void estIntraPredChromaQT       (CodingUnit &cu, Partitioner& pm);
+  Void IPCMSearch                 (CodingStructure &cs, Partitioner& partitioner);
 
 protected:
 
@@ -128,7 +187,7 @@ protected:
   // T & Q & Q-1 & T-1
   // -------------------------------------------------------------------------------------------------------------------
 
-  Void xEncPCM                    (CodingStructure &cs, const ComponentID &compID);
+  Void xEncPCM                    (CodingStructure &cs, Partitioner& partitioner, const ComponentID &compID);
 
   // -------------------------------------------------------------------------------------------------------------------
   // Intra search
@@ -142,17 +201,21 @@ protected:
   Void xEncCoeffQT                (CodingStructure &cs, Partitioner& pm, const ComponentID &compID);
 
   UInt64 xFracModeBitsIntra       (PredictionUnit &pu, const UInt &uiMode, const ChannelType &compID);
+  UInt64 xFracModeBitsIntraWithDiffLuma (PredictionUnit &pu, const UInt &uiMode);
 
   Void xIntraCodingTUBlock        (TransformUnit &tu, const ComponentID &compID, const Bool &checkCrossCPrediction, Distortion& ruiDist, const Int &default0Save1Load2 = 0, UInt* numSig = nullptr );
 
-  ChromaCbfs
-       xRecurIntraChromaCodingQT  (CodingStructure &cs, Partitioner& pm);
+  ChromaCbfs xRecurIntraChromaCodingQT  (CodingStructure &cs, Partitioner& pm);
+
 #if HHI_RQT_INTRA_SPEEDUP
-  Void xRecurIntraCodingLumaQT    (CodingStructure &cs, Partitioner& pm, const Bool &checkFirst, int savedEmtIndex = -1);
+  Void xRecurIntraCodingLumaQT    ( CodingStructure &cs, Partitioner& pm, const Bool &checkFirst, int savedEmtIndex = -1, double bestCostSoFar = MAX_DOUBLE );
 #else
-  Void xRecurIntraCodingLumaQT    (CodingStructure &cs, Partitioner& pm);
+  Void xRecurIntraCodingLumaQT    ( CodingStructure &cs, Partitioner& pm, double bestCostSoFar = MAX_DOUBLE );
 #endif
 
+
+  void encPredIntraDPCM( const ComponentID &compID, PelBuf &pOrg, PelBuf &pDst, const UInt &uiDirMode );
+  static bool useDPCMForFirstPassIntraEstimation( const PredictionUnit &pu, const UInt &uiDirMode );
 };// END CLASS DEFINITION EncSearch
 
 //! \}

@@ -46,6 +46,7 @@
 #include <stdio.h>
 #include <iostream>
 
+#include "Trafos_NN_SOT.h"
 
 //! \ingroup CommonLib
 //! \{
@@ -57,7 +58,7 @@
 Void         initROM();
 Void         destroyROM();
 
-void         generateBlockSizeQuantScaling( SizeIndexInfo& sizeIdxInfo );
+void         generateTrafoBlockSizeScaling( SizeIndexInfo& sizeIdxInfo );
 
 // ====================================================================================================================
 // Data structure related table & variable
@@ -67,6 +68,21 @@ void         generateBlockSizeQuantScaling( SizeIndexInfo& sizeIdxInfo );
 extern       UInt*  g_scanOrder     [SCAN_NUMBER_OF_GROUP_TYPES][SCAN_NUMBER_OF_TYPES][MAX_CU_SIZE / 2 + 1][MAX_CU_SIZE / 2 + 1];
 extern       UInt*  g_scanOrderPosXY[SCAN_NUMBER_OF_GROUP_TYPES][SCAN_NUMBER_OF_TYPES][MAX_CU_SIZE / 2 + 1][MAX_CU_SIZE / 2 + 1][2];
 extern       UInt   g_auiCoefTopLeftDiagScan8x8[ MAX_CU_SIZE / 2 + 1 ][64];
+
+struct NbInfoSbb
+{
+  uint8_t   num;
+  uint8_t   inPos[5];
+};
+struct NbInfoOut
+{
+  uint16_t  maxDist;
+  uint16_t  num;
+  uint16_t  outPos[5];
+};
+extern unsigned*  g_rasterPos2ScanId[SCAN_NUMBER_OF_TYPES][MAX_CU_SIZE / 2 + 1][MAX_CU_SIZE / 2 + 1];
+extern NbInfoSbb* g_scanId2NbInfoSbb[SCAN_NUMBER_OF_TYPES][MAX_CU_SIZE / 2 + 1][MAX_CU_SIZE / 2 + 1];
+extern NbInfoOut* g_scanId2NbInfoOut[SCAN_NUMBER_OF_TYPES][MAX_CU_SIZE / 2 + 1][MAX_CU_SIZE / 2 + 1];
 
 extern const Int g_quantScales   [SCALING_LIST_REM_NUM];          // Q(QP%6)
 extern const Int g_invQuantScales[SCALING_LIST_REM_NUM];          // IQ(QP%6)
@@ -103,6 +119,7 @@ extern const UInt   ctxIndMap4x4[4*4];
 extern const UInt   g_uiGroupIdx[ MAX_TU_SIZE ];
 extern const UInt   g_uiMinInGroup[ LAST_SIGNIFICANT_GROUPS ];
 extern const UInt   g_auiGoRiceRange[ MAX_GR_ORDER_RESIDUAL ];                  //!< maximum value coded with Rice codes
+extern const UInt   g_auiGoRiceTable[ 32 ];
 
 // ====================================================================================================================
 // Intra prediction table
@@ -123,11 +140,12 @@ static const unsigned mpmCtx[NUM_INTRA_MODE] =
   3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3     // VER domain
 };
 
-extern Int intraCubicFilter[32][4];
-extern Int intraGaussFilter[32][4];
+extern const Int g_intraCubicFilter[32][4];
+extern const Int g_intraGaussFilter[32][4];
 
 extern const int g_pdpc_pred_param[5][35][6];
 extern const int g_pdpcParam[5][6];
+
 
 // ====================================================================================================================
 // Mode-Dependent DST Matrices
@@ -135,8 +153,8 @@ extern const int g_pdpcParam[5][6];
 
 extern const TMatrixCoeff g_as_DST_MAT_4 [TRANSFORM_NUMBER_OF_DIRECTIONS][4][4];
 
-extern Int g_aiTrSubsetIntra[3][2];
-extern Int g_aiTrSubsetInter[4];
+extern const Int g_aiTrSubsetIntra[3][2];
+extern const Int g_aiTrSubsetInter[4];
 
 extern const UChar g_aucTrSetVert[NUM_INTRA_MODE - 1];
 extern const UChar g_aucTrSetHorz[NUM_INTRA_MODE - 1];
@@ -153,7 +171,19 @@ extern TMatrixCoeff g_aiTr16  [NUM_TRANS_TYPE][ 16][ 16];
 extern TMatrixCoeff g_aiTr32  [NUM_TRANS_TYPE][ 32][ 32];
 extern TMatrixCoeff g_aiTr64  [NUM_TRANS_TYPE][ 64][ 64];
 extern TMatrixCoeff g_aiTr128 [NUM_TRANS_TYPE][128][128];
-
+extern TMatrixCoeff g_aiTr6   [NUM_TRANS_TYPE][  6][  6];
+extern TMatrixCoeff g_aiTr10  [NUM_TRANS_TYPE][ 10][ 10];
+extern TMatrixCoeff g_aiTr12  [NUM_TRANS_TYPE][ 12][ 12];
+extern TMatrixCoeff g_aiTr20  [NUM_TRANS_TYPE][ 20][ 20];
+extern TMatrixCoeff g_aiTr24  [NUM_TRANS_TYPE][ 24][ 24];
+extern TMatrixCoeff g_aiTr40  [NUM_TRANS_TYPE][ 40][ 40];
+extern TMatrixCoeff g_aiTr48  [NUM_TRANS_TYPE][ 48][ 48];
+extern TMatrixCoeff g_aiTr80  [NUM_TRANS_TYPE][ 80][ 80];
+extern TMatrixCoeff g_aiTr96  [NUM_TRANS_TYPE][ 96][ 96];
+#if THRESHOLDING
+extern TMatrixCoeff g_aiTr160 [NUM_TRANS_TYPE][160][160];
+extern TMatrixCoeff g_aiTr192 [NUM_TRANS_TYPE][192][192];
+#endif
 extern const UChar  g_NsstLut           [NUM_INTRA_MODE-1];
 struct tabSinCos { Int c, s; };
 extern tabSinCos    g_tabSinCos         [NSST_HYGT_PTS];
@@ -172,9 +202,23 @@ enum SplitDecisionTree
   DTT_SPLIT_NO_SPLIT          = 1, // end-node
   DTT_SPLIT_BT_HORZ           = 2, // end-node - id same as CU_HORZ_SPLIT
   DTT_SPLIT_BT_VERT           = 3, // end-node - id same as CU_VERT_SPLIT
+  DTT_SPLIT_TT_HORZ           = 4, // end-node - id same as CU_TRIH_SPLIT
+  DTT_SPLIT_TT_VERT           = 5, // end-node - id same as CU_TRIV_SPLIT
+  DTT_SPLIT_BT_H_14           = 6,
+  DTT_SPLIT_BT_H_34           = 7,
+  DTT_SPLIT_BT_V_14           = 8,
+  DTT_SPLIT_BT_V_34           = 9,
   DTT_SPLIT_HV_DECISION,           // decision node
+  DTT_SPLIT_H_IS_BT_12_DECISION,   // decision node
+  DTT_SPLIT_V_IS_BT_12_DECISION,   // decision node
+  DTT_SPLIT_H_IS_SYM,              // decision node
+  DTT_SPLIT_H_IS_14,               // decision node
+  DTT_SPLIT_V_IS_SYM,              // decision node
+  DTT_SPLIT_V_IS_14,               // decision node
 };
 
+// decision tree for multi-type tree split decision
+extern const DecisionTreeTemplate g_mtSplitDTT;
 
 // decision tree for QTBT split
 extern const DecisionTreeTemplate g_qtbtSplitDTT;
@@ -200,16 +244,81 @@ enum PartSizeDecisionTree
 
 extern const DecisionTreeTemplate g_partSizeDTT;
 
+enum IntraLumaMpmDecisionTree
+{
+  DTT_INTRA_MPM_0 = 0,
+  DTT_INTRA_MPM_1,
+  DTT_INTRA_MPM_2,
+  DTT_INTRA_MPM_3,
+  DTT_INTRA_MPM_4,
+  DTT_INTRA_MPM_5,
+  DTT_INTRA_MPM_ISGT_0,
+  DTT_INTRA_MPM_ISGT_1,
+  DTT_INTRA_MPM_ISGT_2,
+  DTT_INTRA_MPM_ISGT_3,
+  DTT_INTRA_MPM_ISGT_4,
+};
+
+extern const DecisionTreeTemplate g_intraLumaMpmDTT;
+
+enum GeneralizedBinSplitDecisionTree
+{
+  DTT_GBS_PERP_SPLIT,
+  DTT_GBS_PARL_SPLIT,
+  DTT_GBS_DONT_SPLIT,
+  DTT_GBS_DO_SPLIT,
+  DTT_GBS_DO_PERP_SPLIT,
+  DTT_GBS_DO_PARL_SPLIT
+};
+
+extern const DecisionTreeTemplate g_genBinSplitDTT;
+
+enum SplitModifierDecisionTree
+{
+  DTT_SM_12,
+  DTT_SM_14,
+  DTT_SM_34,
+  DTT_SM_38,
+  DTT_SM_58,
+  DTT_SM_13,
+  DTT_SM_23,
+  DTT_SM_15,
+  DTT_SM_25,
+  DTT_SM_35,
+  DTT_SM_45,
+  DTT_SM_IS_ASYM,
+  DTT_SM_IS_QUART,
+  DTT_SM_IS_14,
+  DTT_SM_IS_38,
+  DTT_SM_IS_x3,
+  DTT_SM_IS_13,
+  DTT_SM_IS_x5,
+  DTT_SM_IS_235,
+  DTT_SM_IS_15,
+  DTT_SM_IS_25
+};
+
+extern const DecisionTreeTemplate g_splitModifierDTT;
 
 // ====================================================================================================================
 // Misc.
 // ====================================================================================================================
 extern SizeIndexInfo* gp_sizeIdxInfo;
-extern int            g_BlockSizeQuantScale           [MAX_CU_SIZE + 1][MAX_CU_SIZE + 1][2];
+extern int            g_BlockSizeTrafoScale           [MAX_CU_SIZE + 1][MAX_CU_SIZE + 1][2];
+#if THRESHOLDING
+extern SChar          g_aucLog2                       [MAX_TR_SIZE + 1];
+extern SChar          g_aucCeilOfLog2OfNonPowerOf2Part[MAX_TR_SIZE + 1];
+extern SChar          g_aucLog2OfPowerOf2Part         [MAX_TR_SIZE + 1];
+extern SChar          g_aucNextLog2                   [MAX_TR_SIZE + 1];
+extern SChar          g_aucPrevLog2                   [MAX_TR_SIZE + 1];
+#else
 extern SChar          g_aucLog2                       [MAX_CU_SIZE + 1];
+extern SChar          g_aucCeilOfLog2OfNonPowerOf2Part[MAX_CU_SIZE + 1];
+extern SChar          g_aucLog2OfPowerOf2Part         [MAX_CU_SIZE + 1];
 extern SChar          g_aucNextLog2        [MAX_CU_SIZE + 1];
 extern SChar          g_aucPrevLog2        [MAX_CU_SIZE + 1];
-
+#endif
+extern const SChar    i2Log2Tab[257];
 
 inline bool is34( const SizeType& size )
 {
@@ -221,6 +330,15 @@ inline bool is58( const SizeType& size )
   return ( size & ( ( Int64 ) 1 << ( g_aucLog2[size] - 2 ) ) );
 }
 
+inline bool isNonLog2BlockSize( const Size& size )
+{
+  return ( ( 1 << g_aucLog2[size.width] ) != size.width ) || ( ( 1 << g_aucLog2[size.height] ) != size.height );
+}
+
+inline bool isNonLog2Size( const SizeType& size )
+{
+  return ( ( 1 << g_aucLog2[size] ) != size );
+}
 
 extern UnitScale     g_miScaling; // scaling object for motion scaling
 
@@ -244,20 +362,6 @@ extern const UInt g_scalingListSizeX[SCALING_LIST_SIZE_NUM];
 
 extern MsgLevel g_verbosity;
 
-#include <stdarg.h>
-inline void msg( MsgLevel level, const char* fmt, ... )
-{
-  if( g_verbosity >= level )
-  {
-    va_list args;
-    va_start( args, fmt );
-    vfprintf( level == ERROR ? stderr : stdout, fmt, args );
-    va_end( args );
-  }
-}
-
-extern Bool g_isEncoder;
-
 extern Int g_aiLMDivTableLow[];
 extern Int g_aiLMDivTableHigh[];
 
@@ -266,6 +370,10 @@ extern const Int g_aiMMLM_MinSize[];
 extern const Int g_aiNonLMPosThrs[];
 
 extern const UChar g_NonMPM[257];
+
+extern const int g_addHypWeight[HHI_MULTI_HYPOTHESEIS_NUM_WEIGHTS];
+
+
 
 //! \}
 

@@ -88,20 +88,20 @@ protected:
 
 #if RExt__DECODER_DEBUG_BIT_STATISTICS
   Void  xReadCode    ( UInt   length, UInt& val, const TChar *pSymbolName );
-  Void  xReadUvlc    ( UInt&  val, const TChar *pSymbolName );
-  Void  xReadSvlc    ( Int&   val, const TChar *pSymbolName );
-  Void  xReadFlag    ( UInt&  val, const TChar *pSymbolName );
+  Void  xReadUvlc    (                UInt& val, const TChar *pSymbolName );
+  Void  xReadSvlc    (                 Int& val, const TChar *pSymbolName );
+  Void  xReadFlag    (                UInt& val, const TChar *pSymbolName );
 #else
   Void  xReadCode    ( UInt   length, UInt& val );
-  Void  xReadUvlc    ( UInt&  val );
-  Void  xReadSvlc    ( Int&   val );
-  Void  xReadFlag    ( UInt&  val );
+  Void  xReadUvlc    (                UInt& val );
+  Void  xReadSvlc    (                 Int& val );
+  Void  xReadFlag    (                UInt& val );
 #endif
 #if ENABLE_TRACING
-  Void  xReadCodeTr  (UInt  length, UInt& rValue, const TChar *pSymbolName);
-  Void  xReadUvlcTr  (              UInt& rValue, const TChar *pSymbolName);
-  Void  xReadSvlcTr  (               Int& rValue, const TChar *pSymbolName);
-  Void  xReadFlagTr  (              UInt& rValue, const TChar *pSymbolName);
+  Void  xReadCodeTr  ( UInt  length, UInt& rValue, const TChar *pSymbolName );
+  Void  xReadUvlcTr  (               UInt& rValue, const TChar *pSymbolName );
+  Void  xReadSvlcTr  (                Int& rValue, const TChar *pSymbolName );
+  Void  xReadFlagTr  (               UInt& rValue, const TChar *pSymbolName );
 #endif
 public:
   Void  setBitstream ( InputBitstream* p )   { m_pcBitstream = p; }
@@ -139,35 +139,33 @@ public:
   HLSyntaxReader();
   virtual ~HLSyntaxReader();
 
-  void  init( CABACDecoder& cabacDecoder ) { m_CABACDecoder = &cabacDecoder; }
-
+  void  init( CABACDataStore& cabacDataStore ) { m_CABACDataStore = &cabacDataStore; }
 protected:
   Void  parseShortTermRefPicSet            (SPS* pcSPS, ReferencePictureSet* pcRPS, Int idx);
 
 public:
   Void  setBitstream        ( InputBitstream* p )   { m_pcBitstream = p; }
   Void  parseVPS            ( VPS* pcVPS );
-  void  parseSPSNext        ( SPSNext& spsNext );
+  void  parseSPSNext        ( SPSNext& spsNext, const bool usePCM );
   Void  parseSPS            ( SPS* pcSPS );
   Void  parsePPS            ( PPS* pcPPS );
   Void  parseVUI            ( VUI* pcVUI, SPS* pcSPS );
   Void  parsePTL            ( PTL *rpcPTL, Bool profilePresentFlag, Int maxNumSubLayersMinus1 );
-  Void  parseProfileTier    (ProfileTierLevel *ptl, const Bool bIsSubLayer);
-  Void  parseHrdParameters  (HRD *hrd, Bool cprms_present_flag, UInt tempLevelHigh);
-  Void  parseSliceHeader    ( Slice* pcSlice, ParameterSetManager *parameterSetManager, const Int prevTid0POC);
+  Void  parseProfileTier    ( ProfileTierLevel *ptl, const Bool bIsSubLayer );
+  Void  parseHrdParameters  ( HRD *hrd, Bool cprms_present_flag, UInt tempLevelHigh );
+  Void  parseSliceHeader    ( Slice* pcSlice, ParameterSetManager *parameterSetManager, const Int prevTid0POC );
   Void  parseTerminatingBit ( UInt& ruiBit );
   Void  parseRemainingBytes ( Bool noTrailingBytesExpected );
 
-  Void  parsePredWeightTable ( Slice* pcSlice, const SPS *sps );
-  Void  parseScalingList     ( ScalingList* scalingList );
-  Void  decodeScalingList    ( ScalingList *scalingList, UInt sizeId, UInt listId);
+  Void  parsePredWeightTable( Slice* pcSlice, const SPS *sps );
+  Void  parseScalingList    ( ScalingList* scalingList );
+  Void  decodeScalingList   ( ScalingList *scalingList, UInt sizeId, UInt listId);
 
 protected:
   Bool  xMoreRbspData();
-  void  xParseCABACWSizes    ( Slice* pcSlice, const SPS* pcSPS );
-
+  void  xParseCABACWSizes   ( Slice* pcSlice, const SPS* pcSPS );
 private:
-  CABACDecoder* m_CABACDecoder;
+  CABACDataStore* m_CABACDataStore;
 };
 
 

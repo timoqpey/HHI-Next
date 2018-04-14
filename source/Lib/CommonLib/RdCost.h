@@ -77,6 +77,7 @@ public:
   bool                  applyWeight;     // whether weighted prediction is used or not
   bool                  isBiPred;
   bool                  isQtbt;
+  bool                  isGBS;
 
   const WPScalingParam *wpCur;           // weighted prediction scaling parameters for current ref
   ComponentID           compID;
@@ -108,6 +109,7 @@ private:
   int                     m_iCostScale;
 
   bool                    m_useQtbt;
+  bool                    m_useGBS;
 
 public:
   RdCost();
@@ -124,6 +126,7 @@ public:
   Void          setCostMode(CostMode m) { m_costMode = m; }
 
   Void          setUseQtbt(bool b)    { m_useQtbt = b; }
+  Void          setUseGBS (bool b)    { m_useGBS  = b; }
 
   // Distortion Functions
   Void          init();
@@ -150,6 +153,9 @@ public:
   Void           setCostScale             ( Int iCostScale )           { m_iCostScale = iCostScale; }
   Distortion     getCost                  ( UInt b )                   { return Distortion( m_motionLambda * b ); }
 
+#if HHI_SPLIT_PARALLELISM
+  void copyState( const RdCost& other );
+#endif
 
   // for motion cost
   static UInt    xGetExpGolombNumberOfBits( Int iVal )
@@ -165,7 +171,6 @@ public:
 
     return uiLength2 + ( g_aucPrevLog2[uiTemp2] << 1 );
   }
-
   Distortion     getCostOfVectorWithPredictor( const Int x, const Int y, const unsigned imvShift )  { return Distortion( m_motionLambda * getBitsOfVectorWithPredictor(x, y, imvShift )); }
   UInt           getBitsOfVectorWithPredictor( const Int x, const Int y, const unsigned imvShift )  { return xGetExpGolombNumberOfBits(((x << m_iCostScale) - m_mvPredictor.getHor())>>imvShift) + xGetExpGolombNumberOfBits(((y << m_iCostScale) - m_mvPredictor.getVer())>>imvShift); }
 private:

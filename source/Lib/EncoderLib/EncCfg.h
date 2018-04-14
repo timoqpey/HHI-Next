@@ -172,6 +172,7 @@ protected:
   int       m_maxTempLayer;                      ///< Max temporal layer
   bool      m_useAMP;
   bool      m_QTBT;
+  bool      m_GenBinSplit;
   unsigned  m_CTUSize;
   unsigned  m_uiMinQT[3]; //0: I slice; 1: P/B slice, 2: I slice chroma
   unsigned  m_uiMaxBTDepth;
@@ -183,11 +184,20 @@ protected:
   unsigned  m_maxTotalCUDepth;
   unsigned  m_log2DiffMaxMinCodingBlockSize;
 
-  bool      m_NSST;
   bool      m_Intra4Tap;
   bool      m_Intra65Ang;
-  bool      m_LargeCTU;
   bool      m_IntraBoundaryFilter;
+  int       m_LMChroma;
+  int       m_IntraPDPC;
+  int       m_ALF;
+  bool      m_BIF;
+  bool      m_MDMS;
+  int       m_IntraEMT;
+  int       m_InterEMT;
+  int       m_FastIntraEMT;
+  int       m_FastInterEMT;
+  bool      m_NSST;
+  bool      m_LargeCTU;
   bool      m_SubPuMvp;
   unsigned  m_SubPuMvpLog2Size;
   unsigned  m_CABACEngineMode;
@@ -198,25 +208,47 @@ protected:
   bool      m_DisableMotionCompression;
   unsigned  m_LICMode;
   bool      m_FastPicLevelLIC;
-  int       m_LMChroma;
-  int       m_IntraPDPC;
-  int       m_ALF;
-  int       m_IntraEMT;
-  int       m_InterEMT;
-  int       m_FastIntraEMT;
-  int       m_FastInterEMT;
+  unsigned  m_MTTMode;
+
+  bool      m_AltDQPCoding;
+  bool      m_skipDQPinOddPOCs;         // skip writing/reading of delta-QP values in all B pictures with an odd POC
   bool      m_OBMC;
   unsigned  m_uiObmcBlkSize;
   bool      m_FRUC;
   unsigned  m_FRUCRefineFilter;
   unsigned  m_FRUCRefineRange;
   unsigned  m_FRUCSmallBlkRefineDepth;
-  bool      m_CIPF;
-  bool      m_BIF;
+  unsigned  m_CIPF;
   bool      m_AClip;
   bool      m_AClipEnc;
+  bool      m_IntraBiFi;
+  bool      m_UseTCQ;
+  bool      m_mode1dPartitions;
+  bool      m_mode1dPartitionsFast;
   bool      m_DMVR;
-  bool      m_MDMS;
+  int       m_maxNumAddHyps;
+  int       m_numAddHypWeights;
+  int       m_maxNumAddHypRefFrames;
+  int       m_addHypTries;
+  bool      m_MDBP;
+  bool      m_restrictedMerge;
+  bool      m_IntraFTM;
+  unsigned  m_RegionSizeParameter;
+  bool      m_FTMmode;
+  bool      m_Intra_NN;
+  bool      m_useIntraNNTrafos;
+  bool      m_UseSetOfTrafos;
+  unsigned  m_DiffusionFilterMode;
+  unsigned  m_RestrDiffusionMode;
+  bool      m_RestrIntraDiffusionMode;
+  unsigned  m_NumDiffusionFiltersIntra;
+  unsigned  m_NumDiffusionFiltersInter;
+#if THRESHOLDING
+  unsigned  m_thresholding;
+  unsigned  m_thresholdingMaxSize[ 2 ];
+  unsigned  m_thresholdingMaxThrs[ 2 ];
+#endif
+  bool      m_IntraMRL;
   // ADD_NEW_TOOL : (encoder lib) add tool enabling flags and associated parameters here
 
   bool      m_useFastLCTU;
@@ -225,7 +257,6 @@ protected:
   bool      m_useAMaxBT;
   bool      m_useSaveLoadEncInfo;
   bool      m_useSaveLoadSplitDecision;
-
   bool      m_e0023FastEnc;
   bool      m_contentBasedFastQtbt;
 
@@ -283,10 +314,8 @@ protected:
   Bool      m_highPrecisionOffsetsEnabledFlag;
   Bool      m_bUseAdaptiveQP;
   Int       m_iQPAdaptationRange;
-#if HHI_HLM_USE_QPA
   Bool      m_bUsePerceptQPA;
   Bool      m_bUseWPSNR;
-#endif
 
   //====== Tool list ========
   Int       m_inputBitDepth[MAX_NUM_CHANNEL_TYPE];         ///< bit-depth of input file
@@ -399,6 +428,9 @@ protected:
   Bool      m_SOPDescriptionSEIEnabled;
   Bool      m_scalableNestingSEIEnabled;
   Bool      m_tmctsSEIEnabled;
+#if MCTS_ENC_CHECK
+  Bool      m_tmctsSEITileConstraint;
+#endif
   Bool      m_timeCodeSEIEnabled;
   Int       m_timeCodeSEINumTs;
   SEITimeSet   m_timeSetArray[MAX_TIMECODE_SEI_SETS];
@@ -496,13 +528,37 @@ protected:
   int       m_ImvMode;
   int       m_Imv4PelFast;
   int       m_ImvMaxCand;
-
   std::string m_decodeBitstreams[2];                          ///< filename for decode bitstreams.
+  bool        m_forceDecodeBitstream1;                        ///< guess what it means
   int         m_switchPOC;                                    ///< dbg poc.
   int         m_switchDQP;                                    ///< dqp applied to  switchPOC and subsequent pictures.
   int         m_fastForwardToPOC;                             ///<
   bool        m_stopAfterFFtoPOC;                             ///<
+  bool        m_bs2ModPOCAndType;
 
+  bool        m_gbsFourths;
+  bool        m_gbsEights;
+  bool        m_gbsNonLog2Halving;
+  bool        m_gbsNonLog2CUs;
+  bool        m_gbsForceSplitToLog2;
+  bool        m_gbsFast;
+  double      m_anisoTVTh;
+  unsigned    m_maxAsymTSize;
+  unsigned    m_maxAsymTSizeI;
+  unsigned    m_maxAsymTSizeIChroma;
+
+  int         m_MvReestimationIters;
+  int         m_MvReestimationRange;
+
+#if HHI_SPLIT_PARALLELISM
+  int         m_numSplitThreads;
+  bool        m_forceSingleSplitThread;
+#endif
+#if HHI_WPP_PARALLELISM
+  int         m_numWppThreads;
+  int         m_numWppExtraLines;
+  bool        m_ensureWppBitEqual;
+#endif
 
 public:
   EncCfg()
@@ -569,7 +625,7 @@ public:
   void      setQTBT                         ( bool b )           { m_QTBT = b; }
   void      setCTUSize                      ( unsigned  u )      { m_CTUSize  = u; }
   void      setMinQTSizes                   ( unsigned* minQT)   { m_uiMinQT[0] = minQT[0]; m_uiMinQT[1] = minQT[1]; m_uiMinQT[2] = minQT[2]; }
-  void      setMaxBTDepth                   ( unsigned uiMaxBTDepth, unsigned uiMaxBTDepthI, unsigned uiMaxBTDepthIChroma = 0 )
+  void      setMaxBTDepth                   ( unsigned uiMaxBTDepth, unsigned uiMaxBTDepthI, unsigned uiMaxBTDepthIChroma )
                                                              { m_uiMaxBTDepth = uiMaxBTDepth; m_uiMaxBTDepthI = uiMaxBTDepthI; m_uiMaxBTDepthIChroma = uiMaxBTDepthIChroma; }
   unsigned  getMaxBTDepth                   ()         const { return m_uiMaxBTDepth; }
   unsigned  getMaxBTDepthI                  ()         const { return m_uiMaxBTDepthI; }
@@ -607,7 +663,6 @@ public:
 
   void      setAltResiCompId                ( unsigned n )   { m_altResiCompId = n; }
   unsigned  getAltResiCompId                ()               { return m_altResiCompId; }
-
   void      setHighPrecisionMv              ( bool b )       { m_highPrecMv = b; }
   bool      getHighPrecisionMv              ()               { return m_highPrecMv; }
 
@@ -616,7 +671,6 @@ public:
 
   void      setAffine                       ( bool b )       { m_Affine = b; }
   bool      getAffine                       ()         const { return m_Affine; }
-
   void      setDisableMotionCompression     ( bool b )       { m_DisableMotionCompression = b; }
   bool      getDisableMotionCompression     ()         const { return m_DisableMotionCompression; }
 
@@ -624,6 +678,13 @@ public:
   unsigned  getLICMode                      ()         const { return m_LICMode; }
   void      setFastPicLevelLIC              ( bool b )       { m_FastPicLevelLIC = b; }
   bool      getFastPicLevelLIC              ()         const { return m_FastPicLevelLIC; }
+
+  void      setMTTMode                      ( unsigned u )   { m_MTTMode = u; }
+  unsigned  getMTTMode                      ()         const { return m_MTTMode; }
+  void      setUseAltDQPCoding              ( bool b )       { m_AltDQPCoding = b; }
+  bool      getUseAltDQPCoding              ()         const { return m_AltDQPCoding; }
+  void      setSkipDQPinOddPOCs             ( bool b )       { m_skipDQPinOddPOCs = b; }
+  bool      getSkipDQPinOddPOCs             ()         const { return m_skipDQPinOddPOCs; }
 
   void      setIntraPDPC                    ( int n )        { m_IntraPDPC = n; }
   int       getIntraPDPC()                             const { return m_IntraPDPC; }
@@ -654,8 +715,8 @@ public:
   void      setFRUCSmallBlkRefineDepth      ( unsigned n )   { m_FRUCSmallBlkRefineDepth = n; }
   unsigned  getFRUCSmallBlkRefineDepth      ()         const { return m_FRUCSmallBlkRefineDepth; }
 
-  void      setCIPF                         ( bool b )       { m_CIPF = b; }
-  bool      getCIPF                         ()         const { return m_CIPF; }
+  void      setCIPF                         ( unsigned n )   { m_CIPF = n; }
+  unsigned  getCIPF                         ()         const { return m_CIPF; }
 
   void      setUseBIF                       ( bool b )       { m_BIF = b; }
   bool      getUseBIF                       ()         const { return m_BIF; }
@@ -663,12 +724,83 @@ public:
   bool      getUseAClip                     ()         const { return m_AClip; }
   void      setUseAClipEnc                  ( bool b )       { m_AClipEnc = b; }
   bool      getUseAClipEnc                  ()         const { return m_AClipEnc; }
+  void      setGenBinSplit                  ( bool b )       { m_GenBinSplit = b; }
+  bool      getGenBinSplit                  ()         const { return m_GenBinSplit; }
+  void      setGbsAllowFourths              ( bool b )       { m_gbsFourths = b; }
+  bool      getGbsAllowFourths              ()         const { return m_gbsFourths; }
+  void      setGbsAllowEights               ( bool b )       { m_gbsEights = b; }
+  bool      getGbsAllowEights               ()         const { return m_gbsEights; }
+  void      setGbsNonLog2Halving            ( bool b )       { m_gbsNonLog2Halving = b; }
+  bool      getGbsNonLog2Halving            ()         const { return m_gbsNonLog2Halving; }
+  void      setGbsNonLog2CUs                ( bool b )       { m_gbsNonLog2CUs = b; }
+  bool      getGbsNonLog2CUs                ()         const { return m_gbsNonLog2CUs; }
+  void      setGbsForceSplitToLog2          ( bool b )       { m_gbsForceSplitToLog2 = b; }
+  bool      getGbsForceSplitToLog2          ()         const { return m_gbsForceSplitToLog2; }
+  void      setMaxAsymTSize                 ( unsigned maxAsymTSize, unsigned maxAsymTSizeI, unsigned maxAsymTSizeIChroma = 0 )
+                                                             { m_maxAsymTSize = maxAsymTSize; m_maxAsymTSizeI = maxAsymTSizeI; m_maxAsymTSizeIChroma = maxAsymTSizeIChroma; }
+  unsigned  getMaxAsymTSize                 ()         const { return m_maxAsymTSize; }
+  unsigned  getMaxAsymTSizeI                ()         const { return m_maxAsymTSizeI; }
+  unsigned  getMaxAsymTSizeIChroma          ()         const { return m_maxAsymTSizeIChroma; }
+  void      setGbsFast                      ( bool b )       { m_gbsFast = b; }
+  bool      getGbsFast                      ()         const { return m_gbsFast; }
 
+  void      setIntraBiFi                    ( bool b )       { m_IntraBiFi = b; }
+  bool      getIntraBiFi                    ()         const { return m_IntraBiFi; }
+  void      setUseTCQ                       ( unsigned u )   { m_UseTCQ = u; }
+  bool      getUseTCQ                       ()         const { return m_UseTCQ; }
+  void      setMode1dPartitions             ( bool  b)       { m_mode1dPartitions = b; }
+  bool      getMode1dPartitions             ()         const { return m_mode1dPartitions; }
+  void      setMode1dPartitionsFast         (bool  b)        { m_mode1dPartitionsFast = b; }
+  bool      getMode1dPartitionsFast         ()         const { return m_mode1dPartitionsFast; }
+  void      setIntraNN                      ( unsigned u )   { m_Intra_NN = u; }
+  unsigned  getIntraNN                      ()         const { return m_Intra_NN; }
+  void      setUseIntraNNTrafos             ( bool b )       { m_useIntraNNTrafos = b; }
+  bool      getUseIntraNNTrafos             ()         const { return m_useIntraNNTrafos; }
+  void      setUseSetOfTrafos               ( unsigned u )   { m_UseSetOfTrafos = u; }
+  unsigned  getUseSetOfTrafos               ()         const { return m_UseSetOfTrafos; }
   void      setUseDMVR                      ( bool b )       { m_DMVR = b; }
   bool      getUseDMVR                      ()         const { return m_DMVR; }
-
   void      setMDMS                         ( bool b )       { m_MDMS = b; }
   bool      getMDMS                         ()         const { return m_MDMS; }
+
+  void      setMaxNumAddHyps                ( int i )        { m_maxNumAddHyps = i; }
+  int       getMaxNumAddHyps                ()         const { return m_maxNumAddHyps; }
+  void      setMaxNumAddHypWeights          ( int i )        { m_numAddHypWeights = i; }
+  int       getMaxNumAddHypWeights          ()         const { return m_numAddHypWeights; }
+  void      setMaxNumAddHypRefFrames        ( int i )        { m_maxNumAddHypRefFrames = i; }
+  int       getMaxNumAddHypRefFrames        ()         const { return m_maxNumAddHypRefFrames; }
+  void      setAddHypTries                  ( int i )        { m_addHypTries = i; }
+  int       getAddHypTries                  ()         const { return m_addHypTries; }
+  void      setMDBP                         ( bool b )       { m_MDBP = b; }
+  bool      getMDBP                         ()         const { return m_MDBP; }
+  void      setRestrictedMerge              ( bool b )       { m_restrictedMerge = b; }
+  bool      getRestrictedMerge              ()         const { return m_restrictedMerge; }
+  void      setUseIntraFTM                  ( bool b )       { m_IntraFTM = b; }
+  unsigned  getUseIntraFTM                  ()         const { return m_IntraFTM; }
+  void      setRegionSizeParameter          ( unsigned n )   { m_RegionSizeParameter = n; }
+  unsigned  getRegionSizeParameter          ()         const { return m_RegionSizeParameter; }
+  void      setFTMMode                      (bool b)         { m_FTMmode = b; }
+  int       getFTMMode                      ()         const { return m_FTMmode ? 1 : 0; }
+  void      setDiffusionFilterMode          ( unsigned u )   { m_DiffusionFilterMode = u; }
+  unsigned  getDiffusionFilterMode          ()         const { return m_DiffusionFilterMode; }
+  unsigned  getRestrDiffusionMode()                    const { return m_RestrDiffusionMode; }
+  void      setRestrDiffusionMode           (unsigned     b) { m_RestrDiffusionMode = b; }
+  void      setRestrIntraDiffusionMode      ( bool     b )   { m_RestrIntraDiffusionMode  = b; }
+  void      setNumDiffusionFiltersIntra     ( unsigned u )   { m_NumDiffusionFiltersIntra = u; }
+  void      setNumDiffusionFiltersInter     ( unsigned u )   { m_NumDiffusionFiltersInter = u; }
+  unsigned  getRestrIntraDiffusionMode      ()         const { return m_RestrIntraDiffusionMode; }
+  unsigned  getNumDiffusionFiltersIntra     ()         const { return m_NumDiffusionFiltersIntra; }
+  unsigned  getNumDiffusionFiltersInter     ()         const { return m_NumDiffusionFiltersInter; }
+#if THRESHOLDING
+  void      setUseThresholding              ( bool b )       { m_thresholding = b; }
+  bool      getUseThresholding              ()         const { return m_thresholding; }
+  void      setThresholdingMaxSize          ( unsigned n, SliceType s ) { m_thresholdingMaxSize[ s == I_SLICE ? 0 : 1 ] = n; }
+  void      setThresholdingMaxThrs          ( unsigned n, SliceType s ) { m_thresholdingMaxThrs[ s == I_SLICE ? 0 : 1 ] = n; }
+  unsigned  getThresholdingMaxIntraSize     ( SliceType s ) const { return m_thresholdingMaxSize[ s == I_SLICE ? 0 : 1 ]; }
+  unsigned  getThresholdingMaxInterThrs     ( SliceType s ) const { return m_thresholdingMaxThrs[ s == I_SLICE ? 0 : 1 ]; }
+#endif
+  void      setIntraMRL                     ( bool b )       { m_IntraMRL = b; }
+  bool      getIntraMRL                     ()         const { return m_IntraMRL; }
   // ADD_NEW_TOOL : (encoder lib) add access functions here
 
   Void      setMaxCUWidth                   ( UInt  u )      { m_maxCUWidth  = u; }
@@ -760,10 +892,8 @@ public:
 
   Void      setUseAdaptiveQP                ( Bool  b )      { m_bUseAdaptiveQP = b; }
   Void      setQPAdaptationRange            ( Int   i )      { m_iQPAdaptationRange = i; }
-#if HHI_HLM_USE_QPA
   Void      setUsePerceptQPA                ( const Bool b ) { m_bUsePerceptQPA = b; }
   Void      setUseWPSNR                     ( const Bool b ) { m_bUseWPSNR = b; }
-#endif
 
   //====== Sequence ========
   Int       getFrameRate                    () const     { return  m_iFrameRate; }
@@ -833,10 +963,8 @@ public:
   Int       getMaxCuDQPDepth                () const { return m_iMaxCuDQPDepth; }
   Bool      getUseAdaptiveQP                () const { return m_bUseAdaptiveQP; }
   Int       getQPAdaptationRange            () const { return m_iQPAdaptationRange; }
-#if HHI_HLM_USE_QPA
   Bool      getUsePerceptQPA                () const { return m_bUsePerceptQPA; }
   Bool      getUseWPSNR                     () const { return m_bUseWPSNR; }
-#endif
 
   //==== Tool list ========
   Void      setBitDepth( const ChannelType chType, Int internalBitDepthForChannel ) { m_bitDepth[chType] = internalBitDepthForChannel; }
@@ -1060,6 +1188,10 @@ public:
   Bool  getScalableNestingSEIEnabled() const                         { return m_scalableNestingSEIEnabled; }
   Void  setTMCTSSEIEnabled(Bool b)                                   { m_tmctsSEIEnabled = b; }
   Bool  getTMCTSSEIEnabled()                                         { return m_tmctsSEIEnabled; }
+#if MCTS_ENC_CHECK
+  Void  setTMCTSSEITileConstraint(Bool b)                            { m_tmctsSEITileConstraint = b; }
+  Bool  getTMCTSSEITileConstraint()                                  { return m_tmctsSEITileConstraint; }
+#endif
   Void  setTimeCodeSEIEnabled(Bool b)                                { m_timeCodeSEIEnabled = b; }
   Bool  getTimeCodeSEIEnabled()                                      { return m_timeCodeSEIEnabled; }
   Void  setNumberOfTimeSets(Int value)                               { m_timeCodeSEINumTs = value; }
@@ -1277,9 +1409,10 @@ public:
   Int          getIMV4PelFast() const                                { return m_Imv4PelFast; }
   Void         setIMVMaxCand(Int n)                                  { m_ImvMaxCand = n; }
   Int          getIMVMaxCand() const                                 { return m_ImvMaxCand; }
-
   Void         setDecodeBitstream( int i, const std::string& s )     { m_decodeBitstreams[i] = s; }
   const std::string& getDecodeBitstream( int i )               const { return m_decodeBitstreams[i]; }
+  bool         getForceDecodeBitstream1()                      const { return m_forceDecodeBitstream1; }
+  Void         setForceDecodeBitstream1( bool b )                    { m_forceDecodeBitstream1 = b; }
   Void         setSwitchPOC( int i )                                 { m_switchPOC = i; }
   int          getSwitchPOC()                                  const { return m_switchPOC; }
   Void         setSwitchDQP( int i )                                 { m_switchDQP = i; }
@@ -1289,7 +1422,30 @@ public:
   bool         useFastForwardToPOC()                           const { return m_fastForwardToPOC >= 0; }
   Void         setStopAfterFFtoPOC( bool b )                         { m_stopAfterFFtoPOC = b; }
   bool         getStopAfterFFtoPOC()                           const { return m_stopAfterFFtoPOC; }
+  Void         setBs2ModPOCAndType( bool b )                         { m_bs2ModPOCAndType = b; }
+  bool         getBs2ModPOCAndType()                           const { return m_bs2ModPOCAndType; }
 
+  void         setMvReestIters( int i )                              { m_MvReestimationIters = i; }
+  int          getMvReestIters()                               const { return m_MvReestimationIters; }
+  void         setMvReestRange( int i )                              { m_MvReestimationRange = i; }
+  int          getMvReestRange()                               const { return m_MvReestimationRange; }
+  void         setAnisoTVTh( double th )                             { m_anisoTVTh = th; }
+  double       getAnisoTVTh()                                  const { return m_anisoTVTh; }
+
+#if HHI_SPLIT_PARALLELISM
+  void         setNumSplitThreads( int n )                           { m_numSplitThreads = n; }
+  int          getNumSplitThreads()                            const { return m_numSplitThreads; }
+  void         setForceSingleSplitThread( bool b )                   { m_forceSingleSplitThread = b; }
+  int          getForceSingleSplitThread()                     const { return m_forceSingleSplitThread; }
+#endif
+#if HHI_WPP_PARALLELISM
+  void         setNumWppThreads( int n )                             { m_numWppThreads = n; }
+  int          getNumWppThreads()                              const { return m_numWppThreads; }
+  void         setNumWppExtraLines( int n )                          { m_numWppExtraLines = n; }
+  int          getNumWppExtraLines()                           const { return m_numWppExtraLines; }
+  void         setEnsureWppBitEqual( bool b)                         { m_ensureWppBitEqual = b; }
+  bool         getEnsureWppBitEqual()                          const { return m_ensureWppBitEqual; }
+#endif
 };
 
 //! \}

@@ -39,6 +39,7 @@
 #include "DecLib.h"
 
 #include "CommonLib/dtrace_next.h"
+#include "CommonLib/dtrace_buffer.h"
 #include "CommonLib/Buffer.h"
 #include "CommonLib/UnitTools.h"
 
@@ -48,23 +49,23 @@
 #include "AnnexBread.h"
 #include "NALread.h"
 
-bool tryDecodePicture( Picture* pcPic, const std::string& bitstreamFileName, bool bDecodeUntilPocFound )
+bool tryDecodePicture( Picture* pcEncPic, const int expectedPoc, const std::string& bitstreamFileName, bool bDecodeUntilPocFound /* = false */ )
 {
   int      poc;
   PicList* pcListPic = NULL;
 
-  static bool bFirstCall      = true;
-  static bool loopFiltered    = false;
-  static int  iPOCLastDisplay = -MAX_INT;
+  static bool bFirstCall      = true;             /* TODO: MT */
+  static bool loopFiltered    = false;            /* TODO: MT */
+  static int  iPOCLastDisplay = -MAX_INT;         /* TODO: MT */
 
-  static std::ifstream* bitstreamFile = nullptr;
-  static InputByteStream* bytestream  = nullptr;
+  static std::ifstream* bitstreamFile = nullptr;  /* TODO: MT */
+  static InputByteStream* bytestream  = nullptr;  /* TODO: MT */
   bool bRet = false;
 
   // create & initialize internal classes
-  static DecLib *pcDecLib = nullptr;
+  static DecLib *pcDecLib = nullptr;              /* TODO: MT */
 
-  if( pcPic )
+  if( pcEncPic )
   {
     if( bFirstCall )
     {
@@ -138,31 +139,40 @@ bool tryDecodePicture( Picture* pcPic, const std::string& bitstreamFileName, boo
           {
             for( auto & pic : *pcListPic )
             {
-              if( pic->poc == poc && (!bDecodeUntilPocFound || pcPic->slices[0]->getPOC() == poc ) )
+              if( pic->poc == poc && (!bDecodeUntilPocFound || expectedPoc == poc ) )
               {
-                CHECK( pcPic->slices.size() == 0, "at least one slice should be available" )
+                CHECK( pcEncPic->slices.size() == 0, "at least one slice should be available" );
 
-                CHECK( pcPic->slices[0]->getPOC() != poc, "mismatch in POC - check encoder configuration" )
+                CHECK( expectedPoc != poc, "mismatch in POC - check encoder configuration" );
 
                 for( int i = 0; i < pic->slices.size(); i++ )
                 {
-                  if( pcPic->slices.size() <= i )
+                  if( pcEncPic->slices.size() <= i )
                   {
-                    pcPic->slices.push_back( new Slice );
-                    pcPic->slices.back()->initSlice();
+                    pcEncPic->slices.push_back( new Slice );
+                    pcEncPic->slices.back()->initSlice();
                   }
-                  pcPic->slices[i]->copySliceInfo( pic->slices[i], false );
+                  pcEncPic->slices[i]->copySliceInfo( pic->slices[i], false );
                 }
 
-                pcPic->cs->slice = pcPic->slices.back();
+                pcEncPic->cs->slice = pcEncPic->slices.back();
 
-                pcPic->cs->copyStructure( *pic->cs, true, true );
+                pcEncPic->copySAO( *pic, 0 );
 
-                if( CS::isDualITree( *pcPic->cs ) )
+                pcDecLib->executeLoopFilters();
+
+                pcEncPic->copySAO( *pic, 1 );
+
+                if( pic->cs->sps->getSpsNext().getALFEnabled() )
                 {
-                  pcPic->cs->chType = CHANNEL_TYPE_CHROMA;
-                  pcPic->cs->copyStructure( *pic->cs, true, true );
-                  pcPic->cs->chType = CHANNEL_TYPE_LUMA;
+                  pcEncPic->getALFParam().copyFrom( pic->getALFParam(), pic->cs->sps->getSpsNext().getGALFEnabled() );
+                }
+
+                pcEncPic->cs->copyStructure( *pic->cs, CH_L, true, true );
+
+                if( CS::isDualITree( *pcEncPic->cs ) )
+                {
+                  pcEncPic->cs->copyStructure( *pic->cs, CH_C, true, true );
                 }
 
                 goOn = false; // exit the loop return
@@ -171,8 +181,12 @@ bool tryDecodePicture( Picture* pcPic, const std::string& bitstreamFileName, boo
               }
             }
           }
-          // postpone loopfilters
-          pcDecLib->executeLoopFilters();
+          // postpone loop filters
+          if (!bRet)
+          {
+            pcDecLib->executeLoopFilters();
+          }
+
           pcDecLib->finishPicture( poc, pcListPic, DETAILS );
 
           // write output
@@ -188,13 +202,13 @@ bool tryDecodePicture( Picture* pcPic, const std::string& bitstreamFileName, boo
 
             while (iterPic != pcListPic->end())
             {
-              Picture* pcPic = *(iterPic);
-              if(pcPic->neededForOutput && pcPic->getPOC() > iPOCLastDisplay)
+              Picture* pcCurPic = *(iterPic);
+              if(pcCurPic->neededForOutput && pcCurPic->getPOC() > iPOCLastDisplay)
               {
-                  numPicsNotYetDisplayed++;
+                numPicsNotYetDisplayed++;
                 dpbFullness++;
               }
-              else if(pcPic->referenced)
+              else if(pcCurPic->referenced)
               {
                 dpbFullness++;
               }
@@ -208,36 +222,36 @@ bool tryDecodePicture( Picture* pcPic, const std::string& bitstreamFileName, boo
               iterPic++;
             }
 
-            Picture* pcPic = *(iterPic);
-            if( numPicsNotYetDisplayed>2 && pcPic->fieldPic ) //Field Decoding
+            Picture* pcCurPic = *(iterPic);
+            if( numPicsNotYetDisplayed>2 && pcCurPic->fieldPic ) //Field Decoding
             {
               THROW( "no field coding support ");
             }
-            else if( !pcPic->fieldPic ) //Frame Decoding
+            else if( !pcCurPic->fieldPic ) //Frame Decoding
             {
               iterPic = pcListPic->begin();
 
               while (iterPic != pcListPic->end())
               {
-                pcPic = *(iterPic);
+                pcCurPic = *(iterPic);
 
-                if(pcPic->neededForOutput && pcPic->getPOC() > iPOCLastDisplay &&
+                if(pcCurPic->neededForOutput && pcCurPic->getPOC() > iPOCLastDisplay &&
                   (numPicsNotYetDisplayed >  numReorderPicsHighestTid || dpbFullness > maxDecPicBufferingHighestTid))
                 {
                     numPicsNotYetDisplayed--;
-                  if( ! pcPic->referenced )
+                  if( ! pcCurPic->referenced )
                   {
                     dpbFullness--;
                   }
                   // update POC of display order
-                  iPOCLastDisplay = pcPic->getPOC();
+                  iPOCLastDisplay = pcCurPic->getPOC();
 
                   // erase non-referenced picture in the reference picture list after display
-                  if( ! pcPic->referenced && pcPic->reconstructed )
+                  if( ! pcCurPic->referenced && pcCurPic->reconstructed )
                   {
-                    pcPic->reconstructed = false;
+                    pcCurPic->reconstructed = false;
                   }
-                  pcPic->neededForOutput = false;
+                  pcCurPic->neededForOutput = false;
                 }
 
                 iterPic++;
@@ -263,7 +277,7 @@ bool tryDecodePicture( Picture* pcPic, const std::string& bitstreamFileName, boo
 
   if( !bRet )
   {
-    CHECK( bDecodeUntilPocFound, " decoding failed - check decodeBitstream2 parameter" );
+    CHECK( bDecodeUntilPocFound, " decoding failed - check decodeBitstream2 parameter File: " << bitstreamFileName.c_str() );
     if( pcDecLib )
     {
       pcDecLib->destroy();
@@ -328,6 +342,9 @@ DecLib::DecLib()
   , m_craNoRaslOutputFlag(false)
   , m_pDecodedSEIOutputStream(NULL)
   , m_decodedPictureHashSEIEnabled(false)
+#if MCTS_ENC_CHECK
+  , m_tmctsCheckEnabled(false)
+#endif
   , m_numberOfChecksumErrorsDetected(0)
   , m_warningMessageSkipPicture(false)
   , m_prefixSEINALUs()
@@ -362,9 +379,8 @@ Void DecLib::destroy()
 
 Void DecLib::init()
 {
-  m_HLSReader    .init(  m_CABACDecoder );
-  m_cSliceDecoder.init( &m_CABACDecoder, &m_cCuDecoder );
-
+  m_HLSReader    .init(  m_CABACDataStore );
+  m_cSliceDecoder.init( &m_CABACDataStore, &m_CABACDecoder, &m_cCuDecoder );
   DTRACE_UPDATE( g_trace_ctx, std::make_pair( "final", 1 ) );
 }
 
@@ -381,7 +397,6 @@ Void DecLib::deletePicBuffer ( )
     delete pcPic;
     pcPic = NULL;
   }
-
   m_cALF.destroy();
   m_cSAO.destroy();
   m_cLoopFilter.destroy();
@@ -449,53 +464,45 @@ Picture* DecLib::xGetNewPicBuffer ( const SPS &sps, const PPS &pps, const UInt t
   return pcPic;
 }
 
+
 Void DecLib::executeLoopFilters()
 {
-  if (!m_pcPic)
+  if( !m_pcPic )
   {
-    /* nothing to deblock */
-    return;
+    return; // nothing to deblock
   }
-
-  // Execute Deblock + Cleanup
 
   CodingStructure& cs = *m_pcPic->cs;
 
-  //-- For time output for each slice
-//  pcSlice->startProcessingTimer();
   // deblocking filter
   m_cLoopFilter.loopFilterPic( cs );
 
   if( cs.sps->getUseSAO() )
   {
-    m_cSAO.SAOProcess(cs, cs.getSAO() );
+    m_cSAO.SAOProcess( cs, cs.picture->getSAO() );
   }
 
   if( cs.sps->getSpsNext().getALFEnabled() )
   {
-    const Int tidxMAX = E0104_ALF_MAX_TEMPLAYERID-1;
-    const Int tidx    = cs.slice->getTLayer();
-    CHECK( tidx > tidxMAX, " index out of range");
+    ALFParam* alfParams = &cs.picture->getALFParam();
+    const UInt tidxMAX  = E0104_ALF_MAX_TEMPLAYERID - 1u;
+    const UInt tidx     = cs.slice->getTLayer();
+    CHECK( tidx > tidxMAX, "index out of range" );
 
-    if ( m_cALF.refreshAlfTempPred(cs.slice->getNalUnitType(), cs.slice->getPOC()) )
+    if( cs.slice->getPendingRasInit() || cs.slice->isIDRorBLA() )
     {
-      CHECK(cs.getALFParam().temporalPredFlag != false, "temporalPredFlag must be false ");
+      m_cALF.refreshAlfTempPred();
     }
-    if (cs.getALFParam().temporalPredFlag)
+    if( alfParams->temporalPredFlag )
     {
-      m_cALF.loadALFParam( &cs.getALFParam(), cs.getALFParam().prevIdx, tidx );
+      m_cALF.loadALFParam( alfParams, alfParams->prevIdx, tidx );
     }
-    m_cALF.ALFProcess( cs, &cs.getALFParam() );
-    if (cs.getALFParam().alf_flag && !cs.getALFParam().temporalPredFlag)
+    m_cALF.ALFProcess( cs, alfParams );
+    if( alfParams->alf_flag && !alfParams->temporalPredFlag )
     {
-      m_cALF.storeALFParam( &cs.getALFParam(), cs.slice->isIntra(), tidx, tidxMAX );
+      m_cALF.storeALFParam( alfParams, cs.slice->isIntra(), tidx, tidxMAX );
     }
-
-    m_cALF.freeALFParam( &cs.getALFParam() );
   }
-  //  pcSlice->stopProcessingTimer();
-
-  return;
 }
 
 Void DecLib::finishPictureLight(Int& poc, PicList*& rpcListPic )
@@ -510,9 +517,14 @@ Void DecLib::finishPictureLight(Int& poc, PicList*& rpcListPic )
   rpcListPic          = &m_cListPic;
 }
 
-Void DecLib::finishPicture(Int& poc, PicList*& rpcListPic, MsgLevel msgl )
+Void DecLib::finishPicture(Int& poc, PicList*& rpcListPic, unsigned numBits, MsgLevel msgl )
 {
   Slice*  pcSlice = m_pcPic->cs->slice;
+  if( m_pcPic->cs->sps->getSpsNext().getALFEnabled() )
+  {
+    m_cALF.freeALFParam( &m_pcPic->getALFParam() );
+  }
+
 
   TChar c = (pcSlice->isIntra() ? 'I' : pcSlice->isInterP() ? 'P' : 'B');
   if (!m_pcPic->referenced)
@@ -521,10 +533,11 @@ Void DecLib::finishPicture(Int& poc, PicList*& rpcListPic, MsgLevel msgl )
   }
 
   //-- For time output for each slice
-  msg( msgl, "POC %4d TId: %1d ( %c-SLICE, QP%3d ) ", pcSlice->getPOC(),
+  msg( msgl, "POC %4d TId: %1d ( %c-SLICE, QP%3d ) %10d bits ", pcSlice->getPOC(),
          pcSlice->getTLayer(),
          c,
-         pcSlice->getSliceQp() );
+         pcSlice->getSliceQp(),
+         numBits );
   msg( msgl, "[DT %6.3f] ", pcSlice->getProcessingTime() );
 
   for (Int iRefList = 0; iRefList < 2; iRefList++)
@@ -653,7 +666,7 @@ Void DecLib::xActivateParameterSets()
 
     if (NULL == pps->pcv)
     {
-      m_parameterSetManager.getPPS(m_apcSlicePilot->getPPSId())->pcv = new PreCalcValues(*sps, *pps);
+      m_parameterSetManager.getPPS( m_apcSlicePilot->getPPSId() )->pcv = new PreCalcValues( *sps, *pps, false );
     }
     m_parameterSetManager.clearSPSChangedFlag(sps->getSPSId());
     m_parameterSetManager.clearPPSChangedFlag(pps->getPPSId());
@@ -704,6 +717,7 @@ Void DecLib::xActivateParameterSets()
     // Initialise the various objects for the new set of settings
     m_cSAO.create( sps->getPicWidthInLumaSamples(), sps->getPicHeightInLumaSamples(), sps->getChromaFormatIdc(), sps->getMaxCUWidth(), sps->getMaxCUHeight(), sps->getMaxCodingDepth(), pps->getPpsRangeExtension().getLog2SaoOffsetScale(CHANNEL_TYPE_LUMA), pps->getPpsRangeExtension().getLog2SaoOffsetScale(CHANNEL_TYPE_CHROMA) );
     m_cLoopFilter.create( sps->getMaxCodingDepth() );
+    m_DiffusionFilter.init();
     m_cIntraPred.init( sps->getChromaFormatIdc(), sps->getBitDepth( CHANNEL_TYPE_LUMA ) );
     m_cInterPred.init( &m_cRdCost, sps->getChromaFormatIdc() );
     if( sps->getSpsNext().getALFEnabled() )
@@ -736,13 +750,21 @@ Void DecLib::xActivateParameterSets()
     m_SEIs.clear();
 
     // Recursive structure
-    m_cCuDecoder.init( &m_cTrQuant, &m_cIntraPred, &m_cInterPred );
-    m_cTrQuant  .init( sps->getMaxTrSize(), false, false, false, 0, RDOQfn::JEM, false, false, sps->getSpsNext().getUseIntra65Ang(), pps->pcv->rectCUs );
+#if THRESHOLDING
+    m_cCuDecoder.init( &m_cTrQuant, &m_cIntraPred, &m_cInterPred, &m_DiffusionFilter, &m_Thresholding );
+#else
+    m_cCuDecoder.init( &m_cTrQuant, &m_cIntraPred, &m_cInterPred, &m_DiffusionFilter );
+#endif
+    m_cTrQuant  .init( nullptr, sps->getMaxTrSize(), false, false, false, 0, RDOQfn::JEM, false, false, sps->getSpsNext().getUseIntra65Ang(), pps->pcv->rectCUs, sps->getSpsNext().getUseTCQ() );
 
     // RdCost
     m_cRdCost.setCostMode ( COST_STANDARD_LOSSY ); // not used in decoder side RdCost stuff -> set to default
     m_cRdCost.setUseQtbt  ( sps->getSpsNext().getUseQTBT() );
+    m_cRdCost.setUseGBS   ( sps->getSpsNext().getUseGenBinSplit() );
 
+#if THRESHOLDING
+    m_Thresholding.init( sps );
+#endif
     m_cSliceDecoder.create();
   }
   else
@@ -1103,7 +1125,7 @@ Bool DecLib::xDecodeSlice(InputNALUnit &nalu, Int &iSkipFrame, Int iPOCLastDispl
 
   if( pcSlice->getSPS()->getSpsNext().getALFEnabled()  )
   {
-    m_cALF.allocALFParam( &m_pcPic->cs->getALFParam() );
+    m_cALF.allocALFParam( &m_pcPic->getALFParam() );
   }
 
   //  Decode a picture
@@ -1129,6 +1151,8 @@ Void DecLib::xDecodeSPS( InputNALUnit& nalu )
   m_HLSReader.setBitstream( &nalu.getBitstream() );
   m_HLSReader.parseSPS( sps );
   m_parameterSetManager.storeSPS( sps, nalu.getBitstream().getFifo() );
+
+  DTRACE( g_trace_ctx, D_QP_PER_CTU, "CTU Size: %dx%d", sps->getMaxCUWidth(), sps->getMaxCUHeight() );
 }
 
 Void DecLib::xDecodePPS( InputNALUnit& nalu )

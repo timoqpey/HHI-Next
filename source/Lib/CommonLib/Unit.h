@@ -279,12 +279,21 @@ struct CodingUnit : public UnitArea
 {
   CodingStructure *cs;
   Slice *slice;
+  ChannelType    chType;
 
   PredMode       predMode;
   PartSize       partSize;
-  UChar          depth;
-  UChar          qtDepth;
-  UChar          btDepth;
+
+  UChar          depth;   // number of all splits, applied with generalized splits
+  UChar          qtDepth; // number of applied quad-splits, before switching to the multi-type-tree (mtt)
+  // a triple split would increase the mtDepth by 1, but the qtDepth by 2 in the first and last part and by 1 in the middle part (because of the 1-2-1 split proportions)
+  UChar          btDepth; // number of applied binary splits, after switching to the mtt (or it's equivalent)
+  UChar          mtDepth; // the actual number of splits after switching to mtt (equals btDepth if only binary splits are allowed)
+  UInt           mrlIdx;
+//#else
+//  UChar          depth;
+//  UChar          qtDepth;
+//  UChar          btDepth;
   SChar          chromaQpAdj;
   SChar          qp;
   SplitSeries    splitSeries;
@@ -298,14 +307,20 @@ struct CodingUnit : public UnitArea
   UInt           tileIdx;
   UInt           nsstIdx;
   UChar          emtFlag;
+  UChar          mode1dPartitions;
   Bool           LICFlag;
   Bool           obmcFlag;
+  UChar          intra_NN;
+  UChar          intra_NN_Use_Sampling;
+  UChar          intraNNTrafoIdx;
+
+  unsigned       diffFilterIdx;
 
   // needed for fast imv mode decisions
   SChar          imvNumCand;
 
 
-  CodingUnit() { }
+  CodingUnit() : chType( CH_L ) { }
   CodingUnit(const UnitArea &unit);
   CodingUnit(const ChromaFormat _chromaFormat, const Area &area);
 
@@ -321,6 +336,11 @@ struct CodingUnit : public UnitArea
 
   TransformUnit *firstTU;
   TransformUnit *lastTU;
+#if HHI_SPLIT_PARALLELISM || HHI_WPP_PARALLELISM
+
+  int64_t cacheId;
+  bool    cacheUsed;
+#endif
 };
 
 // ---------------------------------------------------------------------------
@@ -330,6 +350,8 @@ struct CodingUnit : public UnitArea
 struct IntraPredictionData
 {
   UInt  intraDir[MAX_NUM_CHANNEL_TYPE];
+  UInt  FTMRegIdx;
+  UInt  intraNN_Mode_True; // if intraMode i, then i-th most probable mode. is used for trafos
 };
 
 struct InterPredictionData
@@ -345,15 +367,20 @@ struct InterPredictionData
   MergeType mergeType;
   UChar     frucMrgMode;
   Bool      mvRefine;
+  MultiHypVec
+            addHypData;
+  int       numMergedAddHyps;
+  RefPicList mergeRefPicList;
 };
 
 struct PredictionUnit : public UnitArea, public IntraPredictionData, public InterPredictionData
 {
   CodingUnit      *cu;
   CodingStructure *cs;
+  ChannelType      chType;
 
   // constructors
-  PredictionUnit() { }
+  PredictionUnit(): chType( CH_L ) { }
   PredictionUnit(const UnitArea &unit);
   PredictionUnit(const ChromaFormat _chromaFormat, const Area &area);
 
@@ -376,6 +403,11 @@ struct PredictionUnit : public UnitArea, public IntraPredictionData, public Inte
   const MotionInfo& getMotionInfoFRUC() const;
   const MotionInfo& getMotionInfoFRUC( const Position& pos ) const;
   MotionBuf         getMotionBufFRUC();
+#if HHI_SPLIT_PARALLELISM || HHI_WPP_PARALLELISM
+
+  int64_t cacheId;
+  bool    cacheUsed;
+#endif
 };
 
 // ---------------------------------------------------------------------------
@@ -386,15 +418,23 @@ struct TransformUnit : public UnitArea
 {
   CodingUnit      *cu;
   CodingStructure *cs;
+  ChannelType      chType;
 
   UChar        depth;
   UChar        emtIdx;
   UChar        cbf          [ MAX_NUM_TBLOCKS ];
   RDPCMMode    rdpcm        [ MAX_NUM_TBLOCKS ];
   Bool         transformSkip[ MAX_NUM_TBLOCKS ];
+  Bool         tcq          [ MAX_NUM_TBLOCKS ];
   SChar        compAlpha    [ MAX_NUM_TBLOCKS ];
+#if THRESHOLDING
+  bool         thresholding;
+  UChar        thresholdingSize;
+  UChar        thresholdingThrs;
+  UInt         thresholdingMaxThr;
+#endif
 
-  TransformUnit() { }
+  TransformUnit() : chType( CH_L ) { }
   TransformUnit(const UnitArea& unit);
   TransformUnit(const ChromaFormat _chromaFormat, const Area &area);
 
@@ -402,6 +442,7 @@ struct TransformUnit : public UnitArea
 
   unsigned       idx;
   TransformUnit *next;
+  TransformUnit *prev;
 
   Void init(TCoeff **coeffs, Pel **pcmbuf);
 
@@ -413,6 +454,11 @@ struct TransformUnit : public UnitArea
          PelBuf   getPcmbuf(const ComponentID id);
   const CPelBuf   getPcmbuf(const ComponentID id) const;
 
+#if HHI_SPLIT_PARALLELISM || HHI_WPP_PARALLELISM
+  int64_t cacheId;
+  bool    cacheUsed;
+
+#endif
 private:
   TCoeff *m_coeffs[ MAX_NUM_TBLOCKS ];
   Pel    *m_pcmbuf[ MAX_NUM_TBLOCKS ];

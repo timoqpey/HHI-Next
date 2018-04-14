@@ -40,14 +40,181 @@
 #include "CodingStructure.h"
 #include "Picture.h"
 
+static const uint8_t spat_bypass_luma_all           []  = { 27, 27, 27, 27, 27, 27, 27, 27, 27, 27, 27, 27, 27, 27, 27, 27 };
+static const uint8_t spat_bypass_chroma_all         []  = { 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15 };
+static const uint8_t spat_4x4_diag_all              []  = {  0,  2,  1,  6,  3,  4,  7,  6,  4,  5,  7,  8,  5,  8,  8,  8 };
+static const uint8_t spat_4x4_hor_all               []  = {  0,  1,  4,  5,  2,  3,  4,  5,  6,  6,  8,  8,  7,  7,  8,  8 };
+static const uint8_t spat_4x4_ver_all               []  = {  0,  2,  6,  7,  1,  3,  6,  7,  4,  4,  8,  8,  5,  5,  8,  8 };
+static const uint8_t spat_8x8_luma_diag_first_pat0  []  = {  0, 10, 10, 10, 10, 10,  9,  9,  9,  9,  9,  9,  9,  9,  9,  9 };
+static const uint8_t spat_8x8_luma_diag_first_pat1  []  = {  0, 10, 11,  9, 10, 11,  9,  9, 10, 11,  9,  9, 10,  9,  9,  9 };
+static const uint8_t spat_8x8_luma_diag_first_pat2  []  = {  0, 11, 10, 11, 10,  9, 11, 10,  9,  9, 10,  9,  9,  9,  9,  9 };
+static const uint8_t spat_8x8_luma_diag_first_pat3  []  = {  0, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11 };
+static const uint8_t spat_8x8_luma_diag_other_pat0  []  = { 14, 13, 13, 13, 13, 13, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12 };
+static const uint8_t spat_8x8_luma_diag_other_pat1  []  = { 14, 13, 14, 12, 13, 14, 12, 12, 13, 14, 12, 12, 13, 12, 12, 12 };
+static const uint8_t spat_8x8_luma_diag_other_pat2  []  = { 14, 14, 13, 14, 13, 12, 14, 13, 12, 12, 13, 12, 12, 12, 12, 12 };
+static const uint8_t spat_8x8_luma_diag_other_pat3  []  = { 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14 };
+static const uint8_t spat_8x8_luma_hor_first_pat0   []  = {  0, 16, 16, 15, 16, 16, 15, 15, 16, 15, 15, 15, 15, 15, 15, 15 };
+static const uint8_t spat_8x8_luma_hor_first_pat1   []  = {  0, 17, 17, 17, 16, 16, 16, 16, 15, 15, 15, 15, 15, 15, 15, 15 };
+static const uint8_t spat_8x8_luma_hor_first_pat2   []  = {  0, 16, 15, 15, 17, 16, 15, 15, 17, 16, 15, 15, 17, 16, 15, 15 };
+static const uint8_t spat_8x8_luma_hor_first_pat3   []  = {  0, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17 };
+static const uint8_t spat_8x8_luma_hor_other_pat0   []  = { 20, 19, 19, 18, 19, 19, 18, 18, 19, 18, 18, 18, 18, 18, 18, 18 };
+static const uint8_t spat_8x8_luma_hor_other_pat1   []  = { 20, 20, 20, 20, 19, 19, 19, 19, 18, 18, 18, 18, 18, 18, 18, 18 };
+static const uint8_t spat_8x8_luma_hor_other_pat2   []  = { 20, 19, 18, 18, 20, 19, 18, 18, 20, 19, 18, 18, 20, 19, 18, 18 };
+static const uint8_t spat_8x8_luma_hor_other_pat3   []  = { 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20 };
+static const uint8_t spat_8x8_luma_ver_first_pat0   []  = {  0, 16, 16, 15, 16, 16, 15, 15, 16, 15, 15, 15, 15, 15, 15, 15 };
+static const uint8_t spat_8x8_luma_ver_first_pat1   []  = {  0, 16, 15, 15, 17, 16, 15, 15, 17, 16, 15, 15, 17, 16, 15, 15 };
+static const uint8_t spat_8x8_luma_ver_first_pat2   []  = {  0, 17, 17, 17, 16, 16, 16, 16, 15, 15, 15, 15, 15, 15, 15, 15 };
+static const uint8_t spat_8x8_luma_ver_first_pat3   []  = {  0, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17 };
+static const uint8_t spat_8x8_luma_ver_other_pat0   []  = { 20, 19, 19, 18, 19, 19, 18, 18, 19, 18, 18, 18, 18, 18, 18, 18 };
+static const uint8_t spat_8x8_luma_ver_other_pat1   []  = { 20, 19, 18, 18, 20, 19, 18, 18, 20, 19, 18, 18, 20, 19, 18, 18 };
+static const uint8_t spat_8x8_luma_ver_other_pat2   []  = { 20, 20, 20, 20, 19, 19, 19, 19, 18, 18, 18, 18, 18, 18, 18, 18 };
+static const uint8_t spat_8x8_luma_ver_other_pat3   []  = { 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20 };
+static const uint8_t spat_nxn_luma_diag_first_pat0  []  = {  0, 22, 22, 22, 22, 22, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21 };
+static const uint8_t spat_nxn_luma_diag_first_pat1  []  = {  0, 22, 23, 21, 22, 23, 21, 21, 22, 23, 21, 21, 22, 21, 21, 21 };
+static const uint8_t spat_nxn_luma_diag_first_pat2  []  = {  0, 23, 22, 23, 22, 21, 23, 22, 21, 21, 22, 21, 21, 21, 21, 21 };
+static const uint8_t spat_nxn_luma_diag_first_pat3  []  = {  0, 23, 23, 23, 23, 23, 23, 23, 23, 23, 23, 23, 23, 23, 23, 23 };
+static const uint8_t spat_nxn_luma_diag_other_pat0  []  = { 26, 25, 25, 25, 25, 25, 24, 24, 24, 24, 24, 24, 24, 24, 24, 24 };
+static const uint8_t spat_nxn_luma_diag_other_pat1  []  = { 26, 25, 26, 24, 25, 26, 24, 24, 25, 26, 24, 24, 25, 24, 24, 24 };
+static const uint8_t spat_nxn_luma_diag_other_pat2  []  = { 26, 26, 25, 26, 25, 24, 26, 25, 24, 24, 25, 24, 24, 24, 24, 24 };
+static const uint8_t spat_nxn_luma_diag_other_pat3  []  = { 26, 26, 26, 26, 26, 26, 26, 26, 26, 26, 26, 26, 26, 26, 26, 26 };
+static const uint8_t spat_nxn_luma_hor_first_pat0   []  = {  0, 22, 22, 21, 22, 22, 21, 21, 22, 21, 21, 21, 21, 21, 21, 21 };
+static const uint8_t spat_nxn_luma_hor_first_pat1   []  = {  0, 23, 23, 23, 22, 22, 22, 22, 21, 21, 21, 21, 21, 21, 21, 21 };
+static const uint8_t spat_nxn_luma_hor_first_pat2   []  = {  0, 22, 21, 21, 23, 22, 21, 21, 23, 22, 21, 21, 23, 22, 21, 21 };
+static const uint8_t spat_nxn_luma_hor_first_pat3   []  = {  0, 23, 23, 23, 23, 23, 23, 23, 23, 23, 23, 23, 23, 23, 23, 23 };
+static const uint8_t spat_nxn_luma_hor_other_pat0   []  = { 26, 25, 25, 24, 25, 25, 24, 24, 25, 24, 24, 24, 24, 24, 24, 24 };
+static const uint8_t spat_nxn_luma_hor_other_pat1   []  = { 26, 26, 26, 26, 25, 25, 25, 25, 24, 24, 24, 24, 24, 24, 24, 24 };
+static const uint8_t spat_nxn_luma_hor_other_pat2   []  = { 26, 25, 24, 24, 26, 25, 24, 24, 26, 25, 24, 24, 26, 25, 24, 24 };
+static const uint8_t spat_nxn_luma_hor_other_pat3   []  = { 26, 26, 26, 26, 26, 26, 26, 26, 26, 26, 26, 26, 26, 26, 26, 26 };
+static const uint8_t spat_nxn_luma_ver_first_pat0   []  = {  0, 22, 22, 21, 22, 22, 21, 21, 22, 21, 21, 21, 21, 21, 21, 21 };
+static const uint8_t spat_nxn_luma_ver_first_pat1   []  = {  0, 22, 21, 21, 23, 22, 21, 21, 23, 22, 21, 21, 23, 22, 21, 21 };
+static const uint8_t spat_nxn_luma_ver_first_pat2   []  = {  0, 23, 23, 23, 22, 22, 22, 22, 21, 21, 21, 21, 21, 21, 21, 21 };
+static const uint8_t spat_nxn_luma_ver_first_pat3   []  = {  0, 23, 23, 23, 23, 23, 23, 23, 23, 23, 23, 23, 23, 23, 23, 23 };
+static const uint8_t spat_nxn_luma_ver_other_pat0   []  = { 26, 25, 25, 24, 25, 25, 24, 24, 25, 24, 24, 24, 24, 24, 24, 24 };
+static const uint8_t spat_nxn_luma_ver_other_pat1   []  = { 26, 25, 24, 24, 26, 25, 24, 24, 26, 25, 24, 24, 26, 25, 24, 24 };
+static const uint8_t spat_nxn_luma_ver_other_pat2   []  = { 26, 26, 26, 26, 25, 25, 25, 25, 24, 24, 24, 24, 24, 24, 24, 24 };
+static const uint8_t spat_nxn_luma_ver_other_pat3   []  = { 26, 26, 26, 26, 26, 26, 26, 26, 26, 26, 26, 26, 26, 26, 26, 26 };
+static const uint8_t spat_8x8_chroma_diag_first_pat0[]  = {  0, 10, 10, 10, 10, 10,  9,  9,  9,  9,  9,  9,  9,  9,  9,  9 };
+static const uint8_t spat_8x8_chroma_diag_first_pat1[]  = {  0, 10, 11,  9, 10, 11,  9,  9, 10, 11,  9,  9, 10,  9,  9,  9 };
+static const uint8_t spat_8x8_chroma_diag_first_pat2[]  = {  0, 11, 10, 11, 10,  9, 11, 10,  9,  9, 10,  9,  9,  9,  9,  9 };
+static const uint8_t spat_8x8_chroma_diag_first_pat3[]  = {  0, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11 };
+static const uint8_t spat_8x8_chroma_diag_other_pat0[]  = { 11, 10, 10, 10, 10, 10,  9,  9,  9,  9,  9,  9,  9,  9,  9,  9 };
+static const uint8_t spat_8x8_chroma_diag_other_pat1[]  = { 11, 10, 11,  9, 10, 11,  9,  9, 10, 11,  9,  9, 10,  9,  9,  9 };
+static const uint8_t spat_8x8_chroma_diag_other_pat2[]  = { 11, 11, 10, 11, 10,  9, 11, 10,  9,  9, 10,  9,  9,  9,  9,  9 };
+static const uint8_t spat_8x8_chroma_diag_other_pat3[]  = { 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11 };
+static const uint8_t spat_8x8_chroma_hor_first_pat0 []  = {  0, 10, 10,  9, 10, 10,  9,  9, 10,  9,  9,  9,  9,  9,  9,  9 };
+static const uint8_t spat_8x8_chroma_hor_first_pat1 []  = {  0, 11, 11, 11, 10, 10, 10, 10,  9,  9,  9,  9,  9,  9,  9,  9 };
+static const uint8_t spat_8x8_chroma_hor_first_pat2 []  = {  0, 10,  9,  9, 11, 10,  9,  9, 11, 10,  9,  9, 11, 10,  9,  9 };
+static const uint8_t spat_8x8_chroma_hor_first_pat3 []  = {  0, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11 };
+static const uint8_t spat_8x8_chroma_hor_other_pat0 []  = { 11, 10, 10,  9, 10, 10,  9,  9, 10,  9,  9,  9,  9,  9,  9,  9 };
+static const uint8_t spat_8x8_chroma_hor_other_pat1 []  = { 11, 11, 11, 11, 10, 10, 10, 10,  9,  9,  9,  9,  9,  9,  9,  9 };
+static const uint8_t spat_8x8_chroma_hor_other_pat2 []  = { 11, 10,  9,  9, 11, 10,  9,  9, 11, 10,  9,  9, 11, 10,  9,  9 };
+static const uint8_t spat_8x8_chroma_hor_other_pat3 []  = { 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11 };
+static const uint8_t spat_8x8_chroma_ver_first_pat0 []  = {  0, 10, 10,  9, 10, 10,  9,  9, 10,  9,  9,  9,  9,  9,  9,  9 };
+static const uint8_t spat_8x8_chroma_ver_first_pat1 []  = {  0, 10,  9,  9, 11, 10,  9,  9, 11, 10,  9,  9, 11, 10,  9,  9 };
+static const uint8_t spat_8x8_chroma_ver_first_pat2 []  = {  0, 11, 11, 11, 10, 10, 10, 10,  9,  9,  9,  9,  9,  9,  9,  9 };
+static const uint8_t spat_8x8_chroma_ver_first_pat3 []  = {  0, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11 };
+static const uint8_t spat_8x8_chroma_ver_other_pat0 []  = { 11, 10, 10,  9, 10, 10,  9,  9, 10,  9,  9,  9,  9,  9,  9,  9 };
+static const uint8_t spat_8x8_chroma_ver_other_pat1 []  = { 11, 10,  9,  9, 11, 10,  9,  9, 11, 10,  9,  9, 11, 10,  9,  9 };
+static const uint8_t spat_8x8_chroma_ver_other_pat2 []  = { 11, 11, 11, 11, 10, 10, 10, 10,  9,  9,  9,  9,  9,  9,  9,  9 };
+static const uint8_t spat_8x8_chroma_ver_other_pat3 []  = { 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11 };
+static const uint8_t spat_nxn_chroma_diag_first_pat0[]  = {  0, 13, 13, 13, 13, 13, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12 };
+static const uint8_t spat_nxn_chroma_diag_first_pat1[]  = {  0, 13, 14, 12, 13, 14, 12, 12, 13, 14, 12, 12, 13, 12, 12, 12 };
+static const uint8_t spat_nxn_chroma_diag_first_pat2[]  = {  0, 14, 13, 14, 13, 12, 14, 13, 12, 12, 13, 12, 12, 12, 12, 12 };
+static const uint8_t spat_nxn_chroma_diag_first_pat3[]  = {  0, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14 };
+static const uint8_t spat_nxn_chroma_diag_other_pat0[]  = { 14, 13, 13, 13, 13, 13, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12 };
+static const uint8_t spat_nxn_chroma_diag_other_pat1[]  = { 14, 13, 14, 12, 13, 14, 12, 12, 13, 14, 12, 12, 13, 12, 12, 12 };
+static const uint8_t spat_nxn_chroma_diag_other_pat2[]  = { 14, 14, 13, 14, 13, 12, 14, 13, 12, 12, 13, 12, 12, 12, 12, 12 };
+static const uint8_t spat_nxn_chroma_diag_other_pat3[]  = { 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14 };
+static const uint8_t spat_nxn_chroma_hor_first_pat0 []  = {  0, 13, 13, 12, 13, 13, 12, 12, 13, 12, 12, 12, 12, 12, 12, 12 };
+static const uint8_t spat_nxn_chroma_hor_first_pat1 []  = {  0, 14, 14, 14, 13, 13, 13, 13, 12, 12, 12, 12, 12, 12, 12, 12 };
+static const uint8_t spat_nxn_chroma_hor_first_pat2 []  = {  0, 13, 12, 12, 14, 13, 12, 12, 14, 13, 12, 12, 14, 13, 12, 12 };
+static const uint8_t spat_nxn_chroma_hor_first_pat3 []  = {  0, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14 };
+static const uint8_t spat_nxn_chroma_hor_other_pat0 []  = { 14, 13, 13, 12, 13, 13, 12, 12, 13, 12, 12, 12, 12, 12, 12, 12 };
+static const uint8_t spat_nxn_chroma_hor_other_pat1 []  = { 14, 14, 14, 14, 13, 13, 13, 13, 12, 12, 12, 12, 12, 12, 12, 12 };
+static const uint8_t spat_nxn_chroma_hor_other_pat2 []  = { 14, 13, 12, 12, 14, 13, 12, 12, 14, 13, 12, 12, 14, 13, 12, 12 };
+static const uint8_t spat_nxn_chroma_hor_other_pat3 []  = { 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14 };
+static const uint8_t spat_nxn_chroma_ver_first_pat0 []  = {  0, 13, 13, 12, 13, 13, 12, 12, 13, 12, 12, 12, 12, 12, 12, 12 };
+static const uint8_t spat_nxn_chroma_ver_first_pat1 []  = {  0, 13, 12, 12, 14, 13, 12, 12, 14, 13, 12, 12, 14, 13, 12, 12 };
+static const uint8_t spat_nxn_chroma_ver_first_pat2 []  = {  0, 14, 14, 14, 13, 13, 13, 13, 12, 12, 12, 12, 12, 12, 12, 12 };
+static const uint8_t spat_nxn_chroma_ver_first_pat3 []  = {  0, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14 };
+static const uint8_t spat_nxn_chroma_ver_other_pat0 []  = { 14, 13, 13, 12, 13, 13, 12, 12, 13, 12, 12, 12, 12, 12, 12, 12 };
+static const uint8_t spat_nxn_chroma_ver_other_pat1 []  = { 14, 13, 12, 12, 14, 13, 12, 12, 14, 13, 12, 12, 14, 13, 12, 12 };
+static const uint8_t spat_nxn_chroma_ver_other_pat2 []  = { 14, 14, 14, 14, 13, 13, 13, 13, 12, 12, 12, 12, 12, 12, 12, 12 };
+static const uint8_t spat_nxn_chroma_ver_other_pat3 []  = { 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14 };
+static const uint8_t spat_cg2_chroma_diag_first_pat0[]  = {  0, 13, 13, 12 };
+static const uint8_t spat_cg2_chroma_diag_first_pat1[]  = {  0, 13, 14, 13 };
+static const uint8_t spat_cg2_chroma_diag_first_pat2[]  = {  0, 14, 13, 13 };
+static const uint8_t spat_cg2_chroma_diag_first_pat3[]  = {  0, 14, 14, 14 };
+static const uint8_t spat_cg2_chroma_diag_other_pat0[]  = { 14, 13, 13, 12 };
+static const uint8_t spat_cg2_chroma_diag_other_pat1[]  = { 14, 13, 14, 13 };
+static const uint8_t spat_cg2_chroma_diag_other_pat2[]  = { 14, 14, 13, 13 };
+static const uint8_t spat_cg2_chroma_diag_other_pat3[]  = { 14, 14, 14, 14 };
+static const uint8_t spat_cg2_chroma_hor_first_pat0 []  = {  0, 13, 13, 12 };
+static const uint8_t spat_cg2_chroma_hor_first_pat1 []  = {  0, 14, 13, 13 };
+static const uint8_t spat_cg2_chroma_hor_first_pat2 []  = {  0, 13, 14, 13 };
+static const uint8_t spat_cg2_chroma_hor_first_pat3 []  = {  0, 14, 14, 14 };
+static const uint8_t spat_cg2_chroma_hor_other_pat0 []  = { 14, 13, 13, 12 };
+static const uint8_t spat_cg2_chroma_hor_other_pat1 []  = { 14, 14, 13, 13 };
+static const uint8_t spat_cg2_chroma_hor_other_pat2 []  = { 14, 13, 14, 13 };
+static const uint8_t spat_cg2_chroma_hor_other_pat3 []  = { 14, 14, 14, 14 };
+static const uint8_t spat_cg2_chroma_ver_first_pat0 []  = {  0, 13, 13, 12 };
+static const uint8_t spat_cg2_chroma_ver_first_pat1 []  = {  0, 13, 14, 13 };
+static const uint8_t spat_cg2_chroma_ver_first_pat2 []  = {  0, 14, 13, 13 };
+static const uint8_t spat_cg2_chroma_ver_first_pat3 []  = {  0, 14, 14, 14 };
+static const uint8_t spat_cg2_chroma_ver_other_pat0 []  = { 14, 13, 13, 12 };
+static const uint8_t spat_cg2_chroma_ver_other_pat1 []  = { 14, 13, 14, 13 };
+static const uint8_t spat_cg2_chroma_ver_other_pat2 []  = { 14, 14, 13, 13 };
+static const uint8_t spat_cg2_chroma_ver_other_pat3 []  = { 14, 14, 14, 14 };
+
+static const uint8_t* spat_bypass_luma    [] = { spat_bypass_luma_all,            spat_bypass_luma_all,            spat_bypass_luma_all,            spat_bypass_luma_all,            spat_bypass_luma_all,            spat_bypass_luma_all,            spat_bypass_luma_all,            spat_bypass_luma_all            };
+static const uint8_t* spat_4x4_luma_diag  [] = { spat_4x4_diag_all,               spat_4x4_diag_all,               spat_4x4_diag_all,               spat_4x4_diag_all,               spat_4x4_diag_all,               spat_4x4_diag_all,               spat_4x4_diag_all,               spat_4x4_diag_all               };
+static const uint8_t* spat_4x4_luma_hor   [] = { spat_4x4_hor_all,                spat_4x4_hor_all,                spat_4x4_hor_all,                spat_4x4_hor_all,                spat_4x4_hor_all,                spat_4x4_hor_all,                spat_4x4_hor_all,                spat_4x4_hor_all                };
+static const uint8_t* spat_4x4_luma_ver   [] = { spat_4x4_ver_all,                spat_4x4_ver_all,                spat_4x4_ver_all,                spat_4x4_ver_all,                spat_4x4_ver_all,                spat_4x4_ver_all,                spat_4x4_ver_all,                spat_4x4_ver_all                };
+static const uint8_t* spat_8x8_luma_diag  [] = { spat_8x8_luma_diag_first_pat0,   spat_8x8_luma_diag_first_pat1,   spat_8x8_luma_diag_first_pat2,   spat_8x8_luma_diag_first_pat3,   spat_8x8_luma_diag_other_pat0,   spat_8x8_luma_diag_other_pat1,   spat_8x8_luma_diag_other_pat2,   spat_8x8_luma_diag_other_pat3 } ;
+static const uint8_t* spat_8x8_luma_hor   [] = { spat_8x8_luma_hor_first_pat0,    spat_8x8_luma_hor_first_pat1,    spat_8x8_luma_hor_first_pat2,    spat_8x8_luma_hor_first_pat3,    spat_8x8_luma_hor_other_pat0,    spat_8x8_luma_hor_other_pat1,    spat_8x8_luma_hor_other_pat2,    spat_8x8_luma_hor_other_pat3    };
+static const uint8_t* spat_8x8_luma_ver   [] = { spat_8x8_luma_ver_first_pat0,    spat_8x8_luma_ver_first_pat1,    spat_8x8_luma_ver_first_pat2,    spat_8x8_luma_ver_first_pat3,    spat_8x8_luma_ver_other_pat0,    spat_8x8_luma_ver_other_pat1,    spat_8x8_luma_ver_other_pat2,    spat_8x8_luma_ver_other_pat3    };
+static const uint8_t* spat_nxn_luma_diag  [] = { spat_nxn_luma_diag_first_pat0,   spat_nxn_luma_diag_first_pat1,   spat_nxn_luma_diag_first_pat2,   spat_nxn_luma_diag_first_pat3,   spat_nxn_luma_diag_other_pat0,   spat_nxn_luma_diag_other_pat1,   spat_nxn_luma_diag_other_pat2,   spat_nxn_luma_diag_other_pat3   };
+static const uint8_t* spat_nxn_luma_hor   [] = { spat_nxn_luma_hor_first_pat0,    spat_nxn_luma_hor_first_pat1,    spat_nxn_luma_hor_first_pat2,    spat_nxn_luma_hor_first_pat3,    spat_nxn_luma_hor_other_pat0,    spat_nxn_luma_hor_other_pat1,    spat_nxn_luma_hor_other_pat2,    spat_nxn_luma_hor_other_pat3    };
+static const uint8_t* spat_nxn_luma_ver   [] = { spat_nxn_luma_ver_first_pat0,    spat_nxn_luma_ver_first_pat1,    spat_nxn_luma_ver_first_pat2,    spat_nxn_luma_ver_first_pat3,    spat_nxn_luma_ver_other_pat0,    spat_nxn_luma_ver_other_pat1,    spat_nxn_luma_ver_other_pat2,    spat_nxn_luma_ver_other_pat3    };
+static const uint8_t* spat_bypass_chroma  [] = { spat_bypass_chroma_all,          spat_bypass_chroma_all,          spat_bypass_chroma_all,          spat_bypass_chroma_all,          spat_bypass_chroma_all,          spat_bypass_chroma_all,          spat_bypass_chroma_all,          spat_bypass_chroma_all          };
+static const uint8_t* spat_4x4_chroma_diag[] = { spat_4x4_diag_all,               spat_4x4_diag_all,               spat_4x4_diag_all,               spat_4x4_diag_all,               spat_4x4_diag_all,               spat_4x4_diag_all,               spat_4x4_diag_all,               spat_4x4_diag_all               };
+static const uint8_t* spat_4x4_chroma_hor [] = { spat_4x4_hor_all,                spat_4x4_hor_all,                spat_4x4_hor_all,                spat_4x4_hor_all,                spat_4x4_hor_all,                spat_4x4_hor_all,                spat_4x4_hor_all,                spat_4x4_hor_all                };
+static const uint8_t* spat_4x4_chroma_ver [] = { spat_4x4_ver_all,                spat_4x4_ver_all,                spat_4x4_ver_all,                spat_4x4_ver_all,                spat_4x4_ver_all,                spat_4x4_ver_all,                spat_4x4_ver_all,                spat_4x4_ver_all                };
+static const uint8_t* spat_8x8_chroma_diag[] = { spat_8x8_chroma_diag_first_pat0, spat_8x8_chroma_diag_first_pat1, spat_8x8_chroma_diag_first_pat2, spat_8x8_chroma_diag_first_pat3, spat_8x8_chroma_diag_other_pat0, spat_8x8_chroma_diag_other_pat1, spat_8x8_chroma_diag_other_pat2, spat_8x8_chroma_diag_other_pat3 };
+static const uint8_t* spat_8x8_chroma_hor [] = { spat_8x8_chroma_hor_first_pat0,  spat_8x8_chroma_hor_first_pat1,  spat_8x8_chroma_hor_first_pat2,  spat_8x8_chroma_hor_first_pat3,  spat_8x8_chroma_hor_other_pat0,  spat_8x8_chroma_hor_other_pat1,  spat_8x8_chroma_hor_other_pat2,  spat_8x8_chroma_hor_other_pat3  };
+static const uint8_t* spat_8x8_chroma_ver [] = { spat_8x8_chroma_ver_first_pat0,  spat_8x8_chroma_ver_first_pat1,  spat_8x8_chroma_ver_first_pat2,  spat_8x8_chroma_ver_first_pat3,  spat_8x8_chroma_ver_other_pat0,  spat_8x8_chroma_ver_other_pat1,  spat_8x8_chroma_ver_other_pat2,  spat_8x8_chroma_ver_other_pat3  };
+static const uint8_t* spat_nxn_chroma_diag[] = { spat_nxn_chroma_diag_first_pat0, spat_nxn_chroma_diag_first_pat1, spat_nxn_chroma_diag_first_pat2, spat_nxn_chroma_diag_first_pat3, spat_nxn_chroma_diag_other_pat0, spat_nxn_chroma_diag_other_pat1, spat_nxn_chroma_diag_other_pat2, spat_nxn_chroma_diag_other_pat3 };
+static const uint8_t* spat_nxn_chroma_hor [] = { spat_nxn_chroma_hor_first_pat0,  spat_nxn_chroma_hor_first_pat1,  spat_nxn_chroma_hor_first_pat2,  spat_nxn_chroma_hor_first_pat3,  spat_nxn_chroma_hor_other_pat0,  spat_nxn_chroma_hor_other_pat1,  spat_nxn_chroma_hor_other_pat2,  spat_nxn_chroma_hor_other_pat3  };
+static const uint8_t* spat_nxn_chroma_ver [] = { spat_nxn_chroma_ver_first_pat0,  spat_nxn_chroma_ver_first_pat1,  spat_nxn_chroma_ver_first_pat2,  spat_nxn_chroma_ver_first_pat3,  spat_nxn_chroma_ver_other_pat0,  spat_nxn_chroma_ver_other_pat1,  spat_nxn_chroma_ver_other_pat2,  spat_nxn_chroma_ver_other_pat3  };
+static const uint8_t* spat_cg2_chroma_diag[] = { spat_cg2_chroma_diag_first_pat0, spat_cg2_chroma_diag_first_pat1, spat_cg2_chroma_diag_first_pat2, spat_cg2_chroma_diag_first_pat3, spat_cg2_chroma_diag_other_pat0, spat_cg2_chroma_diag_other_pat1, spat_cg2_chroma_diag_other_pat2, spat_cg2_chroma_diag_other_pat3 };
+static const uint8_t* spat_cg2_chroma_hor [] = { spat_cg2_chroma_hor_first_pat0,  spat_cg2_chroma_hor_first_pat1,  spat_cg2_chroma_hor_first_pat2,  spat_cg2_chroma_hor_first_pat3,  spat_cg2_chroma_hor_other_pat0,  spat_cg2_chroma_hor_other_pat1,  spat_cg2_chroma_hor_other_pat2,  spat_cg2_chroma_hor_other_pat3  };
+static const uint8_t* spat_cg2_chroma_ver [] = { spat_cg2_chroma_ver_first_pat0,  spat_cg2_chroma_ver_first_pat1,  spat_cg2_chroma_ver_first_pat2,  spat_cg2_chroma_ver_first_pat3,  spat_cg2_chroma_ver_other_pat0,  spat_cg2_chroma_ver_other_pat1,  spat_cg2_chroma_ver_other_pat2,  spat_cg2_chroma_ver_other_pat3  };
+
+static const uint8_t** spat_sig_ctx[2][5][3] =
+{
+  {
+    { spat_bypass_luma,     spat_bypass_luma,    spat_bypass_luma    },
+    { spat_4x4_luma_diag,   spat_4x4_luma_hor,   spat_4x4_luma_ver   },
+    { spat_8x8_luma_diag,   spat_8x8_luma_hor,   spat_8x8_luma_ver   },
+    { spat_nxn_luma_diag,   spat_nxn_luma_hor,   spat_nxn_luma_ver   },
+    { nullptr,              nullptr,             nullptr             }
+  },
+  {
+    { spat_bypass_chroma,   spat_bypass_chroma,  spat_bypass_chroma  },
+    { spat_4x4_chroma_diag, spat_4x4_chroma_hor, spat_4x4_chroma_ver },
+    { spat_8x8_chroma_diag, spat_8x8_chroma_hor, spat_8x8_chroma_ver },
+    { spat_nxn_chroma_diag, spat_nxn_chroma_hor, spat_nxn_chroma_ver },
+    { spat_cg2_chroma_diag, spat_cg2_chroma_hor, spat_cg2_chroma_ver }
+  }
+};
 
 CoeffCodingContext::CoeffCodingContext(const TransformUnit& tu, ComponentID component, bool signHide)
   : m_compID                    (component)
   , m_chType                    (toChannelType(m_compID))
   , m_width                     (tu.block(m_compID).width)
   , m_height                    (tu.block(m_compID).height)
-  , m_log2CGWidth               ((m_width & 3) || (m_height & 3) ? 1 : 2)
-  , m_log2CGHeight              ((m_width & 3) || (m_height & 3) ? 1 : 2)
+  , m_log2CGWidth               (m_width != 1 && m_height != 1 ? (((m_width & 3) || (m_height & 3)) ? 1 : 2) : m_width  != 1 ? ((m_width  & 3) ? 1 : 2) : 0)
+  , m_log2CGHeight              (m_width != 1 && m_height != 1 ? (((m_width & 3) || (m_height & 3)) ? 1 : 2) : m_height != 1 ? ((m_height & 3) ? 1 : 2) : 0)
   , m_log2CGSize                (m_log2CGWidth + m_log2CGHeight)
   , m_widthInGroups             (m_width  >> m_log2CGWidth)
   , m_heightInGroups            (m_height >> m_log2CGHeight)
@@ -76,8 +243,12 @@ CoeffCodingContext::CoeffCodingContext(const TransformUnit& tu, ComponentID comp
   , m_lastShiftX                (0)
   , m_lastShiftY                (0)
   , m_TrafoBypass               (tu.cs->sps->getSpsRangeExtension().getTransformSkipContextEnabledFlag() &&  (tu.cu->transQuantBypass || tu.transformSkip[m_compID]))
-  , m_SigBlockType              (m_TrafoBypass ? 0 : m_width == 4 && m_height == 4 ? 1 : m_width == 8 && m_height == 8 ? 2 : m_log2CGSize==2 ? 4 : 3 )
+  , m_SigBlockType              (m_TrafoBypass ? 0 : m_width == 4 && m_height == 4 ? 1 : m_width == 8 && m_height == 8 ? 2 : (m_width == 1 || m_height == 1)? 3 : m_log2CGSize == 2 ? 4 : 3)
+  , m_SigScanPatternBase        (spat_sig_ctx[m_chType][m_SigBlockType][m_scanType])
   , m_sigCtxSet                 (Ctx::SigFlag[m_chType])
+  , m_sigCtxSetTCQ              {Ctx::SigFlag[m_chType+6],Ctx::SigFlag[m_chType+8]}
+  , m_gt1CtxSetTCQ              { Ctx::GreaterOneFlag[12 + m_chType], Ctx::GreaterOneFlag[14 + m_chType] }
+  , m_gtxCtxSetTCQ              ( Ctx::GreaterOneFlag[10 + m_chType] )
   , m_scanPosLast               (-1)
   , m_subSetId                  (-1)
   , m_subSetPos                 (-1)
@@ -86,18 +257,24 @@ CoeffCodingContext::CoeffCodingContext(const TransformUnit& tu, ComponentID comp
   , m_minSubPos                 (-1)
   , m_maxSubPos                 (-1)
   , m_sigGroupCtxId             (-1)
+  , m_sigScanCtxId              (0)
   , m_gt1FlagCtxSet             (0, 0)
   , m_gt2FlagCtxId              (-1)
   , m_currentGolombRiceStatistic(-1)
   , m_prevGt2                   (false)
   , m_sigCoeffGroupFlag         ()
+  , m_tmplCpSum1                (  0 )
+  , m_tmplCpDiag                ( -1 )
   , m_altResiCompId             ( tu.cs->sps->getSpsNext().getAltResiCompId() )
   , m_emtNumSigCoeff            (0)
 {
   // LOGTODO
   unsigned log2sizeX = m_log2BlockWidth;
   unsigned log2sizeY = m_log2BlockHeight;
-  if (m_scanType == SCAN_VER)
+  // TODO: we could fill log2-look-up through ceiling to next log2 index
+  if( isNonLog2Size( m_width  ) ) log2sizeX += 1;
+  if( isNonLog2Size( m_height ) ) log2sizeY += 1;
+  if (m_scanType == SCAN_VER && m_width != 1 && m_height != 1)
   {
     std::swap(log2sizeX, log2sizeY);
     std::swap(const_cast<unsigned&>(m_maxLastPosX), const_cast<unsigned&>(m_maxLastPosY));
@@ -181,8 +358,12 @@ void CoeffCodingContext::initSubblock( int SubsetId, bool sigGroupFlag )
       }
     }
 
-//     CGPosY    = m_subSetPos >> m_log2WidthInGroups;
-//     CGPosX    = m_subSetPos - ( CGPosY << m_log2WidthInGroups );
+    if (m_width == 1 || m_height == 1)
+    {
+      widthInGroups  = m_widthInGroups;
+      heightInGroups = m_heightInGroups;
+    }
+
     CGPosY = m_subSetPosY;
     CGPosX = m_subSetPosX;
 
@@ -200,8 +381,6 @@ void CoeffCodingContext::initSubblock( int SubsetId, bool sigGroupFlag )
   }
   else
   {
-//     CGPosY    = m_subSetPos >> m_log2WidthInGroups;
-//     CGPosX    = m_subSetPos - ( CGPosY << m_log2WidthInGroups );
     CGPosY    = m_subSetPosY;
     CGPosX    = m_subSetPosX;
     sigRight  = unsigned( ( CGPosX + 1 ) < m_widthInGroups  ? m_sigCoeffGroupFlag[ m_subSetPos + 1               ] : false );
@@ -211,79 +390,23 @@ void CoeffCodingContext::initSubblock( int SubsetId, bool sigGroupFlag )
   m_sigGroupCtxId           = Ctx::SigCoeffGroup[m_chType]( sigRight | sigLower );
   m_gt1FlagCtxSet           = Ctx::GreaterOneFlag[ ctxSet ];
   m_gt2FlagCtxId            = Ctx::GreaterTwoFlag( ctxSet );
-  m_sigCGPattern            = sigRight + ( sigLower << 1 );
+  m_sigScanCtxId            = m_SigScanPatternBase[ sigRight + ( sigLower << 1 ) + ( m_subSetId ? 4 : 0 ) ] - m_minSubPos;
+
   if( m_altResiCompId > 0 )
   {
     m_sigCtxSet     = Ctx::SigFlag       [ m_chType + 2 ];
     m_gt1FlagCtxSet = Ctx::GreaterOneFlag[ m_chType + 6 ];
     m_sigGroupCtxId = Ctx::SigCoeffGroup [ m_chType + 2 ]( sigRight | sigLower );
   }
+  if( m_altResiCompId == 2 )
+  {
+    m_sigCtxSet     = Ctx::SigFlag       [ m_chType + 4 ];
+    m_gt1FlagCtxSet = Ctx::GreaterOneFlag[ m_chType + 8 ];
+    m_sigGroupCtxId = Ctx::SigCoeffGroup [ m_chType + 0 ]( sigRight | sigLower );
+  }
 }
 
 
-unsigned CoeffCodingContext::sigCtxId( int scanPos ) const
-{
-  int offset = 0; // DC
-
-  if( m_SigBlockType == 0 ) // bypass
-  {
-    offset = ( m_chType == CHANNEL_TYPE_LUMA ? 27 : 15 );
-  }
-  else if( scanPos )
-  {
-    const unsigned posY       = m_scanPosY[ scanPos ];
-    const unsigned posX       = m_scanPosX[ scanPos ];
-
-    if( m_SigBlockType == 1 ) // 4x4
-    {
-      //      const unsigned ctxIndMap4x4[16] = { 0, 1, 4, 5, 2, 3, 4, 5, 6, 6, 8, 8, 7, 7, 8, 8 };
-      offset = ctxIndMap4x4[ ( posY << 2 ) + posX ];
-    }
-    else
-    {
-      int cnt = 0;
-      switch( m_sigCGPattern )
-      {
-      case 0:
-      {
-        unsigned posIS  = ( posX & 3 ) + ( posY & 3 );
-        cnt             = ( posIS >= 3 ? 0 : posIS >= 1 ? 1 : 2 );
-      }
-      break;
-      case 1:
-      {
-        unsigned posIS  = ( posY & 3 );
-        cnt             = ( posIS >= 2 ? 0 : posIS >= 1 ? 1 : 2 );
-      }
-      break;
-      case 2:
-      {
-        unsigned posIS  = ( posX & 3 );
-        cnt             = ( posIS >= 2 ? 0 : posIS >= 1 ? 1 : 2 );
-      }
-      break;
-      case 3:
-      {
-        cnt             = 2;
-      }
-      break;
-      default:
-        THROW( "sig pattern must be in range [0;3]" );
-      }
-      offset    = ( m_chType == CHANNEL_TYPE_LUMA && ( posX > 3 || posY > 3 ) ? 3 : 0 ) + cnt;
-
-      if( m_SigBlockType == 2 ) // 8x8
-      {
-        offset += ( m_scanType != SCAN_DIAG && m_chType == CHANNEL_TYPE_LUMA ? 15 : 9 );
-      }
-      else // NxN
-      {
-        offset += ( m_chType == CHANNEL_TYPE_LUMA ? 21 : 12 );
-      }
-    }
-  }
-  return m_sigCtxSet( offset );
-}
 
 
 void CoeffCodingContext::getAltResiCtxSet( const TCoeff* coeff,
@@ -346,15 +469,10 @@ void CoeffCodingContext::getAltResiCtxSet( const TCoeff* coeff,
     }
   }
 
-  unsigned val = sumAbs - numPosN;
-  unsigned order = 0;
-  for( order = 0; order < MAX_GR_ORDER_RESIDUAL; order++ )
-  {
-    if( ( 1 << ( order + 3 ) ) >( val + 4 ) )
-    {
-      break;
-    }
-  }
+  unsigned val    = sumAbs - numPosN + 4;
+  unsigned order  = 0;
+  unsigned twopow = 1 << 3;
+  for( order = 0; order < MAX_GR_ORDER_RESIDUAL && twopow <= val; order++, twopow <<= 1 );
   goRicePar = ( order == MAX_GR_ORDER_RESIDUAL ? ( MAX_GR_ORDER_RESIDUAL - 1 ) : order );
 
   const Int ctxIdx1 = std::min( numPos1, 4 ) + 1;
@@ -382,10 +500,57 @@ void CoeffCodingContext::getAltResiCtxSet( const TCoeff* coeff,
   gt1CtxIdx = m_gt1FlagCtxSet( ctxOfs1 + ctxIdx1 );
   gt2CtxIdx = m_gt1FlagCtxSet( ctxOfs2 + ctxIdx2 );
   sigCtxIdx = m_sigCtxSet    ( ctxOfsN + ctxIdxN );
-     
+
 }
 
+unsigned DeriveCtx::CtxSplitMod( const CodingStructure& cs, Partitioner& partitioner, const PartSplit splitBase )
+{
+  unsigned ctx                = 1;
+  const Position pos          = partitioner.currArea().lumaPos();
+  const unsigned curSliceIdx  = cs.slice->getIndependentSliceIdx();
+  const unsigned curTileIdx   = cs.picture->tileMap->getTileIdxMap( pos );
 
+  if( splitBase == CU_HORZ_SPLIT )
+  {
+    const CodingUnit* cuLT = cs.getCURestricted( partitioner.currArea().blocks[partitioner.chType].pos().       offset( -1, 0 ), curSliceIdx, curTileIdx, partitioner.chType );
+    const CodingUnit* cuLB = cs.getCURestricted( partitioner.currArea().blocks[partitioner.chType].bottomLeft().offset( -1, 0 ), curSliceIdx, curTileIdx, partitioner.chType );
+
+    if( cuLT && cuLB )
+    {
+      if( cuLB->blocks[partitioner.chType].area() < cuLT->blocks[partitioner.chType].area() )
+      {
+        ctx++;
+      }
+      else if( cuLB->blocks[partitioner.chType].area() > cuLT->blocks[partitioner.chType].area() )
+      {
+        ctx--;
+      }
+    }
+  }
+  else if( splitBase == CU_VERT_SPLIT )
+  {
+    const CodingUnit* cuTL = cs.getCURestricted( partitioner.currArea().blocks[partitioner.chType].pos().     offset( 0, -1 ), curSliceIdx, curTileIdx, partitioner.chType );
+    const CodingUnit* cuTR = cs.getCURestricted( partitioner.currArea().blocks[partitioner.chType].topRight().offset( 0, -1 ), curSliceIdx, curTileIdx, partitioner.chType );
+
+    if( cuTL && cuTR )
+    {
+      if( cuTR->blocks[partitioner.chType].area() < cuTL->blocks[partitioner.chType].area() )
+      {
+        ctx++;
+      }
+      else if( cuTR->blocks[partitioner.chType].area() > cuTL->blocks[partitioner.chType].area() )
+      {
+        ctx--;
+      }
+    }
+  }
+  else
+  {
+    THROW( "Split " << splitBase << " is not a basic split" );
+  }
+
+  return ctx;
+}
 
 unsigned DeriveCtx::CtxCUsplit( const CodingStructure& cs, Partitioner& partitioner )
 {
@@ -396,17 +561,17 @@ unsigned DeriveCtx::CtxCUsplit( const CodingStructure& cs, Partitioner& partitio
     return 0;
   }
 
-  const Position pos         = partitioner.currArea().blocks[cs.chType];
+  const Position pos         = partitioner.currArea().blocks[partitioner.chType];
   const unsigned curSliceIdx = cs.slice->getIndependentSliceIdx();
   const unsigned curTileIdx  = cs.picture->tileMap->getTileIdxMap( partitioner.currArea().lumaPos() );
   unsigned ctxId = 0;
 
   // get left depth
-  const CodingUnit* cuLeft = cs.getCURestricted( pos.offset( -1, 0 ), curSliceIdx, curTileIdx, cs.chType );
+  const CodingUnit* cuLeft = cs.getCURestricted( pos.offset( -1, 0 ), curSliceIdx, curTileIdx, partitioner.chType );
   ctxId = ( cuLeft && cuLeft->qtDepth > partitioner.currQtDepth ) ? 1 : 0;
 
   // get above depth
-  const CodingUnit* cuAbove = cs.getCURestricted( pos.offset( 0, -1 ), curSliceIdx, curTileIdx, cs.chType );
+  const CodingUnit* cuAbove = cs.getCURestricted( pos.offset( 0, -1 ), curSliceIdx, curTileIdx, partitioner.chType );
   ctxId += ( cuAbove && cuAbove->qtDepth > partitioner.currQtDepth ) ? 1 : 0;
 
   if( cs.sps->getSpsNext().getUseLargeCTU() )
@@ -427,15 +592,33 @@ unsigned DeriveCtx::CtxCUsplit( const CodingStructure& cs, Partitioner& partitio
   return ctxId;
 }
 
-unsigned DeriveCtx::CtxQtCbf( const ComponentID compID, const unsigned trDepth )
+unsigned DeriveCtx::CtxQtCbf(const ComponentID compID, const unsigned trDepth, const bool useMode1dPartitions, const bool previousCbf)
 {
-  if( isChroma( compID ) )
+  if( !useMode1dPartitions )
   {
-    return trDepth;
+    if( isChroma( compID ) )
+    {
+      return trDepth;
+    }
+    else
+    {
+      return ( trDepth == 0 ? 1 : 0 );
+    }
   }
   else
   {
-    return ( trDepth == 0 ? 1 : 0 );
+    if( canUse1dPartitions( compID ) )
+    {
+      int lumaOffset = 2;
+      int offset    = lumaOffset;
+
+      return offset + ( int ) previousCbf;
+    }
+    else
+    {
+      //WARNING: This assumes QTBT is being used. Otherwise, it should be adapted
+      return 0;//trDepth - 1;
+    }
   }
 }
 
@@ -457,27 +640,42 @@ unsigned DeriveCtx::CtxAffineFlag( const CodingUnit& cu )
   const CodingStructure *cs = cu.cs;
   unsigned ctxId = 0;
 
-  const CodingUnit *cuLeft = cs->getCURestricted(cu.lumaPos().offset(-1, 0), cu);
-  ctxId = (cuLeft && cuLeft->affine) ? 1 : 0;
+  const CodingUnit *cuLeft = cs->getCURestricted( cu.lumaPos().offset( -1, 0 ), cu, CH_L );
+  ctxId = ( cuLeft && cuLeft->affine ) ? 1 : 0;
 
-  const CodingUnit *cuAbove= cs->getCURestricted(cu.lumaPos().offset(0, -1), cu);
-  ctxId += (cuAbove && cuAbove->affine) ? 1 : 0;
+  const CodingUnit *cuAbove = cs->getCURestricted( cu.lumaPos().offset( 0, -1 ), cu, CH_L );
+  ctxId += ( cuAbove && cuAbove->affine ) ? 1 : 0;
 
   return ctxId;
 }
-
 unsigned DeriveCtx::CtxSkipFlag( const CodingUnit& cu )
 {
   const CodingStructure *cs = cu.cs;
   unsigned ctxId = 0;
 
   // Get BCBP of left PU
-  const CodingUnit *cuLeft = cs->getCURestricted(cu.lumaPos().offset(-1, 0), cu);
-  ctxId = (cuLeft && cuLeft->skip) ? 1 : 0;
+  const CodingUnit *cuLeft = cs->getCURestricted( cu.lumaPos().offset( -1, 0 ), cu, CH_L );
+  ctxId = ( cuLeft && cuLeft->skip ) ? 1 : 0;
 
   // Get BCBP of above PU
-  const CodingUnit *cuAbove= cs->getCURestricted(cu.lumaPos().offset(0, -1), cu);
-  ctxId += (cuAbove && cuAbove->skip) ? 1 : 0;
+  const CodingUnit *cuAbove = cs->getCURestricted( cu.lumaPos().offset( 0, -1 ), cu, CH_L );
+  ctxId += ( cuAbove && cuAbove->skip ) ? 1 : 0;
+
+  return ctxId;
+}
+
+unsigned DeriveCtx::CtxIntraNNModel( const CodingUnit& cu )
+{
+  const CodingStructure *cs = cu.cs;
+  unsigned ctxId = 0;
+
+  // Get BCBP of left PU
+  const CodingUnit *cuLeft = cs->getCURestricted( cu.lumaPos().offset( -1, 0 ), cu, CH_L );
+  ctxId = ( cuLeft && cuLeft->intra_NN ) ? 1 : 0;
+
+  // Get BCBP of above PU
+  const CodingUnit *cuAbove = cs->getCURestricted( cu.lumaPos().offset( 0, -1 ), cu, CH_L );
+  ctxId += ( cuAbove && cuAbove->intra_NN ) ? 1 : 0;
 
   return ctxId;
 }
@@ -488,11 +686,11 @@ unsigned DeriveCtx::CtxIMVFlag( const CodingUnit& cu )
   unsigned ctxId = 0;
 
   // Get BCBP of left PU
-  const CodingUnit *cuLeft = cs->getCURestricted(cu.lumaPos().offset(-1, 0), cu);
+  const CodingUnit *cuLeft = cs->getCURestricted( cu.lumaPos().offset( -1, 0 ), cu, CH_L );
   ctxId = ( cuLeft && cuLeft->imv ) ? 1 : 0;
 
   // Get BCBP of above PU
-  const CodingUnit *cuAbove = cs->getCURestricted(cu.lumaPos().offset(0, -1), cu);
+  const CodingUnit *cuAbove = cs->getCURestricted( cu.lumaPos().offset( 0, -1 ), cu, CH_L );
   ctxId += ( cuAbove && cuAbove->imv ) ? 1 : 0;
 
   return ctxId;
@@ -500,22 +698,29 @@ unsigned DeriveCtx::CtxIMVFlag( const CodingUnit& cu )
 
 unsigned DeriveCtx::CtxBTsplit(const CodingStructure& cs, Partitioner& partitioner)
 {
-  const Position pos          = partitioner.currArea().blocks[cs.chType];
+  const Position pos          = partitioner.currArea().blocks[partitioner.chType];
   const unsigned curSliceIdx  = cs.slice->getIndependentSliceIdx();
   const unsigned curTileIdx   = cs.picture->tileMap->getTileIdxMap( pos );
 
   unsigned ctx                = 0;
 
-  const CodingUnit *cuLeft    = cs.getCURestricted( pos.offset( -1,  0 ), curSliceIdx, curTileIdx, cs.chType );
-  const CodingUnit *cuAbove   = cs.getCURestricted( pos.offset(  0, -1 ), curSliceIdx, curTileIdx, cs.chType );
+  const CodingUnit *cuLeft    = cs.getCURestricted( pos.offset( -1,  0 ), curSliceIdx, curTileIdx, partitioner.chType );
+  const CodingUnit *cuAbove   = cs.getCURestricted( pos.offset(  0, -1 ), curSliceIdx, curTileIdx, partitioner.chType );
 
+  if( cs.sps->getSpsNext().getUseGenBinSplit() )
+  {
+    const unsigned currArea = partitioner.currArea().blocks[partitioner.chType].area();
+
+    if( cuLeft )  ctx += ( cuLeft ->blocks[partitioner.chType].area() < currArea ? 1 : 0 );
+    if( cuAbove ) ctx += ( cuAbove->blocks[partitioner.chType].area() < currArea ? 1 : 0 );
+  }
+  else
   {
     const unsigned currDepth = partitioner.currQtDepth * 2 + partitioner.currBtDepth;
 
     if( cuLeft )  ctx += ( ( 2 * cuLeft->qtDepth  + cuLeft->btDepth  ) > currDepth ? 1 : 0 );
     if( cuAbove ) ctx += ( ( 2 * cuAbove->qtDepth + cuAbove->btDepth ) > currDepth ? 1 : 0 );
   }
-
   return ctx;
 }
 
@@ -526,10 +731,10 @@ unsigned DeriveCtx::CtxFrucFlag( const PredictionUnit& pu )
   const CodingStructure &cs     = *pu.cs;
   const Position pos            = pu.lumaPos();
 
-  const PredictionUnit *puLeft  = cs.getPURestricted( pos.offset( -1, 0 ), pu );
+  const PredictionUnit *puLeft  = cs.getPURestricted( pos.offset( -1, 0 ), pu, pu.chType );
   ctxId  = ( puLeft ) ? puLeft->frucMrgMode > 0 : 0;
 
-  const PredictionUnit *puAbove = cs.getPURestricted( pos.offset( 0, -1 ), pu );
+  const PredictionUnit *puAbove = cs.getPURestricted( pos.offset( 0, -1 ), pu, pu.chType );
   ctxId += ( puAbove ) ? puAbove->frucMrgMode > 0 : 0;
 
   return ctxId;
@@ -542,10 +747,10 @@ unsigned DeriveCtx::CtxFrucMode( const PredictionUnit& pu )
   const CodingStructure &cs     = *pu.cs;
   const Position pos            = pu.lumaPos();
 
-  const PredictionUnit *puLeft  = cs.getPURestricted( pos.offset( -1, 0 ), pu );
+  const PredictionUnit *puLeft  = cs.getPURestricted( pos.offset( -1, 0 ), pu, pu.chType );
   ctxId  = ( puLeft ) ? puLeft->frucMrgMode == FRUC_MERGE_BILATERALMV : 0;
 
-  const PredictionUnit *puAbove = cs.getPURestricted( pos.offset( 0, -1 ), pu );
+  const PredictionUnit *puAbove = cs.getPURestricted( pos.offset( 0, -1 ), pu, pu.chType );
   ctxId += ( puAbove ) ? puAbove->frucMrgMode == FRUC_MERGE_BILATERALMV : 0;
 
   return ctxId;
@@ -558,7 +763,7 @@ Void MergeCtx::setMergeInfo( PredictionUnit& pu, int candIdx )
   pu.mergeFlag               = true;
   pu.interDir                = interDirNeighbours[candIdx];
   pu.mergeIdx                = candIdx;
-  pu.mergeType               = mrgTypeNeighnours[candIdx];
+  pu.mergeType               = mrgTypeNeighbours[candIdx];
   pu.mv     [REF_PIC_LIST_0] = mvFieldNeighbours[(candIdx << 1) + 0].mv;
   pu.mv     [REF_PIC_LIST_1] = mvFieldNeighbours[(candIdx << 1) + 1].mv;
   pu.mvd    [REF_PIC_LIST_0] = Mv();
@@ -573,5 +778,12 @@ Void MergeCtx::setMergeInfo( PredictionUnit& pu, int candIdx )
   if( pu.lumaSize() == pu.cu->lumaSize() )
   {
     pu.cu->LICFlag = ( pu.cs->slice->getUseLIC() ? LICFlags[candIdx] : false );
+  }
+  
+  pu.addHypData              = addHypNeighbours[candIdx];
+  pu.numMergedAddHyps        = int(addHypNeighbours[candIdx].size());
+  if( !( pu.cs->slice->getSPS()->getSpsNext().getDiffusionFilterMode() >> 2 ) )
+  {
+    pu.cu->diffFilterIdx = interDiffNeighbours[candIdx];
   }
 }

@@ -56,7 +56,6 @@ class InterpolationFilter
   static const TFilterCoeff m_lumaFilter  [LUMA_INTERPOLATION_FILTER_SUB_SAMPLE_POSITIONS   << VCEG_AZ07_MV_ADD_PRECISION_BIT_FOR_STORE][NTAPS_LUMA  ]; ///< Luma filter taps
   static const TFilterCoeff m_chromaFilter[CHROMA_INTERPOLATION_FILTER_SUB_SAMPLE_POSITIONS << VCEG_AZ07_MV_ADD_PRECISION_BIT_FOR_STORE][NTAPS_CHROMA]; ///< Chroma filter taps
   static const TFilterCoeff m_lumaFilterBilinear[LUMA_INTERPOLATION_FILTER_SUB_SAMPLE_POSITIONS << VCEG_AZ07_MV_ADD_PRECISION_BIT_FOR_STORE][NTAPS_LUMA_FRUC];     ///< Luma filter taps
-
 public:
   template<Bool isFirst, Bool isLast>
   static Void filterCopy( const ClpRng& clpRng, const Pel *src, Int srcStride, Pel *dst, Int dstStride, Int width, Int height );

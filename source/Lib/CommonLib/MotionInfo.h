@@ -144,4 +144,36 @@ struct MotionInfo
   }
 };
 
+struct MultiHypPredictionData
+{
+  int      mvpIdx;
+  SChar    refIdx;
+  SChar    weightIdx;
+  Mv       mv;
+  Mv       mvd;
+
+  bool operator==(const MultiHypPredictionData &b) const
+  {
+    if( mv != b.mv )
+      return false;
+    if( refIdx != b.refIdx )
+      return false;
+    if( weightIdx != b.weightIdx )
+      return false;
+    return true;
+  }
+  bool operator!=(const MultiHypPredictionData &b) const
+  {
+    return !(*this==b);
+  }
+};
+
+typedef static_vector<MultiHypPredictionData, HHI_MULTI_HYPOTHESEIS_MAX_CANDS> MultiHypVec;
+
+struct RefListAndRefIdx
+{
+  RefPicList refList;
+  SChar      refIdx;
+};
+
 #endif // __MOTIONINFO__
