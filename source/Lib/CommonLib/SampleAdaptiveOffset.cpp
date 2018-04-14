@@ -41,6 +41,7 @@
 #include "UnitPartitioner.h"
 #include "CodingStructure.h"
 #include "CommonLib/dtrace_codingstruct.h"
+#include "CommonLib/dtrace_buffer.h"
 
 #include <string.h>
 #include <stdlib.h>
@@ -174,7 +175,7 @@ Int SampleAdaptiveOffset::getMergeList(CodingStructure& cs, Int ctuRsAddr, SAOBl
 
   Int ctuX = ctuRsAddr % pcv.widthInCtus;
   Int ctuY = ctuRsAddr / pcv.widthInCtus;
-  const CodingUnit& cu = *cs.getCU(Position(ctuX*pcv.maxCUWidth, ctuY*pcv.maxCUHeight));
+  const CodingUnit& cu = *cs.getCU(Position(ctuX*pcv.maxCUWidth, ctuY*pcv.maxCUHeight), CH_L);
   Int mergedCTUPos;
   Int numValidMergeCandidates = 0;
 
@@ -189,7 +190,7 @@ Int SampleAdaptiveOffset::getMergeList(CodingStructure& cs, Int ctuRsAddr, SAOBl
         if(ctuY > 0)
         {
           mergedCTUPos = ctuRsAddr- pcv.widthInCtus;
-          if(cs.getCURestricted(Position(ctuX*pcv.maxCUWidth, (ctuY-1)*pcv.maxCUHeight), cu))
+          if(cs.getCURestricted(Position(ctuX*pcv.maxCUWidth, (ctuY-1)*pcv.maxCUHeight), cu, cu.chType))
           {
             mergeCandidate = &(blkParams[mergedCTUPos]);
           }
@@ -201,7 +202,7 @@ Int SampleAdaptiveOffset::getMergeList(CodingStructure& cs, Int ctuRsAddr, SAOBl
         if(ctuX > 0)
         {
           mergedCTUPos = ctuRsAddr- 1;
-          if(cs.getCURestricted(Position((ctuX-1)*pcv.maxCUWidth, ctuY*pcv.maxCUHeight), cu))
+          if(cs.getCURestricted(Position((ctuX-1)*pcv.maxCUWidth, ctuY*pcv.maxCUHeight), cu, cu.chType))
           {
             mergeCandidate = &(blkParams[mergedCTUPos]);
           }
@@ -547,7 +548,7 @@ Void SampleAdaptiveOffset::offsetCTU( const UnitArea& area, const CPelUnitBuf& s
       Int  resStride    = res.get(compID).stride;
       Pel* resBlk       = res.get(compID).bufAt(compArea);
 
-      offsetBlock( cs.sps->getBitDepth(toChannelType(compID)), 
+      offsetBlock( cs.sps->getBitDepth(toChannelType(compID)),
                    cs.slice->clpRng(compID),
                    ctbOffset.typeIdc, ctbOffset.offset
                   , srcBlk, resBlk, srcStride, resStride, compArea.width, compArea.height
@@ -560,7 +561,8 @@ Void SampleAdaptiveOffset::offsetCTU( const UnitArea& area, const CPelUnitBuf& s
   } //compIdx
 }
 
-Void SampleAdaptiveOffset::SAOProcess(CodingStructure& cs, SAOBlkParam* saoBlkParams)
+Void SampleAdaptiveOffset::SAOProcess( CodingStructure& cs, SAOBlkParam* saoBlkParams
+                                      )
 {
   CHECK(!saoBlkParams, "No parameters present");
 
@@ -593,15 +595,18 @@ Void SampleAdaptiveOffset::SAOProcess(CodingStructure& cs, SAOBlkParam* saoBlkPa
       const UInt height = (yPos + pcv.maxCUHeight > pcv.lumaHeight) ? (pcv.lumaHeight - yPos) : pcv.maxCUHeight;
       const UnitArea area( cs.area.chromaFormat, Area(xPos , yPos, width, height) );
 
-      offsetCTU( area, m_tempBuf, rec, cs.getSAO()[ctuRsAddr], cs);
+      offsetCTU( area, m_tempBuf, rec, cs.picture->getSAO()[ctuRsAddr], cs);
       ctuRsAddr++;
-    } 
+    }
   }
 
   DTRACE_UPDATE(g_trace_ctx, (std::make_pair("poc", cs.slice->getPOC())));
   DTRACE_PIC_COMP(D_REC_CB_LUMA_SAO, cs, cs.getRecoBuf(), COMPONENT_Y);
   DTRACE_PIC_COMP(D_REC_CB_CHROMA_SAO, cs, cs.getRecoBuf(), COMPONENT_Cb);
   DTRACE_PIC_COMP(D_REC_CB_CHROMA_SAO, cs, cs.getRecoBuf(), COMPONENT_Cr);
+
+  DTRACE    ( g_trace_ctx, D_CRC, "SAO" );
+  DTRACE_CRC( g_trace_ctx, D_CRC, cs, cs.getRecoBuf() );
 
   xPCMLFDisableProcess(cs);
 }
@@ -630,7 +635,7 @@ Void SampleAdaptiveOffset::xPCMCURestoration(CodingStructure& cs, const UnitArea
 {
   const SPS& sps = *cs.sps;
 
-  for( auto &cu : cs.traverseCUs( ctuArea ) )
+  for( auto &cu : cs.traverseCUs( ctuArea, CH_L ) )
   {
     // restore PCM samples
     if( ( cu.ipcm && sps.getPCMFilterDisableFlag() ) || CU::isLosslessCoded( cu ) )
@@ -653,8 +658,8 @@ Void SampleAdaptiveOffset::xPCMSampleRestoration(CodingUnit& cu, const Component
   {
     for( auto &currTU : CU::traverseTUs( cu ) )
     {
-             PelBuf dstBuf  = cu.cs->getRecoBuf( currTU.block(compID) );
       const CPelBuf& pcmBuf = currTU.getPcmbuf( compID );
+             PelBuf dstBuf  = cu.cs->getRecoBuf( currTU.block(compID) );
 
       dstBuf.copyFrom( pcmBuf );
     }
@@ -665,7 +670,6 @@ Void SampleAdaptiveOffset::xPCMSampleRestoration(CodingUnit& cu, const Component
   const TransformUnit& tu = *cu.firstTU; CHECK( cu.firstTU != cu.lastTU, "Multiple TUs present in a PCM CU" );
   const CPelBuf& pcmBuf   = tu.getPcmbuf( compID );
          PelBuf dstBuf    = cu.cs->getRecoBuf( ca );
-
   const SPS &sps = *cu.cs->sps;
   const UInt uiPcmLeftShiftBit = sps.getBitDepth(toChannelType(compID)) - sps.getPCMBitDepth(toChannelType(compID));
 
@@ -691,15 +695,15 @@ Void SampleAdaptiveOffset::deriveLoopFilterBoundaryAvailibility(CodingStructure&
 {
   const int width = cs.pcv->maxCUWidth;
   const int height = cs.pcv->maxCUHeight;
-  const CodingUnit* cuCurr = cs.getCU(pos);
-  const CodingUnit* cuLeft = cs.getCU(pos.offset(-width, 0));
-  const CodingUnit* cuRight = cs.getCU(pos.offset(width, 0));
-  const CodingUnit* cuAbove = cs.getCU(pos.offset(0, -height));
-  const CodingUnit* cuBelow = cs.getCU(pos.offset(0, height));
-  const CodingUnit* cuAboveLeft = cs.getCU(pos.offset(-width, -height));
-  const CodingUnit* cuAboveRight = cs.getCU(pos.offset(width, -height));
-  const CodingUnit* cuBelowLeft = cs.getCU(pos.offset(-width, height));
-  const CodingUnit* cuBelowRight = cs.getCU(pos.offset(width, height));
+  const CodingUnit* cuCurr = cs.getCU(pos, CH_L);
+  const CodingUnit* cuLeft = cs.getCU(pos.offset(-width, 0), CH_L);
+  const CodingUnit* cuRight = cs.getCU(pos.offset(width, 0), CH_L);
+  const CodingUnit* cuAbove = cs.getCU(pos.offset(0, -height), CH_L);
+  const CodingUnit* cuBelow = cs.getCU(pos.offset(0, height), CH_L);
+  const CodingUnit* cuAboveLeft = cs.getCU(pos.offset(-width, -height), CH_L);
+  const CodingUnit* cuAboveRight = cs.getCU(pos.offset(width, -height), CH_L);
+  const CodingUnit* cuBelowLeft = cs.getCU(pos.offset(-width, height), CH_L);
+  const CodingUnit* cuBelowRight = cs.getCU(pos.offset(width, height), CH_L);
 
   // check cross slice flags
   {

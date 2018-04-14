@@ -54,17 +54,85 @@ typedef static_vector<UnitArea, 4> Partitioning;
 
 enum PartSplit
 {
-  CTU_LEVEL        = 0,  
+  CTU_LEVEL        = 0,
   CU_QUAD_SPLIT,
 
   CU_HORZ_SPLIT,
   CU_VERT_SPLIT,
+  CU_TRIH_SPLIT,
+  CU_TRIV_SPLIT,
+  CU_HORZ_SPLIT_14,
+  CU_HORZ_SPLIT_34,
+  CU_VERT_SPLIT_14,
+  CU_VERT_SPLIT_34,
+  CU_HORZ_SPLIT_38,
+  CU_HORZ_SPLIT_58,
+  CU_VERT_SPLIT_38,
+  CU_VERT_SPLIT_58,
+
+  CU_HORZ_SPLIT_13,
+  CU_HORZ_SPLIT_23,
+  CU_VERT_SPLIT_13,
+  CU_VERT_SPLIT_23,
+
+  CU_HORZ_SPLIT_15,
+  CU_HORZ_SPLIT_25,
+  CU_HORZ_SPLIT_35,
+  CU_HORZ_SPLIT_45,
+  CU_VERT_SPLIT_15,
+  CU_VERT_SPLIT_25,
+  CU_VERT_SPLIT_35,
+  CU_VERT_SPLIT_45,
+
+  CU_L_SPLIT,
+  CU_R_SPLIT,
 
   TU_QUAD_SPLIT,
   NUM_PART_SPLIT,
+  CU_MT_SPLIT             = 1000, ///< dummy element to indicate the MT (multi-type-tree) split
   CU_BT_SPLIT             = 1001, ///< dummy element to indicate the BT split
+  CU_PERPENDICULAR_SPLIT  = 1003,
+  CU_PARALLEL_SPLIT       = 1002,
   CU_DONT_SPLIT           = 2000  ///< dummy element to indicate no splitting
 };
+
+enum SplitModifier
+{
+  SPLIT_MOD_12 = 0,
+  SPLIT_MOD_14, // for log2 block sizes
+  SPLIT_MOD_34,
+  SPLIT_MOD_38, // for log2 block sizes
+  SPLIT_MOD_58,
+  SPLIT_MOD_13, // for splitting of 3/8 or 3/4 split log2 blocks (e.g. 12)
+  SPLIT_MOD_23,
+  SPLIT_MOD_15, // for splitting of 5/8 split log2 blocks (e.g. 20)
+  SPLIT_MOD_25,
+  SPLIT_MOD_35,
+  SPLIT_MOD_45,
+  NUM_SPLIT_MOD
+};
+
+enum SizeClass
+{
+  SIZE_LOG2         = 0,
+  SIZE_32_LOG2,
+  SIZE_54_LOG2,
+  NUM_SIZE_CLASSES
+};
+
+PartSplit applyModifier( const PartSplit split, const SplitModifier mod );
+
+PartSplit getBaseSplit( const PartSplit split );
+
+SplitModifier getModifier( const PartSplit split );
+
+PartSplit getSplitSide( const SplitModifier mod );
+
+SizeClass getSizeClass( const unsigned size );
+
+double getSplitRatio( const SplitModifier mod );
+
+bool isPseudoSplit( const PartSplit split );
 
 
 
@@ -78,6 +146,8 @@ struct PartLevel
   PartSplit    implicitSplit;
   PartSplit    firstSubPartSplit;
   bool         canQtSplit;
+  PartSplit    pseudoSplit;
+  char         canModify[2][NUM_SPLIT_MOD];
 
   PartLevel();
   PartLevel( const PartSplit _split, const Partitioning&  _parts );
@@ -98,8 +168,12 @@ protected:
 public:
   unsigned currDepth;
   unsigned currQtDepth;
-  unsigned currTrDepth;
   unsigned currBtDepth;
+  unsigned currMtDepth;
+  unsigned currGtDepth;
+
+  unsigned currImplicitBtDepth;
+  ChannelType chType;
 
   virtual ~Partitioner                    () { }
 
@@ -110,15 +184,17 @@ public:
 
   SplitSeries getSplitSeries              () const;
 
-  virtual void initCtu                    ( const UnitArea& ctuArea )                                                   = 0;
+  virtual void initCtu                    ( const UnitArea& ctuArea, const ChannelType _chType, const Slice& slice )    = 0;
   virtual void splitCurrArea              ( const PartSplit split, const CodingStructure &cs )                          = 0;
   virtual void exitCurrSplit              ()                                                                            = 0;
   virtual bool nextPart                   ( const CodingStructure &cs, bool autoPop = false )                           = 0;
   virtual bool hasNextPart                ()                                                                            = 0;
-
-  virtual void setCUData                  ( CodingUnit& cu );
-
-public:
+                                                                                                                        
+  virtual void setCUData                  ( CodingUnit& cu );                                                           
+                                                                                                                        
+  virtual void copyState                  ( const Partitioner& other );
+                                                                                                                        
+public:                                                                                                                 
   virtual bool canSplit                   ( const PartSplit split,                          const CodingStructure &cs ) = 0;
   virtual bool isSplitImplicit            ( const PartSplit split,                          const CodingStructure &cs ) = 0;
   virtual PartSplit getImplicitSplit      (                                                 const CodingStructure &cs ) = 0;
@@ -130,24 +206,10 @@ public:
   void setMaxMinDepth( unsigned& minDepth, unsigned& maxDepth, const CodingStructure& cs ) const;
 };
 
-class HEVCPartitioner : public AdaptiveDepthPartitioner
-{
-public:
-  void initCtu                    ( const UnitArea& ctuArea );
-  void splitCurrArea              ( const PartSplit split, const CodingStructure &cs );
-  void exitCurrSplit              ();
-  bool nextPart                   ( const CodingStructure &cs, bool autoPop = false );
-  bool hasNextPart                ();
-
-  bool canSplit                   ( const PartSplit split,                          const CodingStructure &cs );
-  bool isSplitImplicit            ( const PartSplit split,                          const CodingStructure &cs );
-  PartSplit getImplicitSplit      (                                                 const CodingStructure &cs );
-};
-
 class QTBTPartitioner : public AdaptiveDepthPartitioner
 {
 public:
-  void initCtu                    ( const UnitArea& ctuArea );
+  void initCtu                    ( const UnitArea& ctuArea, const ChannelType _chType, const Slice& slice );
   void splitCurrArea              ( const PartSplit split, const CodingStructure &cs );
   void exitCurrSplit              ();
   bool nextPart                   ( const CodingStructure &cs, bool autoPop = false );
@@ -157,6 +219,46 @@ public:
   bool isSplitImplicit            ( const PartSplit split,                          const CodingStructure &cs );
   PartSplit getImplicitSplit      (                                                 const CodingStructure &cs );
 };
+
+class GenBinSplitPartitioner : public AdaptiveDepthPartitioner
+{
+public:
+
+  GenBinSplitPartitioner();
+
+  void  initCtu                   ( const UnitArea& ctuArea, const ChannelType _chType, const Slice& slice );
+  void  splitCurrArea             ( const PartSplit split, const CodingStructure &cs );
+  void  exitCurrSplit             ();
+  bool  nextPart                  ( const CodingStructure &cs, bool autoPop = false );
+  bool  hasNextPart               ();
+
+  void  copyState                 ( const Partitioner& other );
+
+  bool  canSplit                  ( const PartSplit split,                          const CodingStructure &cs );
+  bool  canSplit                  ( const PartSplit split,                          const CodingStructure &cs, const bool checkMods );
+  bool canModify                  ( const PartSplit split, const SplitModifier mod, const CodingStructure &cs );
+  bool  isSplitImplicit           ( const PartSplit split,                          const CodingStructure &cs );
+  PartSplit getImplicitSplit      (                                                 const CodingStructure &cs );
+
+  PartSplit getPseudoSplitType    ( const PartSplit split ) const;
+  PartSplit getActualSplitType    ( const PartSplit split ) const;
+
+  int  getSplitSize               ( const PartSplit split )                   const { return getSplitSize( split, currArea().Y() ); }
+  int  getSplitSize               ( const PartSplit split, const Size& size ) const;
+
+  int  getUnsplitSize             ( const PartSplit split )                   const { return getUnsplitSize( split, currArea().Y() ); }
+  int  getUnsplitSize             ( const PartSplit split, const Size& size ) const;
+
+private:
+
+  bool isProhibited               ( const PartSplit split, const SliceType sliceType ) const;
+  bool canModifyImpl              ( const PartSplit split, const SplitModifier mod, const CodingStructure &cs );
+
+  bool m_isForceSplitToLog2;
+  bool m_isNonLog2CUs;
+};
+
+
 
 
 namespace PartitionerFactory
@@ -170,9 +272,8 @@ namespace PartitionerFactory
 
 namespace PartitionerImpl
 {
-  Partitioning getPUPartitioning ( const CodingUnit &cu );
   Partitioning getCUSubPartitions( const UnitArea   &cuArea, const CodingStructure &cs, const PartSplit splitType = CU_QUAD_SPLIT );
-  Partitioning getTUSubPartitions( const UnitArea   &tuArea, const CodingStructure &cs );
+  Partitioning getGBSPartitions  ( const UnitArea   &area, const PartSplit splitType );
 };
 
 #endif

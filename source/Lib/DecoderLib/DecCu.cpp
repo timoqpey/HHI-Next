@@ -42,7 +42,6 @@
 #include "CommonLib/IntraPrediction.h"
 #include "CommonLib/Picture.h"
 #include "CommonLib/UnitTools.h"
-#include "CommonLib/BilateralFilter.h"
 
 #include "CommonLib/dtrace_buffer.h"
 
@@ -60,54 +59,57 @@ DecCu::DecCu()
 
 DecCu::~DecCu()
 {
+#if JEM_TOOLS
+  m_bilateralFilter.destroy();
+#endif
 }
 
 Void DecCu::init( TrQuant* pcTrQuant, IntraPrediction* pcIntra, InterPrediction* pcInter)
 {
-  m_pcTrQuant     = pcTrQuant;
-  m_pcIntraPred   = pcIntra;
-  m_pcInterPred   = pcInter;
+  m_pcTrQuant       = pcTrQuant;
+  m_pcIntraPred     = pcIntra;
+  m_pcInterPred     = pcInter;
+#if JEM_TOOLS
+
+  m_bilateralFilter .create();
+#endif
 }
 
 // ====================================================================================================================
 // Public member functions
 // ====================================================================================================================
 
-/**
- Decoding process for a CTU.
- \param    pCtu                      [in/out] pointer to CTU data structure
- */
 Void DecCu::decompressCtu( CodingStructure& cs, const UnitArea& ctuArea )
 {
-  for( auto &currCU : cs.traverseCUs( CS::getArea( cs, ctuArea ) ) )
+  const int maxNumChannelType = cs.pcv->chrFormat != CHROMA_400 && CS::isDualITree( cs ) ? 2 : 1;
+
+  for( int ch = 0; ch < maxNumChannelType; ch++ )
   {
-    switch( currCU.predMode )
+    const ChannelType chType = ChannelType( ch );
+
+    for( auto &currCU : cs.traverseCUs( CS::getArea( cs, ctuArea, chType ), chType ) )
     {
-    case MODE_INTER:
-      xDeriveCUMV( currCU );
-      xReconInter( currCU );
-      break;
-    case MODE_INTRA:
-      xReconIntraQT( currCU );
-      break;
-    default:
-      THROW("Invalid prediction mode");
-      break;
+      switch( currCU.predMode )
+      {
+      case MODE_INTER:
+        xDeriveCUMV( currCU );
+        xReconInter( currCU );
+        break;
+      case MODE_INTRA:
+        xReconIntraQT( currCU );
+        break;
+      default:
+        THROW( "Invalid prediction mode" );
+        break;
+      }
+
+      if( CU::isLosslessCoded( currCU ) && !currCU.ipcm )
+      {
+        xFillPCMBuffer( currCU );
+      }
+
+      DTRACE_BLOCK_REC( cs.picture->getRecoBuf( currCU ), currCU, currCU.predMode );
     }
-
-    if( CU::isLosslessCoded( currCU ) && !currCU.ipcm )
-    {
-      xFillPCMBuffer( currCU );
-    }
-
-    DTRACE_BLOCK_REC( cs.picture->getRecoBuf( currCU ), currCU, currCU.predMode );
-  }
-
-  if( cs.pcv->chrFormat != CHROMA_400 && CS::isDualITree( cs ) && cs.chType != CHANNEL_TYPE_CHROMA )
-  {
-    cs.chType = CHANNEL_TYPE_CHROMA;
-    decompressCtu( cs, ctuArea );
-    cs.chType = CHANNEL_TYPE_LUMA;
   }
 }
 
@@ -122,39 +124,47 @@ Void DecCu::xIntraRecBlk( TransformUnit& tu, const ComponentID compID )
     return;
   }
 
-        CodingStructure &cs= *tu.cs;
-  const CompArea &area     = tu.blocks[compID];
-  const SPS &sps           = *cs.sps;
+        CodingStructure &cs = *tu.cs;
+  const CompArea &area      = tu.blocks[compID];
+#if JEM_TOOLS
+  const SPS &sps            = *cs.sps;
+#endif
 
-  const ChannelType chType = toChannelType( compID );
 
-        PelBuf piPred      = cs.getPredBuf( area );
+  const ChannelType chType  = toChannelType( compID );
 
-  const PredictionUnit &pu = *tu.cs->getPU( area.pos(), chType );
+        PelBuf piPred       = cs.getPredBuf( area );
 
-  const UInt uiChFinalMode = PU::getFinalIntraMode( pu, chType );
+  const PredictionUnit &pu  = *tu.cs->getPU( area.pos(), chType );
+#if JEM_TOOLS
+  const UInt uiChFinalMode  = PU::getFinalIntraMode( pu, chType );
+#endif
 
   //===== init availability pattern =====
-  const bool bUseFilteredPredictions = IntraPrediction::useFilteredIntraRefSamples( compID, pu, true, tu );
 
+  const bool bUseFilteredPredictions = IntraPrediction::useFilteredIntraRefSamples( compID, pu, true, tu );
   m_pcIntraPred->initIntraPatternChType( *tu.cu, area, bUseFilteredPredictions );
 
   //===== get prediction signal =====
+#if JEM_TOOLS
   if( compID != COMPONENT_Y && PU::isLMCMode( uiChFinalMode ) )
   {
-    const PredictionUnit& pu = cs.pcv->noRQT && cs.pcv->only2Nx2N ? *tu.cu->firstPU : *( tu.cs->getPU( tu.block( compID ), CHANNEL_TYPE_CHROMA ) );
+    const PredictionUnit& pu = cs.pcv->noRQT && cs.pcv->only2Nx2N ? *tu.cu->firstPU : *tu.cs->getPU( tu.block( compID ), CHANNEL_TYPE_CHROMA );
     m_pcIntraPred->xGetLumaRecPixels( pu, area );
     m_pcIntraPred->predIntraChromaLM( compID, piPred, pu, area, uiChFinalMode );
   }
   else
+#endif
   {
-    PelBuf piOrg;
-    m_pcIntraPred->predIntraAng( compID, piOrg, piPred, pu, bUseFilteredPredictions );
+    m_pcIntraPred->predIntraAng( compID, piPred, pu, bUseFilteredPredictions );
+#if JEM_TOOLS
+
     if( compID == COMPONENT_Cr && sps.getSpsNext().getUseLMChroma() )
     {
       const CPelBuf pResiCb = cs.getResiBuf( tu.Cb() );
       m_pcIntraPred->addCrossColorResi( compID, piPred, tu, pResiCb );
     }
+#endif
   }
 
   //===== inverse transform =====
@@ -186,16 +196,17 @@ Void DecCu::xIntraRecBlk( TransformUnit& tu, const ComponentID compID )
 #else
   piPred.reconstruct( piPred, piResi, tu.cu->cs->slice->clpRng( compID ) );
 #endif
-
-  if( sps.getSpsNext().getUseBIF() && isLuma(compID) && TU::getCbf(tu, compID) && (tu.cu->qp > 17)/* && (16 > std::min(tu.lumaSize().width, tu.lumaSize().height) )*/ )
+#if JEM_TOOLS
+  if( sps.getSpsNext().getUseBIF() && isLuma( compID ) && TU::getCbf( tu, compID ) && ( tu.cu->qp > 17 ) )
   {
 #if KEEP_PRED_AND_RESI_SIGNALS
-    BilateralFilter::instance()->bilateralFilterIntra( pReco, tu.cu->qp );
+    m_bilateralFilter.bilateralFilterIntra( pReco, tu.cu->qp );
 #else
-    BilateralFilter::instance()->bilateralFilterIntra( piPred, tu.cu->qp );
+    m_bilateralFilter.bilateralFilterIntra( piPred, tu.cu->qp );
 #endif
   }
 
+#endif
 #if !KEEP_PRED_AND_RESI_SIGNALS
   pReco.copyFrom( piPred );
 #endif
@@ -292,12 +303,6 @@ DecCu::xIntraRecQT(CodingUnit &cu, const ChannelType chType)
       for( UInt compID = COMPONENT_Cb; compID < numValidComp; compID++ )
       {
         xIntraRecBlk( currTU, ComponentID( compID ) );
-#if ENABLE_CHROMA_422
-        if( cu.cs->pcv->multiBlock422 )
-        {
-          xIntraRecBlk( currTU, ComponentID( compID + SCND_TBLOCK_OFFSET ) );
-        }
-#endif
       }
     }
   }
@@ -327,7 +332,9 @@ Void DecCu::xReconInter(CodingUnit &cu)
 {
   // inter prediction
   m_pcInterPred->motionCompensation( cu );
+#if JEM_TOOLS
   m_pcInterPred->subBlockOBMC      ( cu );
+#endif
 
   // inter recon
   xDecodeInterTexture(cu);
@@ -368,11 +375,13 @@ Void DecCu::xDecodeInterTU( TransformUnit & currTU, const ComponentID compID )
   if( TU::getCbf( currTU, compID ) )
   {
     m_pcTrQuant->invTransformNxN( currTU, compID, resiBuf, cQP );
+#if JEM_TOOLS
     if( cs.sps->getSpsNext().getUseBIF() && isLuma(compID) && (currTU.cu->qp > 17) && (16 > std::min(currTU.lumaSize().width, currTU.lumaSize().height) ) )
     {
       const CPelBuf predBuf  = cs.getPredBuf(area);
-      BilateralFilter::instance()->bilateralFilterInter( resiBuf, predBuf, currTU.cu->qp, cs.slice->clpRng(compID) );
+      m_bilateralFilter.bilateralFilterInter( resiBuf, predBuf, currTU.cu->qp, cs.slice->clpRng(compID) );
     }
+#endif
   }
   else
   {
@@ -388,7 +397,8 @@ Void DecCu::xDecodeInterTU( TransformUnit & currTU, const ComponentID compID )
 
 Void DecCu::xDecodeInterTexture(CodingUnit &cu)
 {
-  if (!cu.rootCbf) {
+  if( !cu.rootCbf )
+  {
     return;
   }
 
@@ -401,16 +411,11 @@ Void DecCu::xDecodeInterTexture(CodingUnit &cu)
     for( auto& currTU : CU::traverseTUs( cu ) )
     {
       xDecodeInterTU( currTU, compID );
-#if ENABLE_CHROMA_422
-      if( cu.cs->pcv->multiBlock422 && compID != COMPONENT_Y )
-      {
-        xDecodeInterTU( currTU, ComponentID( compID + SCND_TBLOCK_OFFSET ) );
-      }
-#endif
     }
   }
 }
 
+#if JEM_TOOLS
 Void DecCu::xDeriveCUMV( CodingUnit &cu )
 {
   for( auto &pu : CU::traversePUs( cu ) )
@@ -563,7 +568,76 @@ Void DecCu::xDeriveCUMV( CodingUnit &cu )
         PU::spanMotionInfo( pu, mrgCtx );
       }
     }
+#if MCTS_ENC_CHECK
+
+    if( pu.cs->pps->getMctsOneRegionPerTileFlag() && !m_pcInterPred->checkTMctsMv( pu ) )
+    {
+      THROW( "pu motion vector across tile boundaries\n" );
+    }
+#endif
   }
 }
+#else
+Void DecCu::xDeriveCUMV( CodingUnit &cu )
+{
+  for( auto &pu : CU::traversePUs( cu ) )
+  {
+    MergeCtx mrgCtx;
 
+    if( pu.mergeFlag )
+    {
+      if( cu.cs->pps->getLog2ParallelMergeLevelMinus2() && cu.partSize != SIZE_2Nx2N && cu.lumaSize().width <= 8 )
+      {
+        if( !mrgCtx.hasMergedCandList )
+        {
+          // temporarily set size to 2Nx2N
+          PartSize                 tmpPS    = SIZE_2Nx2N;
+          PredictionUnit           tmpPU    = pu;
+          static_cast<UnitArea&> ( tmpPU )  = cu;
+          std::swap( tmpPS, cu.partSize );
+          PU::getInterMergeCandidates( tmpPU, mrgCtx );
+          std::swap( tmpPS, cu.partSize );
+          mrgCtx.hasMergedCandList          = true;
+        }
+      }
+      else
+      {
+        PU::getInterMergeCandidates( pu, mrgCtx );
+      }
+          
+      mrgCtx.setMergeInfo( pu, pu.mergeIdx );
+          
+      if( pu.interDir == 3 /* PRED_BI */ && PU::isBipredRestriction(pu) )
+      {
+        pu.mv    [REF_PIC_LIST_1] = Mv(0, 0);
+        pu.refIdx[REF_PIC_LIST_1] = -1;
+        pu.interDir               =  1;
+      }
+      PU::spanMotionInfo( pu, mrgCtx );      
+    }
+    else
+    {
+      for ( UInt uiRefListIdx = 0; uiRefListIdx < 2; uiRefListIdx++ )
+      {
+        RefPicList eRefList = RefPicList( uiRefListIdx );
+        if ( pu.cs->slice->getNumRefIdx( eRefList ) > 0 && ( pu.interDir & ( 1 << uiRefListIdx ) ) )
+        {
+          AMVPInfo amvpInfo;
+          PU::fillMvpCand( pu, eRefList, pu.refIdx[eRefList], amvpInfo );
+          pu.mvpNum [eRefList] = amvpInfo.numCand;
+          pu.mv     [eRefList] = amvpInfo.mvCand[pu.mvpIdx [eRefList]] + pu.mvd[eRefList];
+        }
+      }
+      PU::spanMotionInfo( pu, mrgCtx );
+    }
+#if MCTS_ENC_CHECK
+
+    if( pu.cs->pps->getMctsOneRegionPerTileFlag() && !m_pcInterPred->checkTMctsMv( pu ) )
+    {
+      THROW( "pu motion vector across tile boundaries\n" );
+    }
+#endif
+  }
+}
+#endif
 //! \}

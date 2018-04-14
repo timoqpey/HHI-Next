@@ -3,7 +3,7 @@
  * and contributor rights, including patent rights, and no such rights are
  * granted under this license.
  *
- * Copyright (c) 2010-2015, ITU/ISO/IEC
+ * Copyright (c) 2010-2017, ITU/ISO/IEC
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -37,6 +37,8 @@
 
 #include "AdaptiveLoopFilter.h"
 
+#if JEM_TOOLS
+
 #include "UnitTools.h"
 
 #include "dtrace_next.h"
@@ -46,7 +48,8 @@
 #include <stdio.h>
 #include <math.h>
 
-#include "CommonLib/dtrace_codingstruct.h"
+#include "dtrace_codingstruct.h"
+#include "dtrace_buffer.h"
 
 ALFParam::ALFParam()
 {
@@ -145,6 +148,74 @@ void ALFParam::reset()
 
   temporalPredFlag  = 0;
   prevIdx           = 0;
+}
+
+void ALFParam::copyFrom(const ALFParam& src, const Bool isGALF, Bool max_depth_copy)
+{
+  alf_flag = src.alf_flag;
+  cu_control_flag = src.cu_control_flag;
+  chroma_idc = src.chroma_idc;
+
+  tapH = src.tapH;
+  tapV = src.tapV;
+  num_coeff = src.num_coeff;
+  tap_chroma = src.tap_chroma;
+  num_coeff_chroma = src.num_coeff_chroma;
+
+  ::memcpy(coeff_chroma, src.coeff_chroma, sizeof(Int) * AdaptiveLoopFilter::m_ALF_MAX_NUM_COEF_C);
+  filterType = src.filterType;
+  ::memcpy(filterPattern, src.filterPattern, sizeof(Int) * AdaptiveLoopFilter::m_NO_VAR_BINS);
+  startSecondFilter = src.startSecondFilter;
+  filterMode = src.filterMode;
+
+  //Coeff send related
+  filters_per_group_diff = src.filters_per_group_diff; //this can be updated using codedVarBins
+  filters_per_group = src.filters_per_group; //this can be updated using codedVarBinsif
+
+
+#ifdef FORCE0
+  if( ! isGALF || FORCE0 )
+#else
+  if( ! isGALF )
+#endif
+  {
+    ::memcpy(codedVarBins, src.codedVarBins, sizeof(Int) * AdaptiveLoopFilter::m_NO_VAR_BINS);
+    forceCoeff0 = src.forceCoeff0;
+  }
+#if JVET_C0038_NO_PREV_FILTERS
+  iAvailableFilters = src.iAvailableFilters;
+  iPredPattern = src.iPredPattern;
+  ::memcpy(PrevFiltIdx, src.PrevFiltIdx, sizeof(Int) * AdaptiveLoopFilter::m_NO_VAR_BINS);
+#endif
+  predMethod = src.predMethod;
+  for (int i=0; i<AdaptiveLoopFilter::m_NO_VAR_BINS; i++)
+  {
+    ::memcpy(coeffmulti[i], src.coeffmulti[i], sizeof(Int) * AdaptiveLoopFilter::m_ALF_MAX_NUM_COEF);
+    // galf stuff
+    ::memcpy(alfCoeffLuma[i], src.alfCoeffLuma[i], sizeof(Int) * AdaptiveLoopFilter::m_ALF_MAX_NUM_COEF);
+  }
+  minKStart = src.minKStart;
+  ::memcpy( kMinTab , src.kMinTab , sizeof( src.kMinTab ) );
+
+  ::memcpy( mapClassToFilter , src.mapClassToFilter , sizeof( src.mapClassToFilter ) );
+
+#if COM16_C806_ALF_TEMPPRED_NUM
+  if (max_depth_copy)
+  {
+#endif
+    alf_max_depth = src.alf_max_depth;
+#if COM16_C806_ALF_TEMPPRED_NUM
+  }
+#endif
+
+#if COM16_C806_ALF_TEMPPRED_NUM
+  ::memcpy(alfCoeffChroma, src.alfCoeffChroma, sizeof(Int) * AdaptiveLoopFilter::m_ALF_MAX_NUM_COEF_C);
+#endif
+  num_alf_cu_flag = src.num_alf_cu_flag;
+  ::memcpy(alf_cu_flag, src.alf_cu_flag, sizeof(Bool) * src.num_alf_cu_flag);
+
+  temporalPredFlag = src.temporalPredFlag;
+  prevIdx          = src.prevIdx;
 }
 
 // ====================================================================================================================
@@ -555,6 +626,7 @@ const Int AdaptiveLoopFilter::m_ALFfilterCoeffFixed[m_NO_FILTERS*JVET_C0038_NO_P
   {-2, -12, 7, 13, 8, 3, 7, -22, -12, 2, -19, -21, 22, 18, 15, -4, -1, -6, 28, 110, 244},
   {-1, -6, 8, 0, 4, -2, 8, -20, 8, 7, -16, -9, 17, 14, -16, 4, 2, -11, 0, 85, 360}
 };
+
 #endif
 
 const Int AdaptiveLoopFilter::m_FilterTapsOfType[ALF_NUM_OF_FILTER_TYPES] =
@@ -886,6 +958,8 @@ AdaptiveLoopFilter::AdaptiveLoopFilter()
   m_isGALF        = false;
   m_wasCreated    = false;
   m_isDec           = true;
+
+
 }
 
 Void AdaptiveLoopFilter:: xError(const char *text, int code)
@@ -1101,8 +1175,8 @@ Void AdaptiveLoopFilter::create( const Int iPicWidth, const Int iPicHeight, cons
 
   if( m_wasCreated )
   {
-    CHECK( m_img_height != iPicHeight, "ALF: wrong init" )
-    CHECK( m_img_width  != iPicWidth,  "ALF: wrong init" )
+    CHECK( m_img_height != iPicHeight, "ALF: wrong init" );
+    CHECK( m_img_width  != iPicWidth,  "ALF: wrong init" );
     return;
   }
 
@@ -1111,7 +1185,7 @@ Void AdaptiveLoopFilter::create( const Int iPicWidth, const Int iPicHeight, cons
   m_img_height = iPicHeight;
   m_img_width  = iPicWidth;
 
-  get_mem2Dpel( &m_varImgMethods, m_img_width, m_img_width );
+  get_mem2Dpel( &m_varImgMethods, m_img_height, m_img_width );
   initMatrix_int(&m_imgY_temp, m_ALF_WIN_VERSIZE+2*m_VAR_SIZE+3, m_ALF_WIN_HORSIZE+2*m_VAR_SIZE+3);
   initMatrix_int(&m_imgY_ver, m_ALF_WIN_VERSIZE+2*m_VAR_SIZE+3, m_ALF_WIN_HORSIZE+2*m_VAR_SIZE+3);
   initMatrix_int(&m_imgY_hor, m_ALF_WIN_VERSIZE+2*m_VAR_SIZE+3, m_ALF_WIN_HORSIZE+2*m_VAR_SIZE+3);
@@ -1324,6 +1398,8 @@ Void AdaptiveLoopFilter::copyALFParam(ALFParam* pDesAlfParam, ALFParam* pSrcAlfP
   //Coeff send related
   pDesAlfParam->filters_per_group_diff = pSrcAlfParam->filters_per_group_diff; //this can be updated using codedVarBins
   pDesAlfParam->filters_per_group = pSrcAlfParam->filters_per_group; //this can be updated using codedVarBinsif
+
+
 #ifdef FORCE0
   if( ! m_isGALF || FORCE0 )
 #else
@@ -1377,9 +1453,8 @@ Void AdaptiveLoopFilter::copyALFParam(ALFParam* pDesAlfParam, ALFParam* pSrcAlfP
   pDesAlfParam->temporalPredFlag = pSrcAlfParam->temporalPredFlag;
   pDesAlfParam->prevIdx          = pSrcAlfParam->prevIdx;
 #if COM16_C806_ALF_TEMPPRED_NUM
-}
+  }
 #endif
-
 }
 
 Void AdaptiveLoopFilter::resetALFParam(ALFParam* pDesAlfParam)
@@ -1443,6 +1518,8 @@ Void AdaptiveLoopFilter::resetALFParam(ALFParam* pDesAlfParam)
   pDesAlfParam->temporalPredFlag = 0;
   pDesAlfParam->prevIdx          = 0;
 #endif
+
+
 }
 
 // --------------------------------------------------------------------------------------------------------------------
@@ -1453,8 +1530,11 @@ Void AdaptiveLoopFilter::resetALFParam(ALFParam* pDesAlfParam)
  \param cs            coding structure (CodingStructure) class (input/output)
  \param pcAlfParam    ALF parameter
 */
-Void AdaptiveLoopFilter::ALFProcess( CodingStructure& cs, ALFParam* pcAlfParam )
+Void AdaptiveLoopFilter::ALFProcess( CodingStructure& cs, ALFParam* pcAlfParam
+                                    )
 {
+
+
   if(!pcAlfParam->alf_flag)
   {
     return;
@@ -1476,7 +1556,8 @@ Void AdaptiveLoopFilter::ALFProcess( CodingStructure& cs, ALFParam* pcAlfParam )
     if( m_isGALF )
     {
 #if COM16_C806_ALF_TEMPPRED_NUM
-      initVarForChroma(pcAlfParam, (pcAlfParam->temporalPredFlag ? true : false));
+      initVarForChroma(pcAlfParam, (pcAlfParam->temporalPredFlag ? true : false)
+                      );
 #else
       initVarForChroma(pcAlfParam, false);
 #endif
@@ -1496,6 +1577,9 @@ Void AdaptiveLoopFilter::ALFProcess( CodingStructure& cs, ALFParam* pcAlfParam )
   DTRACE_PIC_COMP(D_REC_CB_LUMA_ALF, cs, cs.getRecoBuf(), COMPONENT_Y);
   DTRACE_PIC_COMP(D_REC_CB_CHROMA_ALF, cs, cs.getRecoBuf(), COMPONENT_Cb);
   DTRACE_PIC_COMP(D_REC_CB_CHROMA_ALF, cs, cs.getRecoBuf(), COMPONENT_Cr);
+
+  DTRACE    ( g_trace_ctx, D_CRC, "ALF" );
+  DTRACE_CRC( g_trace_ctx, D_CRC, cs, cs.getRecoBuf() );
 }
 
 
@@ -1514,11 +1598,13 @@ Void AdaptiveLoopFilter::xALFLuma( CodingStructure& cs, ALFParam* pcAlfParam, Pe
 
   if( pcAlfParam->cu_control_flag )
   {
-    xCUAdaptive( cs, recSrcExt, recDst, pcAlfParam );
+    xCUAdaptive( cs, recSrcExt, recDst, pcAlfParam 
+    );
   }
   else
   {
-    xFilterFrame(recSrcExt, recDst, pcAlfParam->filterType);
+    xFilterFrame(recSrcExt, recDst, pcAlfParam->filterType
+    );
   }
 }
 
@@ -1556,18 +1642,19 @@ Void AdaptiveLoopFilter::xALFChroma( ALFParam* pcAlfParam,  const PelUnitBuf& re
   }
 }
 
-Void AdaptiveLoopFilter::xFilterFrame(PelUnitBuf& recSrcExt, PelUnitBuf& recDst, AlfFilterType filtType)
+Void AdaptiveLoopFilter::xFilterFrame(PelUnitBuf& recSrcExt, PelUnitBuf& recDst, AlfFilterType filtType
+  )
 {
   Int i, j;
-  for (i = 0; i < m_img_height; i+=m_ALF_WIN_VERSIZE)
+  for (i = 0; i < m_img_height; i += m_ALF_WIN_VERSIZE)
   {
-    for (j = 0; j < m_img_width; j+=m_ALF_WIN_HORSIZE)
+    for (j = 0; j < m_img_width; j += m_ALF_WIN_HORSIZE)
     {
       const int nHeight = std::min(i + m_ALF_WIN_VERSIZE, m_img_height) - i;
-      const int nWidth  = std::min(j + m_ALF_WIN_HORSIZE, m_img_width) - j;
+      const int nWidth = std::min(j + m_ALF_WIN_HORSIZE, m_img_width) - j;
       Area blk_cur(j, i, nWidth, nHeight);
 
-      if( m_isGALF )
+      if (m_isGALF)
       {
         xClassifyByGeoLaplacian(m_imgY_var, recSrcExt.get(COMPONENT_Y), m_FILTER_LENGTH / 2, m_VAR_SIZE, blk_cur);
         xFilterBlkGalf(recDst, recSrcExt, blk_cur, filtType, COMPONENT_Y);
@@ -1582,7 +1669,8 @@ Void AdaptiveLoopFilter::xFilterFrame(PelUnitBuf& recSrcExt, PelUnitBuf& recDst,
   }
 }
 
-Void AdaptiveLoopFilter::xCUAdaptive( CodingStructure& cs, const PelUnitBuf &recExtBuf, PelUnitBuf &recBuf, ALFParam* pcAlfParam )
+Void AdaptiveLoopFilter::xCUAdaptive( CodingStructure& cs, const PelUnitBuf &recExtBuf, PelUnitBuf &recBuf, ALFParam* pcAlfParam
+  )
 {
   const SPS*     sps            = cs.slice->getSPS();
   const unsigned widthInCtus    = cs.pcv->widthInCtus;
@@ -1604,31 +1692,31 @@ Void AdaptiveLoopFilter::xCUAdaptive( CodingStructure& cs, const PelUnitBuf &rec
     Position ctuPos( ctuXPosInCtus*maxCUSize, ctuYPosInCtus*maxCUSize) ;
     UnitArea ctuArea(cs.area.chromaFormat, Area( ctuPos.x, ctuPos.y, maxCUSize, maxCUSize ) );
 
-    for( auto &currCU : cs.traverseCUs( ctuArea ) )
+    for( auto &currCU : cs.traverseCUs( ctuArea, CH_L ) )
     {
-      const Position&    cuPos    = currCU.lumaPos();
-      const Int          qtDepth  = currCU.qtDepth;
-      const unsigned     qtSize   = maxCUSize >> qtDepth;
-      const Position     qtPos0   = Position( (cuPos.x / qtSize) * qtSize , (cuPos.y / qtSize) * qtSize );
-      const Position   ctrlPos0   = Position( cuPos.x / alfCtrlSize * alfCtrlSize , cuPos.y / alfCtrlSize * alfCtrlSize );
+      const Position&    cuPos   = currCU.lumaPos();
+      const Int          qtDepth = currCU.qtDepth;
+      const unsigned     qtSize  = maxCUSize >> qtDepth;
+      const Position     qtPos0  = Position((cuPos.x / qtSize) * qtSize, (cuPos.y / qtSize) * qtSize);
+      const Position   ctrlPos0  = Position(cuPos.x / alfCtrlSize * alfCtrlSize, cuPos.y / alfCtrlSize * alfCtrlSize);
 
-      if( ( qtDepth >= uiAlfCtrlDepth && cuPos == ctrlPos0 ) || ( ( qtDepth < uiAlfCtrlDepth ) && cuPos == qtPos0 ) )
+      if ((qtDepth >= uiAlfCtrlDepth && cuPos == ctrlPos0) || ((qtDepth < uiAlfCtrlDepth) && cuPos == qtPos0))
       {
         Area blk;
-        if( qtDepth >= uiAlfCtrlDepth )
+        if (qtDepth >= uiAlfCtrlDepth)
         {
-          blk = Area( cuPos.x, cuPos.y, std::min( alfCtrlSize, imgWidth-cuPos.x ) , std::min( alfCtrlSize, imgHeight-cuPos.y ) );
+          blk = Area(cuPos.x, cuPos.y, std::min(alfCtrlSize, imgWidth - cuPos.x), std::min(alfCtrlSize, imgHeight - cuPos.y));
         }
         else
         {
-          blk = Area( cuPos.x, cuPos.y, std::min( qtSize, imgWidth-cuPos.x ) , std::min( qtSize, imgHeight-cuPos.y ) );
+          blk = Area(cuPos.x, cuPos.y, std::min(qtSize, imgWidth - cuPos.x), std::min(qtSize, imgHeight - cuPos.y));
         }
 
-        CHECK( indx >= pcAlfParam->num_alf_cu_flag, "Exceeded the number of num-cu flags" );
+        CHECK(indx >= pcAlfParam->num_alf_cu_flag, "Exceeded the number of num-cu flags");
 
-        if( pcAlfParam->alf_cu_flag[indx] == 1 )
+        if (pcAlfParam->alf_cu_flag[indx] == 1)
         {
-          if( m_isGALF )
+          if (m_isGALF)
           {
             xClassifyByGeoLaplacian(m_imgY_var, recExtBuf.get(COMPONENT_Y), m_FILTER_LENGTH / 2, m_VAR_SIZE, blk);
             xFilterBlkGalf(recBuf, recExtBuf, blk, pcAlfParam->filterType, COMPONENT_Y);
@@ -1641,7 +1729,7 @@ Void AdaptiveLoopFilter::xCUAdaptive( CodingStructure& cs, const PelUnitBuf &rec
         }
         else
         {
-          recBuf.get( COMPONENT_Y ).subBuf( blk.pos(), blk.size() ).copyFrom( recExtBuf.get( COMPONENT_Y ).subBuf( blk.pos(), blk.size() ) );
+          recBuf.get(COMPONENT_Y).subBuf(blk.pos(), blk.size()).copyFrom(recExtBuf.get(COMPONENT_Y).subBuf(blk.pos(), blk.size()));
         }
         indx++;
       }
@@ -1694,7 +1782,7 @@ Void AdaptiveLoopFilter::getCurrentFilter( Int **filterCoeffSym, ALFParam* pcAlf
         for (i = 0; i < iMaxNumCoeff; i++)
         {
           filterNo = varInd*JVET_C0038_NO_PREV_FILTERS + iPrevFiltIdx;
-          filterCoeffFinal[varInd][i] = m_ALFfilterCoeffFixed[filterNo][i];
+            filterCoeffFinal[varInd][i] = m_ALFfilterCoeffFixed[filterNo][i];
         }
       }
       else
@@ -1752,6 +1840,7 @@ Void AdaptiveLoopFilter::getCurrentFilter( Int **filterCoeffSym, ALFParam* pcAlf
     pcAlfParam->alfCoeffLuma[varInd][iNumCoeffMinus1] = factor - quantCoeffSum;
     m_filterCoeffPrevSelected[varInd][m_MAX_SQR_FILT_LENGTH - 1] = factor - quantCoeffSum;
   }
+
   destroyMatrix_int(filterCoeffFinal);
 #else
   for (varInd=0; varInd <m_NO_VAR_BINS; ++varInd)
@@ -1953,7 +2042,7 @@ Void AdaptiveLoopFilter::reconstructFilterCoeffs( ALFParam* pcAlfParam, int **pf
   }
   else
   {
-    CHECK(pcAlfParam->filters_per_group != pcAlfParam->filters_per_group_diff, "ALF: Inconsistent for forceCoeff0 disabled")
+    CHECK(pcAlfParam->filters_per_group != pcAlfParam->filters_per_group_diff, "ALF: Inconsistent for forceCoeff0 disabled");
   }
 
   for (ind = 0; ind < pcAlfParam->filters_per_group; ++ind)
@@ -2218,6 +2307,7 @@ Void AdaptiveLoopFilter::xClassifyByGeoLaplacianBlk(Pel** classes, const CPelBuf
   }
 }
 
+
 Int AdaptiveLoopFilter::selectTransposeVarInd(Int varInd, Int *transpose)
 {
   int aTransTable[8] ={0, 1, 0, 2, 2, 3, 1, 3};
@@ -2259,8 +2349,8 @@ Void AdaptiveLoopFilter::xClassifyByLaplacianBlk(Pel** classes, const CPelBuf& s
   const Int img_stride = srcLumaBuf.stride;
   const Pel* srcExt = srcLumaBuf.buf;
 
-  static Int shift_h = (Int)(log((double)m_ALF_VAR_SIZE_H) / log(2.0));
-  static Int shift_w = (Int)(log((double)m_ALF_VAR_SIZE_W) / log(2.0));
+  static const Int shift_h = (Int)(log((double)m_ALF_VAR_SIZE_H) / log(2.0));
+  static const Int shift_w = (Int)(log((double)m_ALF_VAR_SIZE_W) / log(2.0));
 
   Int i, j;
   Int *p_imgY_temp;
@@ -2383,17 +2473,17 @@ Void AdaptiveLoopFilter::xFilterBlkGalf(PelUnitBuf &recDst, const CPelUnitBuf& r
   switch( filtType )
   {
   case ALF_FILTER_SYM_5:
-    for (i =  startHeight; i < endHeight; i++)
+    for (i = startHeight; i < endHeight; i++)
     {
       if (!bChroma)
       {
         pImgYVar = m_imgY_var[i] + startWidth;
       }
-      pImgYPad  = imgYRec +  i   *srcStride;
-      pImgYPad1 = imgYRec + (i+1)*srcStride;
-      pImgYPad2 = imgYRec + (i-1)*srcStride;
-      pImgYPad3 = imgYRec + (i+2)*srcStride;
-      pImgYPad4 = imgYRec + (i-2)*srcStride;
+      pImgYPad = imgYRec + i   *srcStride;
+      pImgYPad1 = imgYRec + (i + 1)*srcStride;
+      pImgYPad2 = imgYRec + (i - 1)*srcStride;
+      pImgYPad3 = imgYRec + (i + 2)*srcStride;
+      pImgYPad4 = imgYRec + (i - 2)*srcStride;
 
       pImgYRec = imgYRecPost + startWidth;
 
@@ -2406,7 +2496,7 @@ Void AdaptiveLoopFilter::xFilterBlkGalf(PelUnitBuf &recDst, const CPelUnitBuf& r
         }
         pixelInt = 0;
 
-        pImg0 = pImgYPad  + j;
+        pImg0 = pImgYPad + j;
         pImg1 = pImgYPad1 + j;
         pImg2 = pImgYPad2 + j;
         pImg3 = pImgYPad3 + j;
@@ -2461,28 +2551,28 @@ Void AdaptiveLoopFilter::xFilterBlkGalf(PelUnitBuf &recDst, const CPelUnitBuf& r
           pixelInt += coef[40] * (pImg0[+0]);
         }
 
-        pixelInt=(Int)((pixelInt+offset) >> (numBitsMinus1));
-        *(pImgYRec++) = ClipPel(pixelInt, clpRng );
+        pixelInt = (Int)((pixelInt + offset) >> (numBitsMinus1));
+        *(pImgYRec++) = ClipPel(pixelInt, clpRng);
       }
       imgYRecPost += dstStride;
     }
     break;
 
   case ALF_FILTER_SYM_7:
-    for (i =  startHeight; i < endHeight; i++)
+    for (i = startHeight; i < endHeight; i++)
     {
       if (!bChroma)
       {
         pImgYVar = m_imgY_var[i] + startWidth;
       }
 
-      pImgYPad  = imgYRec + i    *srcStride;
-      pImgYPad1 = imgYRec + (i+1)*srcStride;
-      pImgYPad2 = imgYRec + (i-1)*srcStride;
-      pImgYPad3 = imgYRec + (i+2)*srcStride;
-      pImgYPad4 = imgYRec + (i-2)*srcStride;
-      pImgYPad5 = imgYRec + (i+3)*srcStride;
-      pImgYPad6 = imgYRec + (i-3)*srcStride;
+      pImgYPad = imgYRec + i    *srcStride;
+      pImgYPad1 = imgYRec + (i + 1)*srcStride;
+      pImgYPad2 = imgYRec + (i - 1)*srcStride;
+      pImgYPad3 = imgYRec + (i + 2)*srcStride;
+      pImgYPad4 = imgYRec + (i - 2)*srcStride;
+      pImgYPad5 = imgYRec + (i + 3)*srcStride;
+      pImgYPad6 = imgYRec + (i - 3)*srcStride;
 
       pImgYRec = imgYRecPost + startWidth;
 
@@ -2495,7 +2585,7 @@ Void AdaptiveLoopFilter::xFilterBlkGalf(PelUnitBuf &recDst, const CPelUnitBuf& r
         }
         pixelInt = 0;
 
-        pImg0 = pImgYPad  + j;
+        pImg0 = pImgYPad + j;
         pImg1 = pImgYPad1 + j;
         pImg2 = pImgYPad2 + j;
         pImg3 = pImgYPad3 + j;
@@ -2580,30 +2670,30 @@ Void AdaptiveLoopFilter::xFilterBlkGalf(PelUnitBuf &recDst, const CPelUnitBuf& r
           pixelInt += coef[40] * (pImg0[+0]);
         }
 
-        pixelInt=(Int)((pixelInt+offset) >> (numBitsMinus1));
-        *(pImgYRec++) = ClipPel(pixelInt, clpRng );
+        pixelInt = (Int)((pixelInt + offset) >> (numBitsMinus1));
+        *(pImgYRec++) = ClipPel(pixelInt, clpRng);
       }
       imgYRecPost += dstStride;
     }
     break;
 
   case ALF_FILTER_SYM_9:
-    for (i =  startHeight; i < endHeight; i++)
+    for (i = startHeight; i < endHeight; i++)
     {
       if (!bChroma)
       {
         pImgYVar = m_imgY_var[i] + startWidth;
       }
 
-      pImgYPad  = imgYRec +  i   *srcStride;
-      pImgYPad1 = imgYRec + (i+1)*srcStride;
-      pImgYPad2 = imgYRec + (i-1)*srcStride;
-      pImgYPad3 = imgYRec + (i+2)*srcStride;
-      pImgYPad4 = imgYRec + (i-2)*srcStride;
-      pImgYPad5 = imgYRec + (i+3)*srcStride;
-      pImgYPad6 = imgYRec + (i-3)*srcStride;
-      pImgYPad7 = imgYRec + (i+4)*srcStride;
-      pImgYPad8 = imgYRec + (i-4)*srcStride;
+      pImgYPad = imgYRec + i   *srcStride;
+      pImgYPad1 = imgYRec + (i + 1)*srcStride;
+      pImgYPad2 = imgYRec + (i - 1)*srcStride;
+      pImgYPad3 = imgYRec + (i + 2)*srcStride;
+      pImgYPad4 = imgYRec + (i - 2)*srcStride;
+      pImgYPad5 = imgYRec + (i + 3)*srcStride;
+      pImgYPad6 = imgYRec + (i - 3)*srcStride;
+      pImgYPad7 = imgYRec + (i + 4)*srcStride;
+      pImgYPad8 = imgYRec + (i - 4)*srcStride;
       pImgYRec = imgYRecPost + startWidth;
 
       for (j = startWidth; j < endWidth; j++)
@@ -2615,7 +2705,7 @@ Void AdaptiveLoopFilter::xFilterBlkGalf(PelUnitBuf &recDst, const CPelUnitBuf& r
         }
         pixelInt = 0;
 
-        pImg0 = pImgYPad  + j;
+        pImg0 = pImgYPad + j;
         pImg1 = pImgYPad1 + j;
         pImg2 = pImgYPad2 + j;
         pImg3 = pImgYPad3 + j;
@@ -2732,15 +2822,15 @@ Void AdaptiveLoopFilter::xFilterBlkGalf(PelUnitBuf &recDst, const CPelUnitBuf& r
           pixelInt += coef[40] * (pImg0[0]);
         }
 
-        pixelInt=(Int)((pixelInt+offset) >> (numBitsMinus1));
-        *(pImgYRec++) = ClipPel(pixelInt, clpRng );
+        pixelInt = (Int)((pixelInt + offset) >> (numBitsMinus1));
+        *(pImgYRec++) = ClipPel(pixelInt, clpRng);
       }
       imgYRecPost += dstStride;
     }
     break;
 
   case ALF_NUM_OF_FILTER_TYPES:
-    THROW( "ALF: wrong filter Type");
+    THROW("ALF: wrong filter Type");
     break;
   }
 }
@@ -3239,37 +3329,9 @@ Void AdaptiveLoopFilter::xFrameChromaAlf( ALFParam* pcAlfParam, const PelUnitBuf
   }
 }
 
-Bool AdaptiveLoopFilter::refreshAlfTempPred(NalUnitType naluType, Int poc)
+Void AdaptiveLoopFilter::refreshAlfTempPred()
 {
-  static bool pendingRefreshEncDec[2] = { false };
-  static Int pocLastCRA = 0;
-  Bool refresh = false;
-
-  bool& pendingRefresh = pendingRefreshEncDec[!!m_isDec];
-
-  if (pendingRefresh == true && pocLastCRA < poc)
-  {
-    refresh = true;
-    pendingRefresh = false;
-  }
-
-  if (NAL_UNIT_CODED_SLICE_BLA_W_LP <= naluType && naluType <= NAL_UNIT_CODED_SLICE_IDR_N_LP)
-  {
-    refresh = true;
-    pendingRefresh = true;
-    pocLastCRA = poc;
-  }
-  else if (naluType == NAL_UNIT_CODED_SLICE_CRA)
-  {
-    pendingRefresh = true;
-    pocLastCRA = poc;
-  }
-
-  if( refresh )
-  {
-    ::memset( m_storedAlfParaNum, 0, sizeof(m_storedAlfParaNum));
-  }
-  return(refresh);
+  ::memset( m_storedAlfParaNum, 0, sizeof(m_storedAlfParaNum));
 }
 
 
@@ -3294,3 +3356,4 @@ void AdaptiveLoopFilter::loadALFParam( ALFParam* pAlfParam, unsigned idx, unsign
   copyALFParam(pAlfParam, &m_acStoredAlfPara[tLayer][idx], false);
 }
 
+#endif

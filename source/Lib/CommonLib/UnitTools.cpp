@@ -48,12 +48,32 @@
 
 // CS tools
 
+#if JEM_TOOLS
+
+CIPFSpec getCIPFSpec( const Slice* slice, const int ctuXPosInCtus, const int ctuYPosInCtus )
+{
+  CIPFSpec cipf = {false,false,0};
+#if JEM_TOOLS
+  if( slice->getSPS()->getSpsNext().getCIPFMode() )
+  {
+    const PreCalcValues&  pcv       = *slice->getPPS()->pcv;
+    const int             ctuRsAddr = ctuXPosInCtus + ctuYPosInCtus * pcv.widthInCtus;
+    cipf.loadCtx  = ( ctuXPosInCtus == 0 && ctuYPosInCtus == 0 );
+    cipf.storeCtx = ( ctuRsAddr == std::min( pcv.widthInCtus / 2 + pcv.sizeInCtus / 2, pcv.sizeInCtus - 1 ) );
+  }
+#endif
+  return cipf;
+}
+
+#endif
+
 UInt64 CS::getEstBits(const CodingStructure &cs)
 {
   return cs.fracBits >> SCALE_BITS;
 }
 
 
+#if JEM_TOOLS
 static void xInitFrucMvpEl( CodingStructure& cs, Int x, Int y, Int nCurPOC, Int nTargetRefIdx, Int nTargetRefPOC, Int nCurRefIdx, Int nCurRefPOC, Int nColPOC, RefPicList eRefPicList, const Picture* pColPic )
 {
   const unsigned scale = ( cs.pcv->noMotComp ? 1 : 4 * std::max<Int>( 1, 4 * AMVP_DECIMATION_FACTOR / 4 ) );
@@ -134,80 +154,26 @@ void CS::initFrucMvp( CodingStructure &cs )
         continue;
       }
 
-      const Int log2ctuSize = g_aucLog2[cs.pcv->maxCUWidth];
-
-      for( Int yCtu = 0; yCtu < height; yCtu += ( 1 << log2ctuSize ) )
+      for( Int y = 0; y < height; y += MIN_PU_SIZE )
       {
-        for( Int xCtu = 0; xCtu < width; xCtu += ( 1 << log2ctuSize ) )
+        for( Int x = 0; x < width; x += MIN_PU_SIZE )
         {
-          for( Int yCtuLgM1 = 0; yCtuLgM1 < ( 1 << log2ctuSize ); yCtuLgM1 += ( 1 << ( log2ctuSize - 1 ) ) )
-          {
-            for( Int xCtuLgM1 = 0; xCtuLgM1 < ( 1 << log2ctuSize ); xCtuLgM1 += ( 1 << ( log2ctuSize - 1 ) ) )
-            {
-              for( Int yCtuLgM2 = 0; yCtuLgM2 < ( 1 << ( log2ctuSize - 1 ) ); yCtuLgM2 += ( 1 << ( log2ctuSize - 2 ) ) )
-              {
-                for( Int xCtuLgM2 = 0; xCtuLgM2 < ( 1 << ( log2ctuSize - 1 ) ); xCtuLgM2 += ( 1 << ( log2ctuSize - 2 ) ) )
-                {
-                  for( Int yCtuLgM3 = 0; yCtuLgM3 < ( 1 << ( log2ctuSize - 2 ) ); yCtuLgM3 += ( 1 << ( log2ctuSize - 3 ) ) )
-                  {
-                    for( Int xCtuLgM3 = 0; xCtuLgM3 < ( 1 << ( log2ctuSize - 2 ) ); xCtuLgM3 += ( 1 << ( log2ctuSize - 3 ) ) )
-                    {
-                      for( Int yCtuLgM4 = 0; yCtuLgM4 < ( 1 << ( log2ctuSize - 3 ) ); yCtuLgM4 += ( 1 << ( log2ctuSize - 4 ) ) )
-                      {
-                        for( Int xCtuLgM4 = 0; xCtuLgM4 < ( 1 << ( log2ctuSize - 3 ) ); xCtuLgM4 += ( 1 << ( log2ctuSize - 4 ) ) )
-                        {
-                          if( log2ctuSize - 4 > MIN_CU_LOG2 )
-                          {
-                            for( Int yCtuLgM5 = 0; yCtuLgM5 < ( 1 << ( log2ctuSize - 4 ) ); yCtuLgM5 += ( 1 << ( log2ctuSize - 5 ) ) )
-                            {
-                              for( Int xCtuLgM5 = 0; xCtuLgM5 < ( 1 << ( log2ctuSize - 4 ) ); xCtuLgM5 += ( 1 << ( log2ctuSize - 5 ) ) )
-                              {
-                                const Int x = xCtu + xCtuLgM1 + xCtuLgM2 + xCtuLgM3 + xCtuLgM4 + xCtuLgM5;
-                                const Int y = yCtu + yCtuLgM1 + yCtuLgM2 + yCtuLgM3 + yCtuLgM4 + yCtuLgM5;
-
-                                if( x >= width || y >= height )
-                                {
-                                  continue;
-                                }
-
-                                xInitFrucMvpEl( cs, x, y, nCurPOC, nTargetRefIdx, nTargetRefPOC, nCurRefIdx, nCurRefPOC, nColPOC, eRefPicList, pColPic );
-                              }
-                            }
-                          }
-                          else
-                          {
-                            const Int x = xCtu + xCtuLgM1 + xCtuLgM2 + xCtuLgM3 + xCtuLgM4;
-                            const Int y = yCtu + yCtuLgM1 + yCtuLgM2 + yCtuLgM3 + yCtuLgM4;
-
-                            if( x >= width || y >= height )
-                            {
-                              continue;
-                            }
-
-                            xInitFrucMvpEl( cs, x, y, nCurPOC, nTargetRefIdx, nTargetRefPOC, nCurRefIdx, nCurRefPOC, nColPOC, eRefPicList, pColPic );
-                          }
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }
+          xInitFrucMvpEl( cs, x, y, nCurPOC, nTargetRefIdx, nTargetRefPOC, nCurRefIdx, nCurRefPOC, nColPOC, eRefPicList, pColPic );
         }
       }
     }
   }
 }
+#endif
 
 bool CS::isDualITree( const CodingStructure &cs )
 {
   return cs.slice->isIntra() && !cs.pcv->ISingleTree;
 }
 
-UnitArea CS::getArea( const CodingStructure &cs, const UnitArea &area )
+UnitArea CS::getArea( const CodingStructure &cs, const UnitArea &area, const ChannelType chType )
 {
-  return isDualITree( cs ) ? area.singleChan( cs.chType ) : area;
+  return isDualITree( cs ) ? area.singleChan( chType ) : area;
 }
 
 
@@ -226,36 +192,6 @@ bool CU::isInter(const CodingUnit &cu)
 bool CU::isRDPCMEnabled(const CodingUnit& cu)
 {
   return cu.cs->sps->getSpsRangeExtension().getRdpcmEnabledFlag(cu.predMode == MODE_INTRA ? RDPCM_SIGNAL_IMPLICIT : RDPCM_SIGNAL_EXPLICIT);
-}
-
-UInt CU::getQuadtreeTULog2MinSizeInCU(const CodingUnit& cu)
-{
-  const SPS &sps = *cu.cs->sps;
-
-  const UInt log2CbSize         = g_aucLog2[cu.lumaSize().width];
-  const UInt quadtreeTUMaxDepth =  isIntra(cu) ? sps.getQuadtreeTUMaxDepthIntra() : sps.getQuadtreeTUMaxDepthInter();
-  const Int intraSplitFlag      = (isIntra(cu) && cu.partSize == SIZE_NxN) ? 1 : 0;
-  const Int interSplitFlag      = ((quadtreeTUMaxDepth == 1) && isInter(cu) && (cu.partSize != SIZE_2Nx2N));
-
-  UInt log2MinTUSizeInCU = 0;
-
-  if (log2CbSize < (sps.getQuadtreeTULog2MinSize() + quadtreeTUMaxDepth - 1 + interSplitFlag + intraSplitFlag))
-  {
-    // when fully making use of signaled TUMaxDepth + inter/intraSplitFlag, resulting luma TB size is < QuadtreeTULog2MinSize
-    log2MinTUSizeInCU = sps.getQuadtreeTULog2MinSize();
-  }
-  else
-  {
-    // when fully making use of signaled TUMaxDepth + inter/intraSplitFlag, resulting luma TB size is still >= QuadtreeTULog2MinSize
-    log2MinTUSizeInCU = log2CbSize - (quadtreeTUMaxDepth - 1 + interSplitFlag + intraSplitFlag); // stop when trafoDepth == hierarchy_depth = splitFlag
-
-    if (log2MinTUSizeInCU > sps.getQuadtreeTULog2MaxSize())
-    {
-      // when fully making use of signaled TUMaxDepth + inter/intraSplitFlag, resulting luma TB size is still > QuadtreeTULog2MaxSize
-      log2MinTUSizeInCU = sps.getQuadtreeTULog2MaxSize();
-    }
-  }
-  return log2MinTUSizeInCU;
 }
 
 bool CU::isLosslessCoded(const CodingUnit &cu)
@@ -290,9 +226,8 @@ bool CU::isSameCtu(const CodingUnit& cu, const CodingUnit& cu2)
 
 UInt CU::getIntraSizeIdx(const CodingUnit &cu)
 {
-  UInt uiShift  = (cu.partSize == SIZE_NxN ? 1 : 0);
+  UChar uiWidth = cu.lumaSize().width;
 
-  UChar uiWidth = cu.lumaSize().width >> uiShift;
   UInt  uiCnt   = 0;
 
   while (uiWidth)
@@ -309,25 +244,43 @@ UInt CU::getIntraSizeIdx(const CodingUnit &cu)
 bool CU::isLastSubCUOfCtu( const CodingUnit &cu )
 {
   const SPS &sps      = *cu.cs->sps;
-  const Area cuAreaY = CS::isDualITree( *cu.cs ) ? Area( recalcPosition( cu.chromaFormat, cu.cs->chType, CHANNEL_TYPE_LUMA, cu.blocks[cu.cs->chType].pos() ), recalcSize( cu.chromaFormat, cu.cs->chType, CHANNEL_TYPE_LUMA, cu.blocks[cu.cs->chType].size() ) ) : ( const Area& ) cu.Y();
+  const Area cuAreaY = CS::isDualITree( *cu.cs ) ? Area( recalcPosition( cu.chromaFormat, cu.chType, CHANNEL_TYPE_LUMA, cu.blocks[cu.chType].pos() ), recalcSize( cu.chromaFormat, cu.chType, CHANNEL_TYPE_LUMA, cu.blocks[cu.chType].size() ) ) : ( const Area& ) cu.Y();
 
   return ( ( ( ( cuAreaY.x + cuAreaY.width  ) & cu.cs->pcv->maxCUWidthMask  ) == 0 || cuAreaY.x + cuAreaY.width  == sps.getPicWidthInLumaSamples()  ) &&
            ( ( ( cuAreaY.y + cuAreaY.height ) & cu.cs->pcv->maxCUHeightMask ) == 0 || cuAreaY.y + cuAreaY.height == sps.getPicHeightInLumaSamples() ) );
 }
 
-UInt CU::getCtuAddr(const CodingUnit &cu)
+UInt CU::getCtuAddr( const CodingUnit &cu )
 {
-  return getCtuAddr( cu.blocks[cu.cs->chType].lumaPos(), *cu.cs->pcv );
+  return getCtuAddr( cu.blocks[cu.chType].lumaPos(), *cu.cs->pcv );
 }
 
-int CU::predictQP (const CodingUnit& cu, const int prevQP)
+int CU::predictQP( const CodingUnit& cu, const int prevQP )
 {
   const CodingStructure &cs = *cu.cs;
 
+#if HHI_WPP_PARALLELISM
+  if( cs.sps->getSpsNext().getUseNextDQP() )
+  {
+    // Inter-CTU 2D "planar"   c(orner)  a(bove)
+    // predictor arrangement:  b(efore)  p(rediction)
 
+    // restrict the lookup, as it might cross CTU/slice/tile boundaries
+    const CodingUnit *cuA = cs.getCURestricted( cu.blocks[cu.chType].pos().offset(  0, -1 ), cu, cu.chType );
+    const CodingUnit *cuB = cs.getCURestricted( cu.blocks[cu.chType].pos().offset( -1,  0 ), cu, cu.chType );
+    const CodingUnit *cuC = cs.getCURestricted( cu.blocks[cu.chType].pos().offset( -1, -1 ), cu, cu.chType );
+
+    const int a = cuA ? cuA->qp : cs.slice->getSliceQpBase();
+    const int b = cuB ? cuB->qp : cs.slice->getSliceQpBase();
+    const int c = cuC ? cuC->qp : cs.slice->getSliceQpBase();
+
+    return Clip3( ( a < b ? a : b ), ( a > b ? a : b ), a + b - c ); // derived from Martucci's Median Adaptive Prediction, 1990
+  }
+
+#endif
   // only predict within the same CTU, use HEVC's above+left prediction
-  const int a = ( cu.blocks[cs.chType].y & ( cs.pcv->maxCUHeightMask >> getChannelTypeScaleY( cs.chType, cu.chromaFormat ) ) ) ? ( cs.getCU( cu.blocks[cs.chType].pos().offset( 0, -1 ) ) )->qp : prevQP;
-  const int b = ( cu.blocks[cs.chType].x & ( cs.pcv->maxCUWidthMask  >> getChannelTypeScaleX( cs.chType, cu.chromaFormat ) ) ) ? ( cs.getCU( cu.blocks[cs.chType].pos().offset( -1, 0 ) ) )->qp : prevQP;
+  const int a = ( cu.blocks[cu.chType].y & ( cs.pcv->maxCUHeightMask >> getChannelTypeScaleY( cu.chType, cu.chromaFormat ) ) ) ? ( cs.getCU( cu.blocks[cu.chType].pos().offset( 0, -1 ), cu.chType ) )->qp : prevQP;
+  const int b = ( cu.blocks[cu.chType].x & ( cs.pcv->maxCUWidthMask  >> getChannelTypeScaleX( cu.chType, cu.chromaFormat ) ) ) ? ( cs.getCU( cu.blocks[cu.chType].pos().offset( -1, 0 ), cu.chType ) )->qp : prevQP;
 
   return ( a + b + 1 ) >> 1;
 }
@@ -337,11 +290,11 @@ bool CU::isQGStart( const CodingUnit& cu )
   const SPS &sps = *cu.cs->sps;
   const PPS &pps = *cu.cs->pps;
 
-  return ( cu.blocks[cu.cs->chType].x % ( ( 1 << ( g_aucLog2[sps.getMaxCUWidth()]  - pps.getMaxCuDQPDepth() ) ) >> getChannelTypeScaleX( cu.cs->chType, cu.chromaFormat ) ) ) == 0 &&
-         ( cu.blocks[cu.cs->chType].y % ( ( 1 << ( g_aucLog2[sps.getMaxCUHeight()] - pps.getMaxCuDQPDepth() ) ) >> getChannelTypeScaleY( cu.cs->chType, cu.chromaFormat ) ) ) == 0;
+  return ( cu.blocks[cu.chType].x % ( ( 1 << ( g_aucLog2[sps.getMaxCUWidth()]  - pps.getMaxCuDQPDepth() ) ) >> getChannelTypeScaleX( cu.chType, cu.chromaFormat ) ) ) == 0 &&
+         ( cu.blocks[cu.chType].y % ( ( 1 << ( g_aucLog2[sps.getMaxCUHeight()] - pps.getMaxCuDQPDepth() ) ) >> getChannelTypeScaleY( cu.chType, cu.chromaFormat ) ) ) == 0;
 }
 
-UInt CU::getNumPUs(const CodingUnit& cu)
+UInt CU::getNumPUs( const CodingUnit& cu )
 {
   UInt cnt = 0;
   PredictionUnit *pu = cu.firstPU;
@@ -356,12 +309,7 @@ UInt CU::getNumPUs(const CodingUnit& cu)
 
 void CU::addPUs( CodingUnit& cu )
 {
-  const auto puAreas = PartitionerImpl::getPUPartitioning( cu );
-
-  for( const auto &puArea : puAreas )
-  {
-    cu.cs->addPU( CS::getArea( *cu.cs, puArea ) );
-  }
+  cu.cs->addPU( CS::getArea( *cu.cs, cu, cu.chType ), cu.chType );
 }
 
 
@@ -377,6 +325,34 @@ PartSplit CU::getSplitAtDepth( const CodingUnit& cu, const unsigned depth )
 
   else if( cuSplitType == CU_VERT_SPLIT    ) return CU_VERT_SPLIT;
 
+  else if( cuSplitType == CU_HORZ_SPLIT_14 ) return CU_HORZ_SPLIT_14;
+  else if( cuSplitType == CU_HORZ_SPLIT_34 ) return CU_HORZ_SPLIT_34;
+
+  else if( cuSplitType == CU_VERT_SPLIT_14 ) return CU_VERT_SPLIT_14;
+  else if( cuSplitType == CU_VERT_SPLIT_34 ) return CU_VERT_SPLIT_34;
+  else if( cuSplitType == CU_HORZ_SPLIT_38 ) return CU_HORZ_SPLIT_38;
+  else if( cuSplitType == CU_HORZ_SPLIT_58 ) return CU_HORZ_SPLIT_58;
+
+  else if( cuSplitType == CU_VERT_SPLIT_38 ) return CU_VERT_SPLIT_38;
+  else if( cuSplitType == CU_VERT_SPLIT_58 ) return CU_VERT_SPLIT_58;
+
+  else if( cuSplitType == CU_HORZ_SPLIT_13 ) return CU_HORZ_SPLIT_13;
+  else if( cuSplitType == CU_HORZ_SPLIT_23 ) return CU_HORZ_SPLIT_23;
+
+  else if( cuSplitType == CU_VERT_SPLIT_13 ) return CU_VERT_SPLIT_13;
+  else if( cuSplitType == CU_VERT_SPLIT_23 ) return CU_VERT_SPLIT_23;
+
+  else if( cuSplitType == CU_HORZ_SPLIT_15 ) return CU_HORZ_SPLIT_15;
+  else if( cuSplitType == CU_HORZ_SPLIT_25 ) return CU_HORZ_SPLIT_25;
+  else if( cuSplitType == CU_HORZ_SPLIT_35 ) return CU_HORZ_SPLIT_35;
+  else if( cuSplitType == CU_HORZ_SPLIT_45 ) return CU_HORZ_SPLIT_45;
+
+  else if( cuSplitType == CU_VERT_SPLIT_15 ) return CU_VERT_SPLIT_15;
+  else if( cuSplitType == CU_VERT_SPLIT_25 ) return CU_VERT_SPLIT_25;
+  else if( cuSplitType == CU_VERT_SPLIT_35 ) return CU_VERT_SPLIT_35;
+  else if( cuSplitType == CU_VERT_SPLIT_45 ) return CU_VERT_SPLIT_45;
+  else if( cuSplitType == CU_TRIH_SPLIT    ) return CU_TRIH_SPLIT;
+  else if( cuSplitType == CU_TRIV_SPLIT    ) return CU_TRIV_SPLIT;
   else   { THROW( "Unknown split mode"    ); return CU_QUAD_SPLIT; }
 }
 
@@ -407,6 +383,7 @@ UInt CU::getNumNonZeroCoeffNonTs( const CodingUnit& cu )
 }
 
 
+#if JEM_TOOLS
 bool CU::isLICFlagPresent( const CodingUnit& cu )
 {
   if( CU::isIntra(cu) || !cu.slice->getUseLIC() )
@@ -451,6 +428,8 @@ bool CU::isLICFlagPresent( const CodingUnit& cu )
   }
   return true;
 }
+#endif
+
 
 PUTraverser CU::traversePUs( CodingUnit& cu )
 {
@@ -473,12 +452,20 @@ cTUTraverser CU::traverseTUs( const CodingUnit& cu )
 }
 
 // PU tools
-int PU::getIntraMPMs( const PredictionUnit &pu, unsigned* mpm, const ChannelType &channelType /*= CHANNEL_TYPE_LUMA*/, const bool isChromaMDMS /*= false*/, const unsigned startIdx /*= 0*/ )
-{
-  const unsigned numMPMs = isChromaMDMS ? NUM_DM_MODES : pu.cs->pcv->numMPMs;
 
-  if( pu.cs->sps->getSpsNext().getUseIntra65Ang()
-      || isChromaMDMS )
+#if JEM_TOOLS
+int PU::getIntraMPMs( const PredictionUnit &pu, unsigned* mpm, const ChannelType &channelType /*= CHANNEL_TYPE_LUMA*/, const bool isChromaMDMS /*= false*/, const unsigned startIdx /*= 0*/ )
+#else
+int PU::getIntraMPMs( const PredictionUnit &pu, unsigned* mpm, const ChannelType &channelType /*= CHANNEL_TYPE_LUMA*/ )
+#endif
+{
+#if JEM_TOOLS
+  const unsigned numMPMs = isChromaMDMS ? NUM_DM_MODES : pu.cs->pcv->numMPMs;
+#else
+  const unsigned numMPMs = pu.cs->pcv->numMPMs;
+#endif
+#if JEM_TOOLS
+  if( pu.cs->sps->getSpsNext().getUseIntra65Ang() || isChromaMDMS )
   {
     Int  numCand = -1;
     UInt modeIdx =  0;
@@ -522,7 +509,7 @@ int PU::getIntraMPMs( const PredictionUnit &pu, unsigned* mpm, const ChannelType
       if( puAbove && CU::isIntra( *puAbove->cu ) )
       {
         mpm[modeIdx] = puAbove->intraDir[channelType];
-        if( !includedMode[mpm[modeIdx]] ) { includedMode[mpm[modeIdx++]] = true; }
+        if( !includedMode[ mpm[modeIdx] ] ) { includedMode[ mpm[modeIdx++] ] = true; }
       }
     }
 
@@ -547,7 +534,7 @@ int PU::getIntraMPMs( const PredictionUnit &pu, unsigned* mpm, const ChannelType
         mpm[modeIdx] = puLeftBottom->intraDir[channelType];
         if( mpm[modeIdx] < NUM_INTRA_MODE ) // exclude uninitialized PUs
         {
-          if( !includedMode[mpm[modeIdx]] ) { includedMode[mpm[modeIdx++]] = true; }
+          if( !includedMode[ mpm[modeIdx] ] ) { includedMode[ mpm[modeIdx++] ] = true; }
         }
       }
     }
@@ -560,7 +547,7 @@ int PU::getIntraMPMs( const PredictionUnit &pu, unsigned* mpm, const ChannelType
         mpm[modeIdx] = puAboveRight->intraDir[channelType];
         if( mpm[modeIdx] < NUM_INTRA_MODE ) // exclude uninitialized PUs
         {
-          if( !includedMode[mpm[modeIdx]] ) { includedMode[mpm[modeIdx++]] = true; }
+          if( !includedMode[ mpm[modeIdx] ] ) { includedMode[ mpm[modeIdx++] ] = true; }
         }
       }
     }
@@ -568,11 +555,11 @@ int PU::getIntraMPMs( const PredictionUnit &pu, unsigned* mpm, const ChannelType
     // above left
     if( modeIdx < numMPMs )
     {
-      const PredictionUnit *puAboveLeft  = pu.cs->getPURestricted( posLT.offset( -1, -1 ), pu, channelType );
+      const PredictionUnit *puAboveLeft = pu.cs->getPURestricted( posLT.offset( -1, -1 ), pu, channelType );
       if( puAboveLeft && CU::isIntra( *puAboveLeft->cu ) )
       {
         mpm[modeIdx] = puAboveLeft->intraDir[channelType];
-        if( !includedMode[mpm[modeIdx]] ) { includedMode[mpm[modeIdx++]] = true; }
+        if( !includedMode[ mpm[modeIdx] ] ) { includedMode[ mpm[modeIdx++] ] = true; }
       }
     }
 
@@ -632,6 +619,7 @@ int PU::getIntraMPMs( const PredictionUnit &pu, unsigned* mpm, const ChannelType
     return numCand;
   }
   else
+#endif
   {
     Int numCand = -1;
     Int leftIntraDir = DC_IDX, aboveIntraDir = DC_IDX;
@@ -714,16 +702,17 @@ int PU::getIntraMPMs( const PredictionUnit &pu, unsigned* mpm, const ChannelType
   }
 }
 
+#if JEM_TOOLS
 int PU::getDMModes(const PredictionUnit &pu, unsigned *modeList)
 {
   int numDMs = 0;
 
   if ( CS::isDualITree( *pu.cs ) )
   {
-    const Position lumaPos  = pu.blocks[pu.cs->chType].lumaPos();
-    const Size chromaSize   = pu.blocks[pu.cs->chType].size();
-    const UInt scaleX       = getComponentScaleX( pu.blocks[pu.cs->chType].compID, pu.chromaFormat );
-    const UInt scaleY       = getComponentScaleY( pu.blocks[pu.cs->chType].compID, pu.chromaFormat );
+    const Position lumaPos  = pu.blocks[pu.chType].lumaPos();
+    const Size chromaSize   = pu.blocks[pu.chType].size();
+    const UInt scaleX       = getComponentScaleX( pu.blocks[pu.chType].compID, pu.chromaFormat );
+    const UInt scaleY       = getComponentScaleY( pu.blocks[pu.chType].compID, pu.chromaFormat );
     const Size lumaSize     = Size( chromaSize.width << scaleX, chromaSize.height << scaleY );
     const Int centerOffsetX = ( lumaSize.width  == 4 ) ? ( 0 ) : ( ( lumaSize.width  >> 1 ) - 1 );
     const Int centerOffsetY = ( lumaSize.height == 4 ) ? ( 0 ) : ( ( lumaSize.height >> 1 ) - 1 );
@@ -731,19 +720,19 @@ int PU::getDMModes(const PredictionUnit &pu, unsigned *modeList)
     static_assert( 5 <= NUM_DM_MODES, "Too many chroma direct modes" );
     // center
     const PredictionUnit *lumaC  = pu.cs->picture->cs->getPU( lumaPos.offset( centerOffsetX     , centerOffsetY       ), CHANNEL_TYPE_LUMA );
-    candModes[ 0 ] = lumaC->intraDir [ CHANNEL_TYPE_LUMA ];
+    candModes[0] = lumaC->intraDir[CHANNEL_TYPE_LUMA];
     // top-left
     const PredictionUnit *lumaTL = pu.cs->picture->cs->getPU( lumaPos                                                  , CHANNEL_TYPE_LUMA );
-    candModes[ 1 ] = lumaTL->intraDir[ CHANNEL_TYPE_LUMA ];
+    candModes[1] = lumaTL->intraDir[CHANNEL_TYPE_LUMA];
     // top-right
-    const PredictionUnit *lumaTR = pu.cs->picture->cs->getPU( lumaPos.offset( lumaSize.width - 1, 0                   ), CHANNEL_TYPE_LUMA );
-    candModes[ 2 ] = lumaTR->intraDir[ CHANNEL_TYPE_LUMA ];
+    const PredictionUnit *lumaTR = pu.cs->picture->cs->getPU( lumaPos.offset( lumaSize.width - 1, 0 )                  , CHANNEL_TYPE_LUMA );
+    candModes[2] = lumaTR->intraDir[CHANNEL_TYPE_LUMA];
     // bottom-left
     const PredictionUnit *lumaBL = pu.cs->picture->cs->getPU( lumaPos.offset( 0                 , lumaSize.height - 1 ), CHANNEL_TYPE_LUMA );
-    candModes[ 3 ] = lumaBL->intraDir[ CHANNEL_TYPE_LUMA ];
+    candModes[3] = lumaBL->intraDir[CHANNEL_TYPE_LUMA];
     // bottom-right
     const PredictionUnit *lumaBR = pu.cs->picture->cs->getPU( lumaPos.offset( lumaSize.width - 1, lumaSize.height - 1 ), CHANNEL_TYPE_LUMA );
-    candModes[ 4 ] = lumaBR->intraDir[ CHANNEL_TYPE_LUMA ];
+    candModes[4] = lumaBR->intraDir[CHANNEL_TYPE_LUMA];
     // remove duplicates
     for ( Int i = 0; i < NUM_DM_MODES; i++ )
     {
@@ -765,15 +754,16 @@ int PU::getDMModes(const PredictionUnit &pu, unsigned *modeList)
   }
   else
   {
-    const UInt lumaMode  = pu.intraDir[ CHANNEL_TYPE_LUMA ];
-    modeList[ numDMs++ ] = lumaMode;
+    modeList[numDMs++] = pu.intraDir[CHANNEL_TYPE_LUMA];
   }
 
   return numDMs;
 }
 
+#endif
 void PU::getIntraChromaCandModes( const PredictionUnit &pu, unsigned modeList[NUM_CHROMA_MODE] )
 {
+#if JEM_TOOLS
   if ( pu.cs->sps->getSpsNext().getUseMDMS() )
   {
     static_assert( NUM_DM_MODES + 6 <= NUM_CHROMA_MODE, "Too many chroma MPMs" );
@@ -790,12 +780,16 @@ void PU::getIntraChromaCandModes( const PredictionUnit &pu, unsigned modeList[NU
     }
   }
   else
+#endif
   {
+#if JEM_TOOLS
     static_assert( 11 <= NUM_CHROMA_MODE, "Too many chroma MPMs" );
+#endif
     modeList[  0 ] = PLANAR_IDX;
     modeList[  1 ] = VER_IDX;
     modeList[  2 ] = HOR_IDX;
     modeList[  3 ] = DC_IDX;
+#if JEM_TOOLS
     modeList[  4 ] = LM_CHROMA_IDX;
     modeList[  5 ] = MMLM_CHROMA_IDX;
     modeList[  6 ] = LM_CHROMA_F1_IDX;
@@ -803,20 +797,24 @@ void PU::getIntraChromaCandModes( const PredictionUnit &pu, unsigned modeList[NU
     modeList[  8 ] = LM_CHROMA_F3_IDX;
     modeList[  9 ] = LM_CHROMA_F4_IDX;
     modeList[ 10 ] = DM_CHROMA_IDX;
+#else
+    modeList[  4 ] = DM_CHROMA_IDX;
+#endif
 
-    const PredictionUnit *lumaPU = CS::isDualITree( *pu.cs ) ? pu.cs->picture->cs->getPU( pu.blocks[pu.cs->chType].lumaPos(), CHANNEL_TYPE_LUMA ) : &pu;
-    const UInt lumaMode          = lumaPU->intraDir[ CHANNEL_TYPE_LUMA ];
-    for (Int i = 0; i < 4; i++)
+    const PredictionUnit *lumaPU = CS::isDualITree( *pu.cs ) ? pu.cs->picture->cs->getPU( pu.blocks[pu.chType].lumaPos(), CHANNEL_TYPE_LUMA ) : &pu;
+    const UInt lumaMode = lumaPU->intraDir[CHANNEL_TYPE_LUMA];
+    for( Int i = 0; i < 4; i++ )
     {
-      if( lumaMode == modeList[ i ] )
+      if( lumaMode == modeList[i] )
       {
-        modeList[ i ] = VDIA_IDX;
+        modeList[i] = VDIA_IDX;
         break;
       }
     }
   }
 }
 
+#if JEM_TOOLS
 bool PU::isLMCMode(unsigned mode)
 {
   return ( mode >= LM_CHROMA_IDX && mode <= LM_CHROMA_F4_IDX );
@@ -858,11 +856,6 @@ bool PU::isLMCModeEnabled(const PredictionUnit &pu, unsigned mode)
     }
   }
   return false;
-}
-
-bool PU::isChromaIntraModeCrossCheckMode(const PredictionUnit &pu)
-{
-  return ( pu.intraDir[ CHANNEL_TYPE_CHROMA ] == DM_CHROMA_IDX ) || ( pu.cs->sps->getSpsNext().getUseMDMS() && ! PU::isLMCMode( pu.intraDir[ CHANNEL_TYPE_CHROMA ] ) );
 }
 
 int PU::getLMSymbolList(const PredictionUnit &pu, Int *pModeList)
@@ -938,6 +931,17 @@ int PU::getLMSymbolList(const PredictionUnit &pu, Int *pModeList)
   return iIdx;
 }
 
+#endif
+
+bool PU::isChromaIntraModeCrossCheckMode( const PredictionUnit &pu )
+{
+#if JEM_TOOLS
+  return ( pu.intraDir[CHANNEL_TYPE_CHROMA] == DM_CHROMA_IDX ) || ( pu.cs->sps->getSpsNext().getUseMDMS() && !PU::isLMCMode( pu.intraDir[CHANNEL_TYPE_CHROMA] ) );
+#else
+  return pu.intraDir[CHANNEL_TYPE_CHROMA] == DM_CHROMA_IDX;
+#endif
+}
+
 UInt PU::getFinalIntraMode( const PredictionUnit &pu, const ChannelType &chType )
 {
   UInt uiIntraMode = pu.intraDir[chType];
@@ -967,9 +971,11 @@ void PU::getInterMergeCandidates( const PredictionUnit &pu, MergeCtx& mrgCtx, co
   for (UInt ui = 0; ui < maxNumMergeCand; ++ui)
   {
     isCandInter[ui] = false;
+#if JEM_TOOLS
     mrgCtx.LICFlags          [ui] = false;
+#endif
     mrgCtx.interDirNeighbours[ui] = 0;
-    mrgCtx.mrgTypeNeighnours [ui] = MRG_TYPE_DEFAULT_N;
+    mrgCtx.mrgTypeNeighbours [ui] = MRG_TYPE_DEFAULT_N;
     mrgCtx.mvFieldNeighbours[(ui << 1)    ].refIdx = NOT_VALID;
     mrgCtx.mvFieldNeighbours[(ui << 1) + 1].refIdx = NOT_VALID;
   }
@@ -986,9 +992,9 @@ void PU::getInterMergeCandidates( const PredictionUnit &pu, MergeCtx& mrgCtx, co
   MotionInfo miAbove, miLeft, miAboveLeft, miAboveRight, miBelowLeft;
 
   //left
-  const PredictionUnit* puLeft = cs.getPURestricted( posLB.offset( -1, 0 ), pu );
+  const PredictionUnit* puLeft = cs.getPURestricted( posLB.offset( -1, 0 ), pu, pu.chType );
 
-  const Bool isAvailableA1 = puLeft && isDiffMER( pu, *puLeft ) && ( pu.cu != puLeft->cu || pu.cu->partSize == SIZE_NxN ) && CU::isInter( *puLeft->cu );
+  const Bool isAvailableA1 = puLeft && isDiffMER( pu, *puLeft ) && pu.cu != puLeft->cu && CU::isInter( *puLeft->cu );
 
   if( isAvailableA1 )
   {
@@ -998,7 +1004,9 @@ void PU::getInterMergeCandidates( const PredictionUnit &pu, MergeCtx& mrgCtx, co
 
     // get Inter Dir
     mrgCtx.interDirNeighbours[cnt] = miLeft.interDir;
+#if JEM_TOOLS
     mrgCtx.LICFlags          [cnt] = miLeft.usesLIC;
+#endif
 
     // get Mv from Left
     mrgCtx.mvFieldNeighbours[cnt << 1].setMvField(miLeft.mv[0], miLeft.refIdx[0]);
@@ -1024,9 +1032,9 @@ void PU::getInterMergeCandidates( const PredictionUnit &pu, MergeCtx& mrgCtx, co
 
 
   // above
-  const PredictionUnit *puAbove = cs.getPURestricted( posRT.offset( 0, -1 ), pu );
+  const PredictionUnit *puAbove = cs.getPURestricted( posRT.offset( 0, -1 ), pu, pu.chType );
 
-  Bool isAvailableB1 = puAbove && isDiffMER( pu, *puAbove ) && ( pu.cu != puAbove->cu || pu.cu->partSize == SIZE_NxN ) && CU::isInter( *puAbove->cu );
+  Bool isAvailableB1 = puAbove && isDiffMER( pu, *puAbove ) && pu.cu != puAbove->cu && CU::isInter( *puAbove->cu );
 
   if( isAvailableB1 )
   {
@@ -1038,8 +1046,9 @@ void PU::getInterMergeCandidates( const PredictionUnit &pu, MergeCtx& mrgCtx, co
 
       // get Inter Dir
       mrgCtx.interDirNeighbours[cnt] = miAbove.interDir;
+#if JEM_TOOLS
       mrgCtx.LICFlags          [cnt] = miAbove.usesLIC;
-
+#endif
       // get Mv from Left
       mrgCtx.mvFieldNeighbours[cnt << 1].setMvField( miAbove.mv[0], miAbove.refIdx[0] );
 
@@ -1064,7 +1073,7 @@ void PU::getInterMergeCandidates( const PredictionUnit &pu, MergeCtx& mrgCtx, co
   }
 
   // above right
-  const PredictionUnit *puAboveRight = cs.getPURestricted( posRT.offset( 1, -1 ), pu );
+  const PredictionUnit *puAboveRight = cs.getPURestricted( posRT.offset( 1, -1 ), pu, pu.chType );
 
   Bool isAvailableB0 = puAboveRight && isDiffMER( pu, *puAboveRight ) && CU::isInter( *puAboveRight->cu );
 
@@ -1078,8 +1087,9 @@ void PU::getInterMergeCandidates( const PredictionUnit &pu, MergeCtx& mrgCtx, co
 
       // get Inter Dir
       mrgCtx.interDirNeighbours[cnt] = miAboveRight.interDir;
+#if JEM_TOOLS
       mrgCtx.LICFlags          [cnt] = miAboveRight.usesLIC;
-
+#endif
       // get Mv from Left
       mrgCtx.mvFieldNeighbours[cnt << 1].setMvField( miAboveRight.mv[0], miAboveRight.refIdx[0] );
 
@@ -1103,7 +1113,7 @@ void PU::getInterMergeCandidates( const PredictionUnit &pu, MergeCtx& mrgCtx, co
   }
 
   //left bottom
-  const PredictionUnit *puLeftBottom = cs.getPURestricted( posLB.offset( -1, 1 ), pu );
+  const PredictionUnit *puLeftBottom = cs.getPURestricted( posLB.offset( -1, 1 ), pu, pu.chType );
 
   Bool isAvailableA0 = puLeftBottom && isDiffMER( pu, *puLeftBottom ) && CU::isInter( *puLeftBottom->cu );
 
@@ -1117,8 +1127,9 @@ void PU::getInterMergeCandidates( const PredictionUnit &pu, MergeCtx& mrgCtx, co
 
       // get Inter Dir
       mrgCtx.interDirNeighbours[cnt] = miBelowLeft.interDir;
+#if JEM_TOOLS
       mrgCtx.LICFlags          [cnt] = miBelowLeft.usesLIC;
-
+#endif
       // get Mv from Bottom-Left
       mrgCtx.mvFieldNeighbours[cnt << 1].setMvField( miBelowLeft.mv[0], miBelowLeft.refIdx[0] );
 
@@ -1141,6 +1152,7 @@ void PU::getInterMergeCandidates( const PredictionUnit &pu, MergeCtx& mrgCtx, co
     return;
   }
 
+#if JEM_TOOLS
   bool enableSubPuMvp = slice.getSPS()->getSpsNext().getUseSubPuMvp();
   bool isAvailableSubPu = false;
   unsigned subPuMvpPos = 0;
@@ -1165,7 +1177,7 @@ void PU::getInterMergeCandidates( const PredictionUnit &pu, MergeCtx& mrgCtx, co
     {
       isCandInter[cnt] = true;
 
-      mrgCtx.mrgTypeNeighnours[cnt] = MRG_TYPE_SUBPU_ATMVP;
+      mrgCtx.mrgTypeNeighbours[cnt] = MRG_TYPE_SUBPU_ATMVP;
       mrgCtx.LICFlags         [cnt] = tmpLICFlag;
 
       if( bMrgIdxMatchATMVPCan )
@@ -1188,7 +1200,7 @@ void PU::getInterMergeCandidates( const PredictionUnit &pu, MergeCtx& mrgCtx, co
     {
       const MotionInfo &miLast = mrgCtx.subPuMvpExtMiBuf.at( mrgCtx.subPuMvpExtMiBuf.width - 1, mrgCtx.subPuMvpExtMiBuf.height - 1 );
 
-      mrgCtx.mrgTypeNeighnours[  cnt           ] = MRG_TYPE_SUBPU_ATMVP_EXT;
+      mrgCtx.mrgTypeNeighbours[  cnt           ] = MRG_TYPE_SUBPU_ATMVP_EXT;
       mrgCtx.interDirNeighbours[ cnt           ] = miLast.interDir;
       mrgCtx.mvFieldNeighbours[( cnt << 1 )    ].setMvField( miLast.mv[0], miLast.refIdx[0] );
       mrgCtx.mvFieldNeighbours[( cnt << 1 ) + 1].setMvField( miLast.mv[1], miLast.refIdx[1] );
@@ -1203,11 +1215,16 @@ void PU::getInterMergeCandidates( const PredictionUnit &pu, MergeCtx& mrgCtx, co
       }
     }
   }
+#endif
 
   // above left
+#if JEM_TOOLS
   if( cnt < ( enableSubPuMvp ? 6 : 4 ) )
+#else
+  if( cnt < 4 )
+#endif
   {
-    const PredictionUnit *puAboveLeft = cs.getPURestricted( posLT.offset( -1, -1 ), pu );
+    const PredictionUnit *puAboveLeft = cs.getPURestricted( posLT.offset( -1, -1 ), pu, pu.chType );
 
     Bool isAvailableB2 = puAboveLeft && isDiffMER( pu, *puAboveLeft ) && CU::isInter( *puAboveLeft->cu );
 
@@ -1221,8 +1238,9 @@ void PU::getInterMergeCandidates( const PredictionUnit &pu, MergeCtx& mrgCtx, co
 
         // get Inter Dir
         mrgCtx.interDirNeighbours[cnt] = miAboveLeft.interDir;
+#if JEM_TOOLS
         mrgCtx.LICFlags          [cnt] = miAboveLeft.usesLIC;
-
+#endif
         // get Mv from Above-Left
         mrgCtx.mvFieldNeighbours[cnt << 1].setMvField( miAboveLeft.mv[0], miAboveLeft.refIdx[0] );
 
@@ -1260,6 +1278,7 @@ void PU::getInterMergeCandidates( const PredictionUnit &pu, MergeCtx& mrgCtx, co
 
     if (((posRB.x + pcv.minCUWidth) < pcv.lumaWidth) && ((posRB.y + pcv.minCUHeight) < pcv.lumaHeight))
     {
+#if JEM_TOOLS
       if( cs.sps->getSpsNext().getUseSubPuMvp() )
       {
         // COM16_C806_GEN_MRG_IMPROVEMENT
@@ -1267,6 +1286,7 @@ void PU::getInterMergeCandidates( const PredictionUnit &pu, MergeCtx& mrgCtx, co
         C0Avail = true;
       }
       else
+#endif
       {
         Position posInCtu( posRB.x & pcv.maxCUWidthMask, posRB.y & pcv.maxCUHeightMask );
 
@@ -1296,35 +1316,51 @@ void PU::getInterMergeCandidates( const PredictionUnit &pu, MergeCtx& mrgCtx, co
 
     Mv        cColMv;
     int       iRefIdx     = 0;
+#if JEM_TOOLS
     bool      colLICFlag  = false;
     bool      LICFlag     = false;
+#endif
     int       dir         = 0;
     unsigned  uiArrayAddr = cnt;
+#if JEM_TOOLS
     bool      bExistMV    = ( C0Avail && getColocatedMVP(pu, REF_PIC_LIST_0, posC0, cColMv, iRefIdx, &colLICFlag ) )
                                       || getColocatedMVP(pu, REF_PIC_LIST_0, posC1, cColMv, iRefIdx, &colLICFlag );
+#else
+    bool      bExistMV    = ( C0Avail && getColocatedMVP(pu, REF_PIC_LIST_0, posC0, cColMv, iRefIdx ) )
+                                      || getColocatedMVP(pu, REF_PIC_LIST_0, posC1, cColMv, iRefIdx );
+#endif
 
     if (bExistMV)
     {
       dir     |= 1;
+#if JEM_TOOLS
       LICFlag |= colLICFlag;
+#endif
       mrgCtx.mvFieldNeighbours[2 * uiArrayAddr].setMvField(cColMv, iRefIdx);
     }
 
     if (slice.isInterB())
     {
+#if JEM_TOOLS
       bExistMV = ( C0Avail && getColocatedMVP(pu, REF_PIC_LIST_1, posC0, cColMv, iRefIdx, &colLICFlag ) )
                            || getColocatedMVP(pu, REF_PIC_LIST_1, posC1, cColMv, iRefIdx, &colLICFlag );
-
+#else
+      bExistMV = ( C0Avail && getColocatedMVP(pu, REF_PIC_LIST_1, posC0, cColMv, iRefIdx ) )
+                           || getColocatedMVP(pu, REF_PIC_LIST_1, posC1, cColMv, iRefIdx );
+#endif
       if (bExistMV)
       {
         dir     |= 2;
+#if JEM_TOOLS
         LICFlag |= colLICFlag;
+#endif
         mrgCtx.mvFieldNeighbours[2 * uiArrayAddr + 1].setMvField(cColMv, iRefIdx);
       }
     }
 
     if( dir != 0 )
     {
+#if JEM_TOOLS // TODO: check if correct here
       bool addTMvp = !( cs.sps->getSpsNext().getUseSubPuMvp() && isAvailableSubPu );
       if( !addTMvp )
       {
@@ -1348,9 +1384,12 @@ void PU::getInterMergeCandidates( const PredictionUnit &pu, MergeCtx& mrgCtx, co
         }
       }
       if( addTMvp )
+#endif
       {
         mrgCtx.interDirNeighbours[uiArrayAddr] = dir;
+#if JEM_TOOLS
         mrgCtx.LICFlags          [uiArrayAddr] = LICFlag;
+#endif
         isCandInter              [uiArrayAddr] = true;
 
         if( mrgCandIdx == cnt && canFastExit )
@@ -1387,7 +1426,9 @@ void PU::getInterMergeCandidates( const PredictionUnit &pu, MergeCtx& mrgCtx, co
       {
         isCandInter[uiArrayAddr] = true;
         mrgCtx.interDirNeighbours[uiArrayAddr] = 3;
+#if JEM_TOOLS
         mrgCtx.LICFlags          [uiArrayAddr] = ( mrgCtx.LICFlags[i] || mrgCtx.LICFlags[j] );
+#endif
 
         // get Mv from cand[i] and cand[j]
         mrgCtx.mvFieldNeighbours[ uiArrayAddr << 1     ].setMvField(mrgCtx.mvFieldNeighbours[ i << 1     ].mv, mrgCtx.mvFieldNeighbours[ i << 1     ].refIdx);
@@ -1422,7 +1463,9 @@ void PU::getInterMergeCandidates( const PredictionUnit &pu, MergeCtx& mrgCtx, co
   {
     isCandInter               [uiArrayAddr     ] = true;
     mrgCtx.interDirNeighbours [uiArrayAddr     ] = 1;
+#if JEM_TOOLS
     mrgCtx.LICFlags           [uiArrayAddr     ] = false;
+#endif
     mrgCtx.mvFieldNeighbours  [uiArrayAddr << 1].setMvField(Mv(0, 0), r);
 
     if (slice.isInterB())
@@ -1467,7 +1510,11 @@ static int xGetDistScaleFactor(const int &iCurrPOC, const int &iCurrRefPOC, cons
   }
 }
 
+#if JEM_TOOLS
 bool PU::getColocatedMVP(const PredictionUnit &pu, const RefPicList &eRefPicList, const Position &_pos, Mv& rcMv, const int &refIdx, bool* LICFlag /*=0*/ )
+#else
+bool PU::getColocatedMVP(const PredictionUnit &pu, const RefPicList &eRefPicList, const Position &_pos, Mv& rcMv, const int &refIdx )
+#endif
 {
   // don't perform MV compression when generally disabled or subPuMvp is used
   const unsigned scale = ( pu.cs->pcv->noMotComp ? 1 : 4 * std::max<Int>(1, 4 * AMVP_DECIMATION_FACTOR / 4) );
@@ -1530,10 +1577,12 @@ bool PU::getColocatedMVP(const PredictionUnit &pu, const RefPicList &eRefPicList
     return false;
   }
 
+#if JEM_TOOLS
   if( LICFlag )
   {
     *LICFlag = mi.usesLIC;
   }
+#endif
 
   // Scale the vector.
   Mv cColMv = mi.mv[eColRefPicList];
@@ -1556,12 +1605,13 @@ bool PU::getColocatedMVP(const PredictionUnit &pu, const RefPicList &eRefPicList
     }
     else
     {
+#if JEM_TOOLS
       if( pu.cs->sps->getSpsNext().getUseHighPrecMv() )
       {
         // allow extended precision for temporal scaling
         cColMv.setHighPrec();
       }
-
+#endif
       rcMv = cColMv.scaleMv(distscale);
     }
   }
@@ -1598,7 +1648,11 @@ bool PU::isDiffMER(const PredictionUnit &pu1, const PredictionUnit &pu2)
 * \param iRefIdx
 * \param pInfo
 */
+#if JEM_TOOLS
 void PU::fillMvpCand(PredictionUnit &pu, const RefPicList &eRefPicList, const int &refIdx, AMVPInfo &amvpInfo, InterPrediction *interPred)
+#else
+void PU::fillMvpCand(PredictionUnit &pu, const RefPicList &eRefPicList, const int &refIdx, AMVPInfo &amvpInfo)
+#endif
 {
   CodingStructure &cs = *pu.cs;
 
@@ -1619,12 +1673,12 @@ void PU::fillMvpCand(PredictionUnit &pu, const RefPicList &eRefPicList, const in
   Bool isScaledFlagLX = false; /// variable name from specification; true when the PUs below left or left are available (availableA0 || availableA1).
 
   {
-    const PredictionUnit* tmpPU = cs.getPURestricted( posLB.offset( -1, 1 ), pu ); // getPUBelowLeft(idx, partIdxLB);
+    const PredictionUnit* tmpPU = cs.getPURestricted( posLB.offset( -1, 1 ), pu, pu.chType ); // getPUBelowLeft(idx, partIdxLB);
     isScaledFlagLX = tmpPU != NULL && CU::isInter( *tmpPU->cu );
 
     if( !isScaledFlagLX )
     {
-      tmpPU = cs.getPURestricted( posLB.offset( -1, 0 ), pu );
+      tmpPU = cs.getPURestricted( posLB.offset( -1, 0 ), pu, pu.chType );
       isScaledFlagLX = tmpPU != NULL && CU::isInter( *tmpPU->cu );
     }
   }
@@ -1680,6 +1734,7 @@ void PU::fillMvpCand(PredictionUnit &pu, const RefPicList &eRefPicList, const in
     }
   }
 
+#if JEM_TOOLS
   if( pu.cu->imv != 0)
   {
     unsigned imvShift = pu.cu->imv << 1;
@@ -1688,6 +1743,7 @@ void PU::fillMvpCand(PredictionUnit &pu, const RefPicList &eRefPicList, const in
       roundMV( pInfo->mvCand[i], imvShift );
     }
   }
+#endif
 
   if( pInfo->numCand == 2 )
   {
@@ -1744,7 +1800,7 @@ void PU::fillMvpCand(PredictionUnit &pu, const RefPicList &eRefPicList, const in
       pInfo->mvCand[pInfo->numCand++] = cColMv;
     }
   }
-
+#if JEM_TOOLS
   if( cs.slice->getSPS()->getSpsNext().getUseFRUCMrgMode() )
   {
     if( interPred != NULL && interPred->frucFindBlkMv4Pred( pu, eRefPicList, refIdx, pInfo ) )
@@ -1766,7 +1822,7 @@ void PU::fillMvpCand(PredictionUnit &pu, const RefPicList &eRefPicList, const in
       }
     }
   }
-
+#endif
   if (pInfo->numCand > AMVP_MAX_NUM_CANDS)
   {
     pInfo->numCand = AMVP_MAX_NUM_CANDS;
@@ -1774,11 +1830,16 @@ void PU::fillMvpCand(PredictionUnit &pu, const RefPicList &eRefPicList, const in
 
   while (pInfo->numCand < AMVP_MAX_NUM_CANDS)
   {
+#if JEM_TOOLS
     const Bool prec = pInfo->mvCand[pInfo->numCand].highPrec;
     pInfo->mvCand[pInfo->numCand] = Mv( 0, 0, prec );
+#else
+    pInfo->mvCand[pInfo->numCand] = Mv( 0, 0 );
+#endif
     pInfo->numCand++;
   }
 
+#if JEM_TOOLS
   if( pu.cs->sps->getSpsNext().getUseHighPrecMv() )
   {
     for( Mv &mv : pInfo->mvCand )
@@ -1795,8 +1856,10 @@ void PU::fillMvpCand(PredictionUnit &pu, const RefPicList &eRefPicList, const in
       roundMV(pInfo->mvCand[i], imvShift);
     }
   }
+#endif
 }
 
+#if JEM_TOOLS
 Bool isValidAffineCandidate( const PredictionUnit &pu, Mv cMv0, Mv cMv1, Mv cMv2, Int& riDV )
 {
   Mv zeroMv(0, 0);
@@ -1997,8 +2060,13 @@ void PU::fillAffineMvpCand(PredictionUnit &pu, const RefPicList &eRefPicList, co
     }
   }
 }
+#endif
 
+#if JEM_TOOLS
 bool PU::addMVPCandUnscaled( const PredictionUnit &pu, const RefPicList &eRefPicList, const int &iRefIdx, const Position &pos, const MvpDir &eDir, AMVPInfo &info, bool affine )
+#else
+bool PU::addMVPCandUnscaled( const PredictionUnit &pu, const RefPicList &eRefPicList, const int &iRefIdx, const Position &pos, const MvpDir &eDir, AMVPInfo &info )
+#endif
 {
         CodingStructure &cs    = *pu.cs;
   const PredictionUnit *neibPU = NULL;
@@ -2025,7 +2093,7 @@ bool PU::addMVPCandUnscaled( const PredictionUnit &pu, const RefPicList &eRefPic
     break;
   }
 
-  neibPU = cs.getPURestricted( neibPos, pu );
+  neibPU = cs.getPURestricted( neibPos, pu, pu.chType );
 
   if( neibPU == NULL || !CU::isInter( *neibPU->cu ) )
   {
@@ -2044,6 +2112,7 @@ bool PU::addMVPCandUnscaled( const PredictionUnit &pu, const RefPicList &eRefPic
 
     if( neibRefIdx >= 0 && currRefPOC == cs.slice->getRefPOC( eRefPicListIndex, neibRefIdx ) )
     {
+#if JEM_TOOLS
       if( affine )
       {
         Int i = 0;
@@ -2064,6 +2133,7 @@ bool PU::addMVPCandUnscaled( const PredictionUnit &pu, const RefPicList &eRefPic
         }
       }
       else
+#endif
       {
         info.mvCand[info.numCand++] = neibMi.mv[eRefPicListIndex];
         return true;
@@ -2083,7 +2153,11 @@ bool PU::addMVPCandUnscaled( const PredictionUnit &pu, const RefPicList &eRefPic
 * \param eDir
 * \returns Bool
 */
+#if JEM_TOOLS
 bool PU::addMVPCandWithScaling( const PredictionUnit &pu, const RefPicList &eRefPicList, const int &iRefIdx, const Position &pos, const MvpDir &eDir, AMVPInfo &info, bool affine )
+#else
+bool PU::addMVPCandWithScaling( const PredictionUnit &pu, const RefPicList &eRefPicList, const int &iRefIdx, const Position &pos, const MvpDir &eDir, AMVPInfo &info )
+#endif
 {
         CodingStructure &cs    = *pu.cs;
   const Slice &slice           = *cs.slice;
@@ -2111,7 +2185,7 @@ bool PU::addMVPCandWithScaling( const PredictionUnit &pu, const RefPicList &eRef
     break;
   }
 
-  neibPU = cs.getPURestricted( neibPos, pu );
+  neibPU = cs.getPURestricted( neibPos, pu, pu.chType );
 
   if( neibPU == NULL || !CU::isInter( *neibPU->cu ) )
   {
@@ -2146,14 +2220,17 @@ bool PU::addMVPCandWithScaling( const PredictionUnit &pu, const RefPicList &eRef
 
           if( scale != 4096 )
           {
+#if JEM_TOOLS
             if( slice.getSPS()->getSpsNext().getUseHighPrecMv() )
             {
               cMv.setHighPrec();
             }
+#endif
             cMv = cMv.scaleMv( scale );
           }
         }
 
+#if JEM_TOOLS
         if( affine )
         {
           Int i;
@@ -2172,6 +2249,7 @@ bool PU::addMVPCandWithScaling( const PredictionUnit &pu, const RefPicList &eRef
           }
         }
         else
+#endif
         {
           info.mvCand[info.numCand++] = cMv;
           return true;
@@ -2186,14 +2264,19 @@ bool PU::addMVPCandWithScaling( const PredictionUnit &pu, const RefPicList &eRef
 
 bool PU::isBipredRestriction(const PredictionUnit &pu)
 {
+#if JEM_TOOLS
   const SPSNext &spsNext = pu.cs->sps->getSpsNext();
   if( !pu.cs->pcv->only2Nx2N && !spsNext.getUseSubPuMvp() && pu.cu->lumaSize().width == 8 && ( pu.lumaSize().width < 8 || pu.lumaSize().height < 8 ) )
+#else
+  if( !pu.cs->pcv->only2Nx2N && pu.cu->lumaSize().width == 8 && ( pu.lumaSize().width < 8 || pu.lumaSize().height < 8 ) )
+#endif
   {
     return true;
   }
   return false;
 }
 
+#if JEM_TOOLS
 static bool deriveScaledMotionTemporal( const Slice&      slice,
                                         const Position&   colPos,
                                         const Picture*    pColPic,
@@ -2740,7 +2823,7 @@ bool PU::getInterMergeSubPuRecurCand( const PredictionUnit &pu, MergeCtx& mrgCtx
         for( unsigned uiCurAddrY = y / iPUHeight; uiCurAddrY < puSize.height / iPUHeight; uiCurAddrY++ )
         {
           const Position        posLeft = puPos.offset( -1, uiCurAddrY * iPUHeight );
-          const PredictionUnit* puLeft  = pu.cs->getPURestricted( posLeft, pu );
+          const PredictionUnit* puLeft  = pu.cs->getPURestricted( posLeft, pu, pu.chType );
 
           if ( puLeft && !CU::isIntra( *puLeft->cu ) )
           {
@@ -2765,7 +2848,7 @@ bool PU::getInterMergeSubPuRecurCand( const PredictionUnit &pu, MergeCtx& mrgCtx
         for( unsigned uiCurAddrX = x / iPUWidth; uiCurAddrX < iNumPartLine; uiCurAddrX++ )
         {
           const Position        posAbove = puPos.offset( uiCurAddrX * iPUWidth, -1 );
-          const PredictionUnit *puAbove  = pu.cs->getPURestricted( posAbove, pu );
+          const PredictionUnit *puAbove  = pu.cs->getPURestricted( posAbove, pu, pu.chType );
 
           if( puAbove && !CU::isIntra( *puAbove->cu ) )
           {
@@ -2874,7 +2957,7 @@ bool PU::getInterMergeSubPuRecurCand( const PredictionUnit &pu, MergeCtx& mrgCtx
   {
     for( unsigned uiIdx = 0; uiIdx < count; uiIdx++ )
     {
-      if( mrgCtx.mrgTypeNeighnours[uiIdx] != MRG_TYPE_SUBPU_ATMVP )
+      if( mrgCtx.mrgTypeNeighbours[uiIdx] != MRG_TYPE_SUBPU_ATMVP )
       {
         if( spsNext.getUseHighPrecMv() )
         {
@@ -2899,7 +2982,7 @@ bool PU::getInterMergeSubPuRecurCand( const PredictionUnit &pu, MergeCtx& mrgCtx
   {
     for( unsigned idx = 0; idx < count; idx++ )
     {
-      if( mrgCtx.mrgTypeNeighnours[idx] == MRG_TYPE_SUBPU_ATMVP )
+      if( mrgCtx.mrgTypeNeighbours[idx] == MRG_TYPE_SUBPU_ATMVP )
       {
         bool isSame = true;
         for( int y = 0; y < mb.height; y++ )
@@ -2928,27 +3011,27 @@ const PredictionUnit* getFirstAvailableAffineNeighbour( const PredictionUnit &pu
   const Position posRT = pu.Y().topRight();
   const Position posLB = pu.Y().bottomLeft();
 
-  const PredictionUnit* puLeft = pu.cs->getPURestricted( posLB.offset( -1, 0 ), pu );
+  const PredictionUnit* puLeft = pu.cs->getPURestricted( posLB.offset( -1, 0 ), pu, pu.chType );
   if( puLeft && puLeft->cu->affine )
   {
     return puLeft;
   }
-  const PredictionUnit* puAbove = pu.cs->getPURestricted( posRT.offset( 0, -1 ), pu );
+  const PredictionUnit* puAbove = pu.cs->getPURestricted( posRT.offset( 0, -1 ), pu, pu.chType );
   if( puAbove && puAbove->cu->affine )
   {
     return puAbove;
   }
-  const PredictionUnit* puAboveRight = pu.cs->getPURestricted( posRT.offset( 1, -1 ), pu );
+  const PredictionUnit* puAboveRight = pu.cs->getPURestricted( posRT.offset( 1, -1 ), pu, pu.chType );
   if( puAboveRight && puAboveRight->cu->affine )
   {
     return puAboveRight;
   }
-  const PredictionUnit *puLeftBottom = pu.cs->getPURestricted( posLB.offset( -1, 1 ), pu );
+  const PredictionUnit *puLeftBottom = pu.cs->getPURestricted( posLB.offset( -1, 1 ), pu, pu.chType );
   if( puLeftBottom && puLeftBottom->cu->affine )
   {
     return puLeftBottom;
   }
-  const PredictionUnit *puAboveLeft = pu.cs->getPURestricted( posLT.offset( -1, -1 ), pu );
+  const PredictionUnit *puAboveLeft = pu.cs->getPURestricted( posLT.offset( -1, -1 ), pu, pu.chType );
   if( puAboveLeft && puAboveLeft->cu->affine )
   {
     return puAboveLeft;
@@ -2958,7 +3041,7 @@ const PredictionUnit* getFirstAvailableAffineNeighbour( const PredictionUnit &pu
 
 bool PU::isAffineMrgFlagCoded( const PredictionUnit &pu )
 {
-  if( ( pu.cs->sps->getSpsNext().getUseQTBT() ) && pu.cu->lumaSize().area() < 64 )
+  if( ( pu.cs->sps->getSpsNext().getUseQTBT() || pu.cs->sps->getSpsNext().getUseGenBinSplit() ) && pu.cu->lumaSize().area() < 64 )
   {
     return false;
   }
@@ -3162,12 +3245,17 @@ Void PU::setAllAffineMvd( MotionBuf mb, const Mv& affLT, const Mv& affRT, RefPic
     mb.at( mb.width-1, mb.height-1 ).mvdAffi[eRefList] = affRT - affLT;
   }
 }
+#endif
 
 void PU::spanMotionInfo( PredictionUnit &pu, const MergeCtx &mrgCtx )
 {
   MotionBuf mb = pu.getMotionBuf();
 
+#if JEM_TOOLS
   if( !pu.mergeFlag || pu.mergeType == MRG_TYPE_DEFAULT_N || pu.mergeType == MRG_TYPE_FRUC )
+#else
+  if( !pu.mergeFlag || pu.mergeType == MRG_TYPE_DEFAULT_N )
+#endif
   {
     MotionInfo mi;
 
@@ -3185,6 +3273,7 @@ void PU::spanMotionInfo( PredictionUnit &pu, const MergeCtx &mrgCtx )
       }
     }
 
+#if JEM_TOOLS
     if( pu.cu->affine )
     {
       for( int y = 0; y < mb.height; y++ )
@@ -3207,10 +3296,12 @@ void PU::spanMotionInfo( PredictionUnit &pu, const MergeCtx &mrgCtx )
       }
     }
     else
+#endif
     {
       mb.fill( mi );
     }
   }
+#if JEM_TOOLS
   else if( pu.mergeType == MRG_TYPE_SUBPU_ATMVP )
   {
     CHECK( mrgCtx.subPuMvpMiBuf.area() == 0 || !mrgCtx.subPuMvpMiBuf.buf, "Buffer not initialized" );
@@ -3221,11 +3312,14 @@ void PU::spanMotionInfo( PredictionUnit &pu, const MergeCtx &mrgCtx )
     CHECK( mrgCtx.subPuFrucMiBuf.area() == 0 || !mrgCtx.subPuFrucMiBuf.buf, "Buffer not initialized" );
     mb.copyFrom( mrgCtx.subPuFrucMiBuf );
   }
+#endif
   else
   {
+#if JEM_TOOLS
     CHECK( mrgCtx.subPuMvpExtMiBuf.area() == 0 || !mrgCtx.subPuMvpExtMiBuf.buf, "Buffer not initialized" );
 
     mb.copyFrom( mrgCtx.subPuMvpExtMiBuf );
+#endif
 
     if( isBipredRestriction( pu ) )
     {
@@ -3244,10 +3338,12 @@ void PU::spanMotionInfo( PredictionUnit &pu, const MergeCtx &mrgCtx )
       }
     }
   }
-
+#if JEM_TOOLS
   spanLICFlags( pu, pu.cu->LICFlag );
+#endif
 }
 
+#if JEM_TOOLS
 void PU::spanLICFlags( PredictionUnit &pu, const bool LICFlag )
 {
   MotionBuf mb = pu.getMotionBuf();
@@ -3341,6 +3437,7 @@ bool PU::isBIOLDB( const PredictionUnit& pu )
   }
   return BIOLDB;
 }
+#endif
 
 bool PU::isBiPredFromDifferentDir( const PredictionUnit& pu )
 {
@@ -3373,7 +3470,7 @@ void PU::restrictBiPredMergeCands( const PredictionUnit &pu, MergeCtx& mergeCtx 
   }
 }
 
-
+#if JEM_TOOLS
 void CU::resetMVDandMV2Int( CodingUnit& cu, InterPrediction *interPred )
 {
   for( auto &pu : CU::traversePUs( cu ) )
@@ -3485,17 +3582,19 @@ int CU::getMaxNeighboriMVCandNum( const CodingStructure& cs, const Position& pos
   int        maxImvNumCand  = 0;
 
   // Get BCBP of left PU
-  const CodingUnit *cuLeft  = cs.getCURestricted( pos.offset( -1, 0 ), cs.slice->getIndependentSliceIdx(), cs.picture->tileMap->getTileIdxMap( pos ) );
+  const CodingUnit *cuLeft  = cs.getCURestricted( pos.offset( -1, 0 ), cs.slice->getIndependentSliceIdx(), cs.picture->tileMap->getTileIdxMap( pos ), CH_L );
   maxImvNumCand = ( cuLeft ) ? cuLeft->imvNumCand : numDefault;
 
   // Get BCBP of above PU
-  const CodingUnit *cuAbove = cs.getCURestricted( pos.offset( 0, -1 ), cs.slice->getIndependentSliceIdx(), cs.picture->tileMap->getTileIdxMap( pos ) );
+  const CodingUnit *cuAbove = cs.getCURestricted( pos.offset( 0, -1 ), cs.slice->getIndependentSliceIdx(), cs.picture->tileMap->getTileIdxMap( pos ), CH_L );
   maxImvNumCand = std::max( maxImvNumCand, ( cuAbove ) ? cuAbove->imvNumCand : numDefault );
 
   return maxImvNumCand;
 }
+#endif
 
 
+#if JEM_TOOLS
 bool CU::isObmcFlagCoded ( const CodingUnit &cu )
 {
   int iMaxObmcSize = 16;
@@ -3523,14 +3622,20 @@ bool CU::isObmcFlagCoded ( const CodingUnit &cu )
     }
   }
 }
+#endif
 
 
+#if JEM_TOOLS
 bool PU::getNeighborMotion( PredictionUnit &pu, MotionInfo& mi, Position off, Int iDir, Bool bSubPu )
 {
   PredictionUnit* tmpPu      = nullptr;
   Position posNeighborMotion = Position( 0, 0 );
 
+#if JEM_TOOLS
   const Int iBlkSize         = pu.cs->sps->getSpsNext().getOBMCBlkSize();
+#else
+  const Int iBlkSize         = 4; //TODO: check this
+#endif
   const Position posSubBlock ( pu.lumaPos().offset( off ) );
 
 
@@ -3542,7 +3647,7 @@ bool PU::getNeighborMotion( PredictionUnit &pu, MotionInfo& mi, Position off, In
     }
     else
     {
-      tmpPu = pu.cs->getPU( posSubBlock.offset( 0, -1 ) );
+      tmpPu = pu.cs->getPU( posSubBlock.offset( 0, -1 ), pu.chType );
     }
     posNeighborMotion = posSubBlock.offset( 0, -1 );
   }
@@ -3554,7 +3659,7 @@ bool PU::getNeighborMotion( PredictionUnit &pu, MotionInfo& mi, Position off, In
     }
     else
     {
-      tmpPu = pu.cs->getPU( posSubBlock.offset( -1, 0 ) );
+      tmpPu = pu.cs->getPU( posSubBlock.offset( -1, 0 ), pu.chType );
     }
     posNeighborMotion = posSubBlock.offset( -1, 0 );
   }
@@ -3566,7 +3671,7 @@ bool PU::getNeighborMotion( PredictionUnit &pu, MotionInfo& mi, Position off, In
     }
     else
     {
-      tmpPu = pu.cs->getPU( pu.Y().bottomLeft().offset( 0, 1 ) );
+      tmpPu = pu.cs->getPU( pu.Y().bottomLeft().offset( 0, 1 ), pu.chType );
     }
     posNeighborMotion = posSubBlock.offset( 0, iBlkSize );
 
@@ -3580,7 +3685,7 @@ bool PU::getNeighborMotion( PredictionUnit &pu, MotionInfo& mi, Position off, In
     }
     else
     {
-      tmpPu = pu.cs->getPU( pu.Y().topRight().offset( 1, 0 ) );
+      tmpPu = pu.cs->getPU( pu.Y().topRight().offset( 1, 0 ), pu.chType );
     }
     posNeighborMotion = posSubBlock.offset( iBlkSize, 0 );
 
@@ -3623,6 +3728,7 @@ bool PU::getNeighborMotion( PredictionUnit &pu, MotionInfo& mi, Position off, In
     return false;
   }
 }
+#endif
 
 // TU tools
 
@@ -3638,20 +3744,12 @@ bool TU::isNonTransformedResidualRotated(const TransformUnit &tu, const Componen
 
 bool TU::getCbf( const TransformUnit &tu, const ComponentID &compID )
 {
-  return getCbfAtDepth( tu, compID, tu.depth );
+  return tu.cbf[compID];
 }
 
-bool TU::getCbfAtDepth(const TransformUnit &tu, const ComponentID &compID, const unsigned &depth)
+void TU::setCbf( TransformUnit &tu, const ComponentID &compID, const bool &cbf )
 {
-  return ((tu.cbf[compID] >> depth) & 1) == 1;
-}
-
-void TU::setCbfAtDepth(TransformUnit &tu, const ComponentID &compID, const unsigned &depth, const bool &cbf)
-{
-  // first clear the CBF at the depth
-  tu.cbf[compID] &= ~(1  << depth);
-  // then set the CBF
-  tu.cbf[compID] |= ((cbf ? 1 : 0) << depth);
+  tu.cbf[compID] = cbf;
 }
 
 bool TU::hasTransformSkipFlag(const CodingStructure& cs, const CompArea& area)
@@ -3685,12 +3783,11 @@ UInt TU::getGolombRiceStatisticsIndex(const TransformUnit &tu, const ComponentID
 
 UInt TU::getCoefScanIdx(const TransformUnit &tu, const ComponentID &compID)
 {
-
   //------------------------------------------------
 
   //this mechanism is available for intra only
 
-  if (!CU::isIntra(*tu.cu))
+  if( !CU::isIntra( *tu.cu ) )
   {
     return SCAN_DIAG;
   }
@@ -3703,6 +3800,7 @@ UInt TU::getCoefScanIdx(const TransformUnit &tu, const ComponentID &compID)
   const CompArea &area      = tu.blocks[compID];
   const SPS &sps            = *tu.cs->sps;
   const ChromaFormat format = sps.getChromaFormatIdc();
+
 
   const UInt maximumWidth  = MDCS_MAXIMUM_WIDTH  >> getComponentScaleX(compID, format);
   const UInt maximumHeight = MDCS_MAXIMUM_HEIGHT >> getComponentScaleY(compID, format);
@@ -3736,18 +3834,6 @@ UInt TU::getCoefScanIdx(const TransformUnit &tu, const ComponentID &compID)
   }
 }
 
-bool TU::isProcessingAllQuadrants(const UnitArea &tuArea)
-{
-  if (tuArea.chromaFormat == CHROMA_444)
-  {
-    return true;
-  }
-  else
-  {
-    return tuArea.Cb().valid() && tuArea.lumaSize().width != tuArea.chromaSize().width;
-  }
-}
-
 bool TU::hasCrossCompPredInfo( const TransformUnit &tu, const ComponentID &compID )
 {
   return ( isChroma(compID) && tu.cs->pps->getPpsRangeExtension().getCrossComponentPredictionEnabledFlag() && TU::getCbf( tu, COMPONENT_Y ) &&
@@ -3775,10 +3861,29 @@ UInt TU::getNumNonZeroCoeffsNonTS( const TransformUnit& tu, const bool bLuma, co
   return count;
 }
 
-Bool TU::needsSqrt2Scale( const Size& size )
+bool TU::needsSqrt2Scale( const Size& size )
 {
-  return ( ( ( g_aucLog2[size.width] + g_aucLog2[size.height] ) & 1 ) == 1 );
+  return (((g_aucLog2OfPowerOf2Part[size.width] + g_aucLog2OfPowerOf2Part[size.height]) & 1) == 1);
 }
+
+int TU::getBlockSizeTrafoScaleForQuant( const Size& size )
+{
+  return g_BlockSizeTrafoScale[size.height][size.width][0];
+}
+
+int TU::getBlockSizeTrafoScaleForDeQuant( const Size& size )
+{
+  return g_BlockSizeTrafoScale[size.height][size.width][1];
+}
+
+bool TU::needsBlockSizeTrafoScale( const Size& size )
+{
+  return needsSqrt2Scale( size ) || isNonLog2BlockSize( size );
+}
+
+
+
+
 
 // other tools
 
@@ -3787,3 +3892,25 @@ UInt getCtuAddr( const Position& pos, const PreCalcValues& pcv )
   return ( pos.x >> pcv.maxCUWidthLog2 ) + ( pos.y >> pcv.maxCUHeightLog2 ) * pcv.widthInCtus;
 }
 
+
+
+#if MCTS_ENC_CHECK
+
+Void getTilePosition( const PredictionUnit &pu, UInt &tileXPosInCtus, UInt &tileYPosInCtus, UInt &tileWidthtInCtus, UInt &tileHeightInCtus )
+{
+  const Int        ctuAddr = getCtuAddr( pu.cu->lumaPos(), *( pu.cs->pcv ) );
+  const TileMap*   tileMap = pu.cs->picture->tileMap;
+  const unsigned   tileIdx = tileMap->getTileIdxMap( ctuAddr );
+  const Tile&      currentTile = tileMap->tiles[tileIdx];
+
+
+  const UInt      frameWidthInCtus = pu.cs->pcv->widthInCtus;
+  const UInt  firstCtuRsAddrOfTile = currentTile.getFirstCtuRsAddr();
+
+  tileXPosInCtus = firstCtuRsAddrOfTile % frameWidthInCtus;
+  tileYPosInCtus = firstCtuRsAddrOfTile / frameWidthInCtus;
+  tileWidthtInCtus = currentTile.getTileWidthInCtus();
+  tileHeightInCtus = currentTile.getTileHeightInCtus();
+}
+
+#endif

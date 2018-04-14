@@ -74,15 +74,17 @@ private:
 class QuantRDOQ2 : public Quant
 {
 public:
-  QuantRDOQ2();
+  QuantRDOQ2( const Quant* other );
   ~QuantRDOQ2();
 
   virtual Void init( UInt uiMaxTrSize,
                      Bool useRDOQ = false,
-                     Bool useRDOQTS = false,
-                     UInt uiAltResiCompId = 0,
+                     Bool useRDOQTS = false
+#if JEM_TOOLS
+                     , UInt uiAltResiCompId = 0
+#endif
 #if T0196_SELECTIVE_RDOQ
-                     Bool useSelectiveRDOQ = false
+                     , Bool useSelectiveRDOQ = false
 #endif
                      );
 
@@ -95,7 +97,7 @@ private:
   Int* xGetErrScaleCoeff               ( UInt list, UInt sizeX, UInt sizeY, Int qp ) { return m_errScale[sizeX][sizeY][list][qp]; };  //!< get Error Scale Coefficent
   //Int& xGetErrScaleCoeffNoScalingList  ( UInt list, UInt sizeX, UInt sizeY, Int qp ) { return m_errScaleNoScalingList[sizeX][sizeY][list][qp]; };  //!< get Error Scale Coefficent
 
-  Void xInitScalingList                ();
+  Void xInitScalingList                ( const QuantRDOQ2* other );
   Void xDestroyScalingList             ();
   Void xSetErrScaleCoeff               ( UInt list, UInt sizeX, UInt sizeY, Int qp, const Int maxLog2TrDynamicRange[MAX_NUM_CHANNEL_TYPE], const BitDepths &bitDepths );
   Void xSetErrScaleCoeffNoScalingList  ( UInt list, UInt wIdx, UInt hIdx, Int qp, const Int maxLog2TrDynamicRange[MAX_NUM_CHANNEL_TYPE], const BitDepths &bitDepths );
@@ -103,15 +105,25 @@ private:
 
   inline Int64 xiGetICost              ( Int iRate ) const;
   inline Int   xGetIEPRate             () const;
-  template< UInt altResiCompId >       
+#if JEM_TOOLS
+  template< UInt altResiCompId >
+#endif
   inline Int64 xiGetICRateCost         ( const UInt uiAbsLevel, const UInt ui16CtxNumOne, const UInt ui16CtxNumAbs, const UInt ui16AbsGoRice, const UInt c1Idx, const UInt c2Idx, const Bool useLimitedPrefixLength, const Int maxLog2TrDynamicRange, const FracBitsAccess& fracBits ) const;
   inline Int64 xiGetCostSigCoeffGroup  ( const UInt uiSignificanceCoeffGroup, const UInt ui16CtxNumSig, const FracBitsAccess& fracBits ) const;
   inline Int64 xiGetCostLast           ( const UInt uiPosX, const UInt uiPosY, const ChannelType chType ) const;
   inline Int64 xiGetCostSigCoef        ( const UInt uiSignificance, const UInt ui16CtxNumSig, const FracBitsAccess& fracBits ) const;
 
+#if JEM_TOOLS
   template< Bool bSBH, Bool bUseScalingList, UInt altResiCompId >
+#else
+  template< Bool bSBH, Bool bUseScalingList >
+#endif
   Int xRateDistOptQuantFast( TransformUnit &tu, const ComponentID &compID, const CCoeffBuf &pSrc, TCoeff &uiAbsSum, const QpParam &cQP, const Ctx &ctx );
   Int xRateDistOptQuant    ( TransformUnit &tu, const ComponentID &compID, const CCoeffBuf &pSrc, TCoeff &uiAbsSum, const QpParam &cQP, const Ctx &ctx, bool bUseScalingList );
+
+#if HHI_SPLIT_PARALLELISM
+  void copyState           ( const QuantRDOQ2& other );
+#endif
 
 private:
   Bool     m_bSBH;
@@ -122,6 +134,8 @@ private:
   Int m_lastBitsX[MAX_NUM_CHANNEL_TYPE][LAST_SIGNIFICANT_GROUPS];
   Int m_lastBitsY[MAX_NUM_CHANNEL_TYPE][LAST_SIGNIFICANT_GROUPS];
   Int *m_errScale[SCALING_LIST_SIZE_NUM][SCALING_LIST_SIZE_NUM][SCALING_LIST_NUM][SCALING_LIST_REM_NUM]; ///< array of quantization matrix coefficient 4x4
+
+  Bool m_isErrListOwner;
 
 };// END CLASS DEFINITION QuantRDOQ2
 //! \}

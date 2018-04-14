@@ -53,9 +53,11 @@ enum BPMType
 {
   BPM_Undefined = 0,
   BPM_Std,
+#if JEM_TOOLS
   BPM_JMP,
   BPM_JAW,
   BPM_JMPAW,
+#endif
   BPM_NUM
 };
 
@@ -65,14 +67,21 @@ protected:
   static const uint8_t      m_NextState       [128][2];       // Std
   static const uint32_t     m_EstFracBits     [128];          // Std
   static const BinFracBits  m_BinFracBits_128 [128];          // Std
+#if JEM_TOOLS
   static const BinFracBits  m_BinFracBits_256 [256];          //             MP   MPI
+#endif
   static const uint32_t     m_EstFracProb     [128];          // Std
   static const uint8_t      m_LPSTable_64_4   [ 64][4];       // Std
+#if JEM_TOOLS
   static const uint16_t     m_LPSTable_512_64 [512][64];      //       JMP
-  static const uint8_t      m_LPSTable_32_8   [ 32][8];       //             MP   MPI
+#endif
   static const uint8_t      m_RenormTable_32  [ 32];          // Std         MP   MPI
+#if JEM_TOOLS
   static const uint8_t      m_RenormTable_128 [128];          //       JMP
+#endif
+#if JEM_TOOLS
   static const uint16_t     m_InistateToCount [128];          //       JMP   MP   MPI
+#endif
 };
 
 
@@ -123,7 +132,7 @@ private:
 };
 
 
-
+#if JEM_TOOLS
 // JEM multi parameter CABAC
 class BinProbModel_JMP : public BinProbModelBase
 {
@@ -271,7 +280,7 @@ protected:
   uint8_t   m_Log2WindowSize0;
 };
 
-
+#endif
 
 
 
@@ -313,6 +322,8 @@ public:
   // context sets: specify offset and size
   static const CtxSet   SplitFlag;
   static const CtxSet   BTSplitFlag;
+  static const CtxSet   GBSSplitFlag;
+  static const CtxSet   GBSSplitMod;
   static const CtxSet   SkipFlag;
   static const CtxSet   MergeFlag;
   static const CtxSet   MergeIdx;
@@ -323,7 +334,9 @@ public:
   static const CtxSet   DeltaQP;
   static const CtxSet   InterDir;
   static const CtxSet   RefPic;
+#if JEM_TOOLS
   static const CtxSet   AffineFlag;
+#endif
   static const CtxSet   Mvd;
   static const CtxSet   TransSubdivFlag;
   static const CtxSet   QtRootCbf;
@@ -337,23 +350,31 @@ public:
   static const CtxSet   MVPIdx;
   static const CtxSet   SaoMergeFlag;
   static const CtxSet   SaoTypeIdx;
+#if JEM_TOOLS
   static const CtxSet   AlfCUCtrlFlags;
   static const CtxSet   AlfUvlcSCModel;
+#endif
   static const CtxSet   TransformSkipFlag;
   static const CtxSet   TransquantBypassFlag;
+#if JEM_TOOLS
   static const CtxSet   NSSTIdx;
+#endif
   static const CtxSet   RdpcmFlag;
   static const CtxSet   RdpcmDir;
+#if JEM_TOOLS
   static const CtxSet   EMTTuIndex;
   static const CtxSet   EMTCuFlag;
+#endif
   static const CtxSet   CrossCompPred;
   static const CtxSet   ChromaQpAdjFlag;
   static const CtxSet   ChromaQpAdjIdc;
+#if JEM_TOOLS
   static const CtxSet   ImvFlag;
   static const CtxSet   LICFlag;
   static const CtxSet   ObmcFlag;
   static const CtxSet   FrucFlag;
   static const CtxSet   FrucMode;
+#endif
   static const unsigned NumberOfContexts;
 
   // combined sets for less complex copying
@@ -429,12 +450,15 @@ class Ctx : public ContextSetCfg
 public:
   Ctx();
   Ctx( const BinProbModel_Std*    dummy );
+#if JEM_TOOLS
   Ctx( const BinProbModel_JMP*    dummy );
   Ctx( const BinProbModel_JAW*    dummy );
   Ctx( const BinProbModel_JMPAW*  dummy );
+#endif
   Ctx( const Ctx&                 ctx   );
 
 public:
+#if JEM_TOOLS
   static uint8_t getDefaultWindowSize( unsigned cabacEngineId )
   {
     uint8_t defWinSize  = 0;
@@ -458,16 +482,18 @@ public:
     }
     return defWinSize;
   }
-
+#endif
   const Ctx& operator= ( const Ctx& ctx )
   {
     m_BPMType = ctx.m_BPMType;
     switch( m_BPMType )
     {
     case BPM_Std:   m_CtxStore_Std  .copyFrom( ctx.m_CtxStore_Std   );  break;
+#if JEM_TOOLS
     case BPM_JMP:   m_CtxStore_JMP  .copyFrom( ctx.m_CtxStore_JMP   );  break;
     case BPM_JAW:   m_CtxStore_JAW  .copyFrom( ctx.m_CtxStore_JAW   );  break;
     case BPM_JMPAW: m_CtxStore_JMPAW.copyFrom( ctx.m_CtxStore_JMPAW );  break;
+#endif
     default:        break;
     }
     ::memcpy( m_GRAdaptStats, ctx.m_GRAdaptStats, sizeof( unsigned ) * RExt__GOLOMB_RICE_ADAPTATION_STATISTICS_SETS );
@@ -480,9 +506,11 @@ public:
     switch( m_BPMType )
     {
     case BPM_Std:   m_CtxStore_Std  .copyFrom( subCtx.m_Ctx.m_CtxStore_Std,   subCtx.m_CtxSet );  break;
+#if JEM_TOOLS
     case BPM_JMP:   m_CtxStore_JMP  .copyFrom( subCtx.m_Ctx.m_CtxStore_JMP,   subCtx.m_CtxSet );  break;
     case BPM_JAW:   m_CtxStore_JAW  .copyFrom( subCtx.m_Ctx.m_CtxStore_JAW,   subCtx.m_CtxSet );  break;
     case BPM_JMPAW: m_CtxStore_JMPAW.copyFrom( subCtx.m_Ctx.m_CtxStore_JMPAW, subCtx.m_CtxSet );  break;
+#endif
     default:        break;
     }
     return std::move(subCtx);
@@ -493,9 +521,11 @@ public:
     switch( m_BPMType )
     {
     case BPM_Std:   m_CtxStore_Std  .init( qp, initId );  break;
+#if JEM_TOOLS
     case BPM_JMP:   m_CtxStore_JMP  .init( qp, initId );  break;
     case BPM_JAW:   m_CtxStore_JAW  .init( qp, initId );  break;
     case BPM_JMPAW: m_CtxStore_JMPAW.init( qp, initId );  break;
+#endif
     default:        break;
     }
     for( std::size_t k = 0; k < RExt__GOLOMB_RICE_ADAPTATION_STATISTICS_SETS; k++ )
@@ -509,9 +539,11 @@ public:
     switch( m_BPMType )
     {
     case BPM_Std:   m_CtxStore_Std  .loadPStates( probStates );  break;
+#if JEM_TOOLS
     case BPM_JMP:   m_CtxStore_JMP  .loadPStates( probStates );  break;
     case BPM_JAW:   m_CtxStore_JAW  .loadPStates( probStates );  break;
     case BPM_JMPAW: m_CtxStore_JMPAW.loadPStates( probStates );  break;
+#endif
     default:        break;
     }
   }
@@ -521,13 +553,16 @@ public:
     switch( m_BPMType )
     {
     case BPM_Std:   m_CtxStore_Std  .savePStates( probStates );  break;
+#if JEM_TOOLS
     case BPM_JMP:   m_CtxStore_JMP  .savePStates( probStates );  break;
     case BPM_JAW:   m_CtxStore_JAW  .savePStates( probStates );  break;
     case BPM_JMPAW: m_CtxStore_JMPAW.savePStates( probStates );  break;
+#endif
     default:        break;
     }
   }
 
+#if JEM_TOOLS
   void  setWinSizes( const std::vector<uint8_t>* log2WindowSizes )
   {
     if( log2WindowSizes )
@@ -540,7 +575,7 @@ public:
       }
     }
   }
-
+#endif
   void  initCtxAndWinSize( unsigned ctxId, const Ctx& ctx, const uint8_t winSize )
   {
     switch( m_BPMType )
@@ -549,6 +584,7 @@ public:
       m_CtxStore_Std  [ctxId] = ctx.m_CtxStore_Std  [ctxId];
       m_CtxStore_Std  [ctxId] . setLog2WindowSize   (winSize);
       break;
+#if JEM_TOOLS
     case BPM_JMP:
       m_CtxStore_JMP  [ctxId] = ctx.m_CtxStore_JMP  [ctxId];
       m_CtxStore_JMP  [ctxId] . setLog2WindowSize   (winSize);
@@ -559,8 +595,9 @@ public:
       break;
     case BPM_JMPAW:
       m_CtxStore_JMPAW[ctxId] = ctx.m_CtxStore_JMPAW[ctxId];
-      m_CtxStore_JMPAW[ctxId] .setLog2WindowSize    (winSize);
+      m_CtxStore_JMPAW[ctxId] . setLog2WindowSize   (winSize);
       break;
+#endif
     default:
       break;
     }
@@ -576,21 +613,25 @@ public:
 
   explicit operator   const CtxStore<BinProbModel_Std>  &()     const { return m_CtxStore_Std; }
   explicit operator         CtxStore<BinProbModel_Std>  &()           { return m_CtxStore_Std; }
+#if JEM_TOOLS
   explicit operator   const CtxStore<BinProbModel_JMP>  &()     const { return m_CtxStore_JMP;  }
   explicit operator         CtxStore<BinProbModel_JMP>  &()           { return m_CtxStore_JMP;  }
   explicit operator   const CtxStore<BinProbModel_JAW>  &()     const { return m_CtxStore_JAW;  }
   explicit operator         CtxStore<BinProbModel_JAW>  &()           { return m_CtxStore_JAW;  }
   explicit operator   const CtxStore<BinProbModel_JMPAW>&()     const { return m_CtxStore_JMPAW;  }
   explicit operator         CtxStore<BinProbModel_JMPAW>&()           { return m_CtxStore_JMPAW;  }
+#endif
 
   const FracBitsAccess&   getFracBitsAcess()  const
   {
     switch( m_BPMType )
     {
     case BPM_Std:   return m_CtxStore_Std;
+#if JEM_TOOLS
     case BPM_JMP:   return m_CtxStore_JMP;
     case BPM_JAW:   return m_CtxStore_JAW;
     case BPM_JMPAW: return m_CtxStore_JMPAW;
+#endif
     default:        THROW("BPMType out of range");
     }
   }
@@ -598,11 +639,19 @@ public:
 private:
   BPMType                       m_BPMType;
   CtxStore<BinProbModel_Std>    m_CtxStore_Std;
+#if JEM_TOOLS
   CtxStore<BinProbModel_JMP>    m_CtxStore_JMP;
   CtxStore<BinProbModel_JAW>    m_CtxStore_JAW;
   CtxStore<BinProbModel_JMPAW>  m_CtxStore_JMPAW;
+#endif
 protected:
   unsigned                      m_GRAdaptStats[RExt__GOLOMB_RICE_ADAPTATION_STATISTICS_SETS];
+#if HHI_SPLIT_PARALLELISM || HHI_WPP_PARALLELISM
+
+public:
+  int64_t cacheId;
+  bool    cacheUsed;
+#endif
 };
 
 
@@ -628,40 +677,76 @@ private:
 };
 
 
+
+class CtxStateBuf
+{
+public:
+  CtxStateBuf () : m_valid(false)                 {}
+  ~CtxStateBuf()                                  {}
+  __inline void reset       ()                    {   m_valid = false; }
+  __inline bool getIfValid  ( Ctx& ctx )  const   { if( m_valid ) { ctx.loadPStates( m_states ); return true; } return false; }
+  __inline void store ( const Ctx& ctx )          { ctx.savePStates( m_states ); m_valid = true; }
+private:
+  std::vector<uint16_t> m_states;
+  bool                  m_valid;
+};
+
+class CtxStateArray
+{
+public:
+  CtxStateArray () {}
+  ~CtxStateArray() {}
+  __inline void resetAll    ()                              { for( std::size_t k = 0; k < m_data.size(); k++ ) { m_data[k].reset(); } }
+  __inline void resize      ( std::size_t reqSize )         { if( m_data.size() < reqSize ) { m_data.resize(reqSize); } }
+  __inline bool getIfValid  ( Ctx& ctx, unsigned id ) const { if( id <  m_data.size() ) { return m_data[id].getIfValid(ctx); } return false; }
+  __inline void store ( const Ctx& ctx, unsigned id )       { if( id >= m_data.size() ) { resize(id+1); } m_data[id].store(ctx); }    
+private:
+  std::vector<CtxStateBuf> m_data;
+};
+
+#if JEM_TOOLS
 class CtxStateStore
 {
-  public:
-    CtxStateStore() : m_bufValid{ { false } } { static_assert( ( B_SLICE < NUMBER_OF_SLICE_TYPES - 1 ) && ( P_SLICE < NUMBER_OF_SLICE_TYPES - 1 ), "index out of bound" ); }
-    ~CtxStateStore()                          {}
+public:
+  CtxStateStore () { static_assert( ( B_SLICE < NUMBER_OF_SLICE_TYPES - 1 ) && ( P_SLICE < NUMBER_OF_SLICE_TYPES - 1 ), "index out of bound" ); }
+  ~CtxStateStore() {}
 
-    void storeCtx( const Slice* slice, const Ctx& ctx )
+  void storeCtx( const Slice* slice, const Ctx& ctx, int id )
+  {
+    SliceType t = slice->getSliceType();
+    if( t != I_SLICE )
     {
-      SliceType t   = slice->getSliceType();
-      int       qp  = slice->getSliceQpBase();
-      if( t != I_SLICE )
+      CtxStateArray& ctxStateArray = m_stateBuf[ t ][ slice->getSliceQpBase() ];
+      ctxStateArray.resize( slice->getPPS()->pcv->heightInCtus + 1 );
+      ctxStateArray.store ( ctx, id );
+    }
+  }
+  bool loadCtx( const Slice* slice, Ctx& ctx, int id ) const
+  {
+    SliceType t = slice->getSliceType();
+    if( t != I_SLICE )
+    {
+      const CtxStateArray& ctxStateArray = m_stateBuf[ t ][ slice->getSliceQpBase() ];
+      return ctxStateArray.getIfValid( ctx, id );
+    }
+    return false;
+  }
+  void clearValid()
+  {
+    for( int t = 0; t < NUMBER_OF_SLICE_TYPES - 1; t++ )
+    {
+      for( int q = 0; q <= MAX_QP; q++ )
       {
-        ctx.savePStates( m_pStateBuffer[ t ][ qp ] );
-        m_bufValid [ t ][ qp ] = true;
+        m_stateBuf[t][q].resetAll();
       }
     }
-    void loadCtx ( const Slice* slice, Ctx& ctx ) const
-    {
-      SliceType t   = slice->getSliceType();
-      int       qp  = slice->getSliceQpBase();
-      if( t != I_SLICE && m_bufValid[t][qp] )
-      {
-        ctx.loadPStates( m_pStateBuffer[ t ][ qp ] );
-      }
-    }
-    void clearValid()
-    {
-      memset( m_bufValid, 0, sizeof( m_bufValid ) );
-    }
+  }
 
-  private:
-    std::vector<uint16_t> m_pStateBuffer[ NUMBER_OF_SLICE_TYPES - 1 ][ MAX_QP + 1 ];
-    bool                  m_bufValid    [ NUMBER_OF_SLICE_TYPES - 1 ][ MAX_QP + 1 ];
+private:
+  CtxStateArray m_stateBuf[ NUMBER_OF_SLICE_TYPES - 1 ][ MAX_QP + 1 ];
 };
+#endif
+
 
 
 class CtxWSizeSet
@@ -695,6 +780,7 @@ private:
   std::vector<uint8_t>  m_log2WinSizes;
 };
 
+#if JEM_TOOLS 
 class CtxWSizeStore
 {
 public:
@@ -729,6 +815,43 @@ private:
   std::vector<int>            m_codeId2ctxId;
   CtxWSizeSet                 m_winSizes[ NUMBER_OF_SLICE_TYPES ][ MAX_QP + 1 ];
 };
+#endif
 
 
+#if JEM_TOOLS
+class CABACDataStore
+{
+public:
+#if JEM_TOOLS 
+  void                        checkInit               ( const SPS*    sps  )        {        m_CtxWSizeStore.checkInit(sps); }
+  bool                        validWinSizes           ( const Slice* slice )  const { return m_CtxWSizeStore.validWinSizes(slice); }
+  void                        setSliceWinUpdateMode   (       Slice* slice )  const {        m_CtxWSizeStore.setSliceWinUpdateMode(slice); }
+  void                        setWSizeSetValid        ( const Slice* slice )        {        m_CtxWSizeStore.getWSizeSet(slice).setValid( Ctx::getDefaultWindowSize( slice->getSPS()->getSpsNext().getCABACEngineMode() ) ); }
+  void                        setWSizeSetCoded        ( const Slice* slice )        {        m_CtxWSizeStore.getWSizeSet(slice).setCoded(); }
+  const std::vector<uint8_t>& getWSizeWriteBuffer     ( const Slice* slice )        { return m_CtxWSizeStore.getWriteBuffer(slice); }
+  std::vector<uint8_t>&       getWSizeReadBuffer      ()                            { return m_CtxWSizeStore.getReadBuffer(); }
+  const std::vector<uint8_t>* getWinSizes             ( const Slice* slice )  const { return m_CtxWSizeStore.getWinSizes(slice); }
+  std::vector<uint8_t>&       getWinSizeBuffer        ( const Slice* slice )        { return m_CtxWSizeStore.getWSizeSet(slice).getWinSizeBuffer(); }
+  std::size_t                 getNumWSizeCodeIds      ()                      const { return m_CtxWSizeStore.getNumCodeIds(); }
+  int                         getCtxIdFromWSizeCodeId ( std::size_t  id    )  const { return m_CtxWSizeStore.getCtxId(id); }
+#endif
+  bool loadCtxStates     ( const Slice* slice,       Ctx& ctx, int id ) const { return m_CtxStateStore.loadCtx ( slice, ctx, id ); }
+  void storeCtxStates    ( const Slice* slice, const Ctx& ctx, int id )       {        m_CtxStateStore.storeCtx( slice, ctx, id ); }
+  void updateBufferState ( const Slice* slice )
+  {
+    if ( slice->getPendingRasInit() )
+    {
+      m_CtxStateStore.clearValid();
+    }
+#if JEM_TOOLS 
+    m_CtxWSizeStore.updateState( slice, true );
+#endif
+  }
+private:
+  CtxStateStore       m_CtxStateStore;
+#if JEM_TOOLS 
+  CtxWSizeStore       m_CtxWSizeStore;
+#endif
+};
+#endif
 #endif
