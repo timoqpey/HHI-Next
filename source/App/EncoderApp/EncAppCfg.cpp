@@ -35,15 +35,17 @@
     \brief    Handle encoder configuration parameters
 */
 
+#include "EncAppCfg.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <cstring>
 #include <string>
 #include <fstream>
 #include <limits>
-#include "CommonLib/Rom.h"
-#include "EncAppCfg.h"
+
 #include "Utilities/program_options_lite.h"
+#include "CommonLib/Rom.h"
 #include "EncoderLib/RateCtrl.h"
 
 #include "CommonLib/dtrace_next.h"
@@ -679,6 +681,7 @@ Bool EncAppCfg::parseCfg( Int argc, TChar* argv[] )
   std::string ignore;
 #endif
 
+  bool qtbtDualITree = false;
 
   po::Options opts;
   opts.addOptions()
@@ -758,8 +761,8 @@ Bool EncAppCfg::parseCfg( Int argc, TChar* argv[] )
   ("InterlacedSource",                                m_interlacedSourceFlag,                           false, "Indicate that source is interlaced")
   ("NonPackedSource",                                 m_nonPackedConstraintFlag,                        false, "Indicate that source does not contain frame packing")
   ("FrameOnly",                                       m_frameOnlyConstraintFlag,                        false, "Indicate that the bitstream contains only frames")
-
   ("QTBT",                                            m_QTBT,                                           false, "Enable QTBT (0:off, 1:on)  [default: off]")
+  ("MTT",                                             m_MTT,                                               0u, "Multi type tree type (0: off, 1:QTBT + triple split) [default: 0]")
   ("CTUSize",                                         m_uiCTUSize,                                       128u, "CTUSize (specifies the CTU size if QTBT is on) [default: 128]")
   ("MinQTISlice",                                     m_uiMinQT[0],                                        8u, "MinQTISlice")
   ("MinQTLumaISlice",                                 m_uiMinQT[0],                                        8u, "MinQTLumaISlice")
@@ -769,17 +772,18 @@ Bool EncAppCfg::parseCfg( Int argc, TChar* argv[] )
   ("MaxBTDepthI",                                     m_uiMaxBTDepthI,                                     3u, "MaxBTDepthI")
   ("MaxBTDepthISliceL",                               m_uiMaxBTDepthI,                                     3u, "MaxBTDepthISliceL")
   ("MaxBTDepthISliceC",                               m_uiMaxBTDepthIChroma,                               3u, "MaxBTDepthISliceC")
+  ("DualITree",                                       m_dualTree,                                       false, "Use separate GBS trees for intra slice luma and chroma channel types")
   ("DualITree",                                       m_dualTree,                                       false, "Use separate QTBT trees for intra slice luma and chroma channel types")
-  ("QtbtDualITree",                                   m_dualTree,                                       false, "Use separate QTBT trees for intra slice luma and chroma channel types")
+  ("QtbtDualITree",                                   qtbtDualITree,                                    false, "Use separate QTBT trees for intra slice luma and chroma channel types")
+  ("LargeCTU",                                        m_LargeCTU,                                       false, "Enable large CTU (0:off, 1:on)  [default: off]")
   ("NSST",                                            m_NSST,                                           false, "Enable NSST (0:off, 1:on)  [default: off]")
   ("Intra4Tap",                                       m_Intra4Tap,                                      false, "Enable 4-tap intra filter (0:off, 1:on)  [default: off]")
   ("Intra65Ang",                                      m_Intra65Ang,                                     false, "Enable 65 intra prediction modes (0:off, 1:on)  [default: off]")
-  ("LargeCTU",                                        m_LargeCTU,                                       false, "Enable large CTU (0:off, 1:on)  [default: off]")
   ("IntraBoundaryFilter",                             m_IntraBoundaryFilter,                            false, "Enable Intra boundary filter (0:off, 1:on)  [default: off]")
   ("SubPuMvp",                                        m_SubPuMvp,                                       false, "Enable Sub-PU temporal motion vector prediction (0:off, 1:on)  [default: off]")
   ("SubPuMvpLog2Size",                                m_SubPuMvpLog2Size,                                  2u, "Sub-PU TMVP size index: 2^n")
-  ("CABACEngine",                                     m_CABACEngineMode,                                   0u, "CABAC engine mode (0:standard, 1:multi-parameter, 2:adaptive window, 3:multi-par. + adap. window)  [default: 0]")
-  ("AltResiComp",                                     m_altResiCompId,                                     0u, "Alternative residual compression mode (0:off, 1:JEM)  [default: off]")
+  ("CABACEngine",                                     m_CABACEngineMode,                                   0u, "CABAC engine mode (0:standard, 1:multi-parameter, 2:adaptive window, 3:multi-par. + adap. window, 4:HHI multi-par., 5:HHI multi-par. with fast adaptation, 6:HHI multi-par. with custom window sizes)  [default: 0]")
+  ("AltResiComp",                                     m_altResiCompId,                                     0u, "Alternative residual compression mode (0:off, 1:JEM, 2:HHI)  [default: off]")
   ("HighPrecMv",                                      m_highPrecisionMv,                                false, "High precision motion vectors for temporal merging (0:off, 1:on)  [default: off]")
   ("Affine",                                          m_Affine,                                         false, "Enable affine prediction (0:off, 1:on)  [default: off]")
   ("BIO",                                             m_BIO,                                            false, "Enable bi-directional optical flow")
@@ -792,6 +796,8 @@ Bool EncAppCfg::parseCfg( Int argc, TChar* argv[] )
                                                                                                                "\t2: IMV Full-Pel and 4-PEL\n")
   ("IMV4PelFast",                                     m_Imv4PelFast,                                        1, "Fast 4-Pel Adaptive MV precision Mode 0:disabled, 1:enabled)  [default: 1]")
   ("IMVMaxCand",                                      m_ImvMaxCand,                                         4, "max IMV cand (QTBF off only)")
+  ("AltDQPCoding",                                    m_AltDQPCoding,                                   false, "Improved predictive delta-QP coding (0:off, 1:on)  [default: off]")
+  ("SkipOddPocDQP",                                   m_skipDQPinOddPOCs,                               false, "Skip writing/reading of delta-QP values in all B pictures with an odd POC (0:off, 1:on; requires --AltDQPCoding=1)  [default: off]\n")
   ("IntraPDPC",                                       m_IntraPDPC,                                          0, "Intra PDPC (0:off, 1:on Intra_PDPC, 2: on Planar_PDPC)  [default: off]\n")
   ("ALF",                                             m_ALF,                                                0, "ALF (0:off, 1:ALF, 2:GALF)\n")
   ("LMChroma",                                        m_LMChroma,                                           0, " LMChroma prediction "
@@ -817,11 +823,52 @@ Bool EncAppCfg::parseCfg( Int argc, TChar* argv[] )
   ("FRUCR",                                           m_FRUCRefineRange,                                   8u, "search range (in pixel) of FRUC refinement")
   ("FRUCRDepth",                                      m_FRUCSmallBlkRefineDepth,                           3u, "depth of FRUC refinement")
   ("AClip,-aclip",                                    m_AClip,                                          false, "Slice Level Adpative Clipping (Automated by default)")
-  ("AClipEnc",                                        m_AClipEnc,                                       false, "Adaptiv clipping Encoder Decision and Sample smoohing ")
-  ("CIPF",                                            m_CIPF,                                           false, "CABAC context initialization from previous frame")
+  ("AClipEnc",                                        m_AClipEnc,                                       false, "Adaptive clipping encoder decision and sample smoothing")
   ("BIF" ,                                            m_BIF,                                            false, "bilateral filter  (0:off, 1:on)  [default: off]")
+  ("CIPF",                                            m_CIPF,                                              0u, "CABAC context initialization from previous frame (0:off, 1:frame-wise, 2:line-wise)")
   ("DMVR",                                            m_DMVR,                                           false, "Enable decoder-side motion vector refinement")
   ("MDMS",                                            m_MDMS,                                           false, "multiple direct mode signaling")
+  ("GenBinSplit",                                     m_GenBinSplit,                                    false, "Generalized binary splits")
+  ("GBSAllowFourths",                                 m_gbsFourths,                                      true, "Allow the 1/4 and 3/4 splits with GBS")
+  ("GBSAllowEights",                                  m_gbsEights,                                      false, "Allow the 3/8 and 5/8 splits with GBS")
+  ("GBSNonLog2Halving",                               m_gbsNonLog2Halving,                               true, "Allow 1/2 splitting of non-log2 partitions")
+  ("GBSNonLog2CUs",                                   m_gbsNonLog2CUs,                                   true, "Allow non-log2 CUs")
+  ("GBSForceSplitToLog2",                             m_gbsForceSplitToLog2,                            false, "For non-log2 partitions, if split, to be split into log2 partitions")
+  ("MaxAsymTSize",                                    m_maxAsymTSize,                                     64u, "MaxAsymTSize")
+  ("MaxAsymTSizeI",                                   m_maxAsymTSizeI,                                    32u, "MaxAsymTSizeI")
+  ("MaxAsymTSizeISliceL",                             m_maxAsymTSizeI,                                    32u, "MaxAsymTSizeISliceL")
+  ("MaxAsymTSizeISliceC",                             m_maxAsymTSizeIChroma,                              32u, "MaxAsymTSizeISliceC")
+  ("GBSFast",                                         m_gbsFast,                                         true, "Use fast split decisions with GBS")
+  ("AnisoTVTh",                                       m_anisoTVTh,                                        1.0, "Thresholding parameter for TV (must be greater or equal to one)")
+  ("IntraBiFi",                                       m_IntraBiFi,                                      false, "Intra bilateral reference filter (0:off, 1:on)  [default: off]\n")
+  ("TCQ",                                             m_UseTCQ,                                         false, "TCQ")
+  ("AdditionalInterHyps",                             m_maxNumAddHyps,                                      0, "number of additional inter prediction hypotheseis")
+  ("AdditionalInterHypWeights",                       m_numAddHypWeights,   HHI_MULTI_HYPOTHESEIS_NUM_WEIGHTS, "number of weights for additional inter hypotheseis")
+  ("AdditionalInterHypRefFrames",                     m_maxNumAddHypRefFrames,                              4, "max. number of ref frames for additional inter hypotheseis")
+  ("AdditionalInterHypTries",                         m_addHypTries,                                        2, "number of tries for additional inter prediction hypotheseis")
+  ("MDBP",                                            m_MDBP,                                           false, "Multi direction boundary padding (0:off, 1:on) [default: off]")
+  ("RestrictedMerge",                                 m_restrictedMerge,                                false, "Restricted merge mode (0:off, 1:on) [default: off]")
+  ("IntraFTM",                                        m_IntraFTM,                                       false, "Fast Template Matching for Intra Prediction")
+  ("RegionSizeParameter",                             m_RegionSizeParameter,                               1u, "Parameter for deriving the region sizes")
+  ("FTMMode",                                         m_FTMmode,                                         true, "Intra FTM modes (0:slow, 1:fast) [default: fast]")
+  ("Mode1dPartitions",                                m_mode1dPartitions,                               false, "Intra 1-D partitions (0:off, 1:on)  [default: off]")
+  ("Mode1dPartitionsFast",                            m_mode1dPartitionsFast,                            true, "Fast methods for Intra 1-D partitions (0:off, 1:on)  [default: on]")
+  ("IntraNNMode",                                     m_Intra_NN,                                       false, "MLearningMode (0:disabled, 1:enabled)")
+  ("IntraNNTrafos",                                   m_intraNNTrafos,                                  false, "Allow learned transforms for intra NN modes (0: disabled, 1: enabled)  [default: off]")
+  ("SOT",                                             m_SetOfTrafos,                                    false, "Use predefined set of transforms (0:disabled, 1: enabled)")
+  ("RestrictedIntraDiffusion",                        m_RestrIntraDiffusionMode,                        false, "Restricted diffusion filter mode for intra blocks")
+  ("NumDiffusionFiltersIntra",                        m_NumDiffusionFiltersIntra,                          4u, "Number of diffusion filters for intra blocks")
+  ("NumDiffusionFiltersInter",                        m_NumDiffusionFiltersInter,                          4u, "Number of diffusion filters for inter blocks")
+  ("DiffusionFilterMode",                             m_DiffusionFilterMode,                               0u, "Diffusion filter mode (0:disabled, 1:enabled, 2:imv+4pel only, 3:imv only,4: enabled+Merge, 6: Merge+imv+4pel, 7:Merge+imv)")
+#if THRESHOLDING
+  ("Thresholding",                                    m_thresholding,                                      0u, "Thresholding")
+  ("ThresholdingMaxIntraSize",                        m_thresholdingMaxSize[ 0 ],                          1u, "Thresholding max number of intra transform sizes")
+  ("ThresholdingMaxInterSize",                        m_thresholdingMaxSize[ 1 ],                          1u, "Thresholding max number of inter transform sizes")
+  ("ThresholdingMaxIntraThrs",                        m_thresholdingMaxThrs[ 0 ],                          1u, "Thresholding max number of intra thresholds")
+  ("ThresholdingMaxInterThrs",                        m_thresholdingMaxThrs[ 1 ],                          1u, "Thresholding max number of inter thresholds")
+#endif
+  ("FastInterDiffusionFilter",                        m_RestrDiffusionMode,                                0u, "Restricted diffusion filter mode for intra/inter blocks, speedUps (0:disabled, 7:optimal, 15: red.optimal)")
+  ("IntraMRL",                                        m_IntraMRL,                                       false, "Intra MRL (0:off, 1:on)  [default: off]\n")
   // ADD_NEW_TOOL : (encoder app) add parsing parameters here
 
   ("LCTUFast",                                        m_useFastLCTU,                                    false, "Fast methods for large CTU")
@@ -914,17 +961,15 @@ Bool EncAppCfg::parseCfg( Int argc, TChar* argv[] )
 
   ("AdaptiveQP,-aq",                                  m_bUseAdaptiveQP,                                 false, "QP adaptation based on a psycho-visual model")
   ("MaxQPAdaptationRange,-aqr",                       m_iQPAdaptationRange,                                 6, "QP adaptation range")
-#if HHI_HLM_USE_QPA
   ("PerceptQPA,-qpa",                                 m_bUsePerceptQPA,                                 false, "perceptually motivated input-adaptive QP modification (default: 0 = off, ignored if -aq is set)")
   ("WPSNR,-wpsnr",                                    m_bUseWPSNR,                                      false, "output perceptually weighted peak SNR (WPSNR) instead of PSNR")
-#endif
   ("dQPFile,m",                                       m_dQPFileName,                               string(""), "dQP file name")
   ("RDOQ",                                            m_useRDOQ,                                         true)
   ("RDOQTS",                                          m_useRDOQTS,                                       true)
 #if T0196_SELECTIVE_RDOQ
   ("SelectiveRDOQ",                                   m_useSelectiveRDOQ,                               false, "Enable selective RDOQ")
 #endif
-  ("RDOQfn",                                          m_RDOQfn,                                            0u, "Specialization of RDOQ function. 0: original, 1: fast" )
+  ("RDOQfn",                                          m_RDOQfn,                                            0u, "Specialization of RDOQ function. 0: original, 1: fast")
   ("RDpenalty",                                       m_rdPenalty,                                          0, "RD-penalty for 32x32 TU for intra in non-intra slices. 0:disabled  1:RD-penalty  2:maximum RD-penalty")
 
   // Deblocking filter parameters
@@ -1177,6 +1222,9 @@ Bool EncAppCfg::parseCfg( Int argc, TChar* argv[] )
 #endif
   ("SEIGreenMetadataType",                            m_greenMetadataType,                                  0u, "Value for the green_metadata_type specifies the type of metadata that is present in the SEI message. If green_metadata_type is 1, then metadata enabling quality recovery after low-power encoding is present")
   ("SEIXSDMetricType",                                m_xsdMetricType,                                      0u, "Value for the xsd_metric_type indicates the type of the objective quality metric. PSNR is the only type currently supported")
+#if MCTS_ENC_CHECK
+  ("SEITMCTSTileConstraint",                          m_tmctsSEITileConstraint,                          false, "Constrain motion vectors at tile boundaries")
+#endif
 #if ENABLE_TRACING
   ("TraceChannelsList",                               bTracingChannelsList,                              false, "List all available tracing channels")
   ("TraceRule",                                       sTracingRule,                               string( "" ), "Tracing rule (ex: \"D_CABAC:poc==8\" or \"D_REC_CB_LUMA:poc==8\")")
@@ -1191,6 +1239,19 @@ Bool EncAppCfg::parseCfg( Int argc, TChar* argv[] )
   ("SwitchDQP",                                       m_switchDQP,                                  0, "delta QP applied to picture with switchPOC and subsequent pictures." )
   ("FastForwardToPOC",                                m_fastForwardToPOC,                          -1, "Get to encoding the specified POC as soon as possible by skipping temporal layers irrelevant for the specified POC." )
   ("StopAfterFFtoPOC",                                m_stopAfterFFtoPOC,                       false, "If using fast forward to POC, after the POC of interest has been hit, stop further encoding.")
+  ("ForceDecodeBitstream1",                           m_forceDecodeBitstream1,                  false, "force decoding of bitstream 1 - use this only if you are realy sure about what you are doing ")
+  ("DecodeBitstream2ModPOCAndType",                   m_bs2ModPOCAndType,                       false, "Modify POC and NALU-type of second input bitstream, to use second BS as closing I-slice")
+  ("MVReestIters",                                    m_MvReestimationIters,                        0, "Number of iterations for motion vector re-estimation with full RD cost (default 0: off)")
+  ("MVReestRange",                                    m_MvReestimationRange,                        1, "Search range for motion vector re-estimation with full RD cost (default 1)")
+  ("NumSplitThreads",                                 m_numSplitThreads,                            1, "Number of threads used to parallelize splitting")
+  ("ForceSingleSplitThread",                          m_forceSplitSequential,                   false, "Force single thread execution even if taking the parallelized path")
+  ("NumWppThreads",                                   m_numWppThreads,                              1, "Number of threads used to run WPP-style parallelization")
+  ("NumWppExtraLines",                                m_numWppExtraLines,                           0, "Number of additional wpp lines to switch when threads are blocked")
+#if HHI_WPP_PARALLELISM
+  ("EnsureWppBitEqual",                               m_ensureWppBitEqual,                       true, "Ensure the results are equal to results with WPP-style parallelism, even if WPP is off")
+#else
+  ("EnsureWppBitEqual",                               m_ensureWppBitEqual,                      false, "Ensure the results are equal to results with WPP-style parallelism, even if WPP is off")
+#endif
     ;
 
   for(Int i=1; i<MAX_GOP+1; i++)
@@ -1231,6 +1292,10 @@ Bool EncAppCfg::parseCfg( Int argc, TChar* argv[] )
    * Set any derived parameters
    */
 
+  if( m_QTBT && qtbtDualITree )
+  {
+    m_dualTree = qtbtDualITree;
+  }
 
   m_framesToBeEncoded = ( m_framesToBeEncoded + m_temporalSubsampleRatio - 1 ) / m_temporalSubsampleRatio;
   m_adIntraLambdaModifier = cfg_adIntraLambdaModifier.values;
@@ -1325,7 +1390,7 @@ Bool EncAppCfg::parseCfg( Int argc, TChar* argv[] )
   m_InputChromaFormatIDC = numberToChromaFormat(tmpInputChromaFormat);
   m_chromaFormatIDC      = ((tmpChromaFormat == 0) ? (m_InputChromaFormatIDC) : (numberToChromaFormat(tmpChromaFormat)));
 
-  CHECK( !( tmpWeightedPredictionMethod >= 0 && tmpWeightedPredictionMethod <= WP_PER_PICTURE_WITH_HISTOGRAM_AND_PER_COMPONENT_AND_CLIPPING_AND_EXTENSION ), "Error in cfg" )
+  CHECK( !( tmpWeightedPredictionMethod >= 0 && tmpWeightedPredictionMethod <= WP_PER_PICTURE_WITH_HISTOGRAM_AND_PER_COMPONENT_AND_CLIPPING_AND_EXTENSION ), "Error in cfg" );
   m_weightedPredictionMethod = WeightedPredictionMethod(tmpWeightedPredictionMethod);
 
   CHECK( tmpFastInterSearchMode<0 || tmpFastInterSearchMode>FASTINTERSEARCH_MODE3, "Error in cfg" );
@@ -1673,15 +1738,20 @@ Bool EncAppCfg::parseCfg( Int argc, TChar* argv[] )
   }
 #endif
 
-#if HHI_HLM_USE_QPA
-  if( m_LargeCTU && m_bUsePerceptQPA && !m_bUseAdaptiveQP && ( m_iSourceHeight <= 1280 ) && ( m_iSourceWidth <= 2048 ) )
-#else
-  if( false )
-#endif
+  if( m_AltDQPCoding && m_skipDQPinOddPOCs && (!m_bUsePerceptQPA || m_bUseAdaptiveQP ) )
   {
-    msg( DETAILS, "***************************************************************************\n" );
-    msg( DETAILS, "** WARNING: QPA on with LargeCTU for incompatible size - disabling LCTU! **\n" );
-    msg( DETAILS, "***************************************************************************\n" );
+    msg( WARNING, "***************************************************************************\n" );
+    msg( WARNING, "* WARNING: SkipOddPocDQP=1 with PerceptQPA=0, deactivating SkipOddPocDQP! *\n" );
+    msg( WARNING, "***************************************************************************\n" );
+
+    m_skipDQPinOddPOCs = false;
+  }
+
+  if( m_LargeCTU && ( ( Int ) m_fQP < 42 ) && ( m_bUsePerceptQPA ) && !m_bUseAdaptiveQP && ( m_iSourceHeight <= 1280 ) && ( m_iSourceWidth <= 2048 ) )
+  {
+    msg( WARNING, "***************************************************************************\n" );
+    msg( WARNING, "* WARNING: QPA on with LargeCTU for incompatible size, limiting CTU size! *\n" );
+    msg( WARNING, "***************************************************************************\n" );
 
     //m_LargeCTU  = false;
     m_uiCTUSize = m_uiMaxCUWidth;
@@ -1689,7 +1759,7 @@ Bool EncAppCfg::parseCfg( Int argc, TChar* argv[] )
     m_tuLog2MaxSize--;
   }
 
-  if( m_QTBT )
+  if( m_GenBinSplit || m_QTBT )
   {
     Int minCuSize = 1 << MIN_CU_LOG2;
     m_uiMaxCodingDepth = 0;
@@ -1710,7 +1780,7 @@ Bool EncAppCfg::parseCfg( Int argc, TChar* argv[] )
     return false;
   }
 
-  if( !m_QTBT )
+  if( !m_GenBinSplit && !m_QTBT )
   {
     // compute actual CU depth with respect to config depth and max transform size
     UInt uiAddCUDepth = 0;
@@ -1763,14 +1833,22 @@ Bool EncAppCfg::xCheckParameter()
   Bool check_failed = false; /* abort if there is a fatal configuration problem */
 #define xConfirmPara(a,b) check_failed |= confirmPara(a,b)
 
+#if !HM_USE_LEGACY_CTX_INIT_VALUES
+  xConfirmPara( m_profile != Profile::NEXT, "Using new context initialization values although not running the NEXT-profile!" );
+#endif
+
   if( m_profile != Profile::NEXT )
   {
+#if HHI_WPP_PARALLELISM
+    xConfirmPara( m_numWppThreads > 1, "WPP-style parallelization only supported with NEXT profile" );
+#endif
     xConfirmPara( m_QTBT, "QTBT only allowed with NEXT profile" );
     xConfirmPara( m_NSST, "NSST only allowed with NEXT profile" );
     xConfirmPara( m_Intra65Ang, "Intra 65 Ang only allowed with NEXT profile" );
     xConfirmPara( m_Intra4Tap,  "Intra 4 Tap only allowed with NEXT profile" );
-    xConfirmPara( m_LargeCTU, "Large CTU is only allowed with NEXT profile" );
     xConfirmPara( m_IntraBoundaryFilter, "Intra boundary filter is only allowed with NEXT profile" );
+    xConfirmPara( m_LMChroma, "LMChroma only allowed with NEXT profile" );
+    xConfirmPara( m_LargeCTU, "Large CTU is only allowed with NEXT profile" );
     xConfirmPara( m_SubPuMvp, "Sub-PU motion vector prediction is only allowed with NEXT profile" );
     xConfirmPara( m_CABACEngineMode > 0, "CABAC engine mode > 0 is only allowed with NEXT profile" );
     xConfirmPara( m_altResiCompId > 0, "Alternative residual compression can only be used with NEXT profile" );
@@ -1779,7 +1857,8 @@ Bool EncAppCfg::xCheckParameter()
     xConfirmPara( m_BIO, "BIO only allowed with NEXT profile" );
     xConfirmPara( m_DisableMotionCompression, "Disable motion data compression only allowed with NEXT profile" );
     xConfirmPara( m_LICMode, "LICMode > 0 is only allowed with NEXT profile" );
-    xConfirmPara( m_LMChroma, "LMChroma only allowed with NEXT profile");
+    xConfirmPara( m_MTT, "Multi type tree is only allowed with NEXT profile" );
+    xConfirmPara( m_AltDQPCoding || m_skipDQPinOddPOCs, "Alternative DQP coding is only allowed with NEXT profile" );
     xConfirmPara( m_ImvMode, "IMV is only allowed with NEXT profile" );
     xConfirmPara( m_IntraPDPC, "PDPC is only allowed with NEXT profile" );
     xConfirmPara( m_ALF, "ALF is only allowed with NEXT profile" );
@@ -1790,39 +1869,138 @@ Bool EncAppCfg::xCheckParameter()
     xConfirmPara( m_EMT, "EMT only allowed with NEXT profile" );
     xConfirmPara( m_FastEMT, "EMT only allowed with NEXT profile" );
     xConfirmPara( m_FRUC, "FRUC is only allowed with NEXT profile" );
-    xConfirmPara( m_CIPF, "CIPF is only allowed with NEXT profile" );
+    xConfirmPara( m_CIPF > 0, "CIPF is only allowed with NEXT profile" );
+    xConfirmPara( m_IntraBiFi, "Intra bilateral reference filter is only allowed with NEXT profile" );
+    xConfirmPara( m_UseTCQ, "TCQ is only allowed in NEXT profile" );
     xConfirmPara( m_DMVR, "DMVR is only allowed with NEXT profile" );
     xConfirmPara( m_MDMS, "MDMS is only allowed with NEXT profile" );
     xConfirmPara( m_IntraPDPC, "PDPC is only allowed with NEXT profile" );
+    xConfirmPara( m_maxNumAddHyps, "MultiHyp is only allowed with NEXT profile" );
+    xConfirmPara( m_MDBP, "MDBP is only allowed with NEXT profile" );
+    xConfirmPara( m_restrictedMerge, "Restricted merge mode is only allowed with NEXT profile" );
+    xConfirmPara( m_IntraFTM, "IntraFTM is only allowed with NEXT profile" );
+    xConfirmPara( m_mode1dPartitions, "Intra 1-D partitions are only allowed with NEXT profile" );
+    xConfirmPara( m_Intra_NN, "IntraNNis only allowed with NEXT profile" );
+    xConfirmPara( m_intraNNTrafos, "Intra NN transforms are only allowed with NEXT profile" );
+    xConfirmPara( m_SetOfTrafos, "SOT only allowed with NEXT profile" );
+    xConfirmPara( m_DiffusionFilterMode, "DiffusionFilterMode > 0 is only allowed with NEXT profile" );
+#if THRESHOLDING
+    xConfirmPara( m_thresholding, "Thresholding only allowed with next profile" );
+#endif
+    xConfirmPara( m_IntraMRL, "MRL is only allowed with NEXT profile" );
     // ADD_NEW_TOOL : (parameter check) add a check for next tools here
   }
   else
   {
+#if HHI_WPP_PARALLELISM
+    xConfirmPara( !m_AltDQPCoding && ( m_numWppThreads + m_numWppExtraLines ) > 1, "Wavefront parallel encoding only supported with AltDQPCoding" );
+#endif
     xConfirmPara( m_SubPuMvpLog2Size < MIN_CU_LOG2,      "SubPuMvpLog2Size must be 2 or greater." );
     xConfirmPara( m_SubPuMvpLog2Size > 6,                "SubPuMvpLog2Size must be 6 or smaller." );
-    xConfirmPara( m_CABACEngineMode > 3,                 "CABAC engine mode must be less than or equal to 3." );
+    xConfirmPara( m_CABACEngineMode > 6,                 "CABAC engine mode must be less than or equal to 6." );
     xConfirmPara( m_LICMode > 2,                         "LICMode > 2 is not supported." );
+    xConfirmPara( m_skipDQPinOddPOCs && !m_AltDQPCoding, "Odd-POC skipping delta-QP <coding requires improved delta-QP coding (AltDQPCoding)." );
     xConfirmPara( m_useSaveLoadEncInfo && !m_QTBT,       "Encoder decision saving can only be applied with QTBT" );
+    xConfirmPara( !m_QTBT && m_MTT,                      "Multi type tree is an extension of QTBT, thus QTBT has to be enabled for MTT" );
+
 
     xConfirmPara( m_useSaveLoadSplitDecision && !m_QTBT, "Encoder split decision saving can only be applied with QTBT" );
 
     xConfirmPara( !( m_OBMCBlkSize == 4 || m_OBMCBlkSize == 8 ), "OBMC Block Size must be set to 4 or 8 samples" );
     xConfirmPara( m_Affine && !m_highPrecisionMv, "Affine is not yet implemented for HighPrecMv off." );
-    xConfirmPara( m_DMVR && !( m_QTBT ), "DMVR without QTBT results in encoder-decoder mismatch!" );
+    xConfirmPara( m_IntraBiFi && m_useStrongIntraSmoothing, "Intra bilateral reference filter requires disabling strong intra smoothing" );
+    xConfirmPara( m_IntraBiFi && ( m_internalBitDepth[CHANNEL_TYPE_LUMA] != 10 ), "Bilateral filter weights assume internal bit-depth of 10" ); //TODO (fix): scale 'absDeltaI' to correspond to 10 bit sample difference and remove this check
+
+    if( m_UseTCQ )
+    {
+      xConfirmPara( m_altResiCompId != 2, "altResiComp must be equal to 2 if TCQMode > 0");
+      xConfirmPara( !m_useRDOQ, "RDOQ must be equal to 1 if TCQMode > 0 ");
+      xConfirmPara( !m_useRDOQTS, "RDOQTS must be equal to 1 if TCQMode > 0 ");
+    }
     xConfirmPara( (m_IntraPDPC > 2) || (m_IntraPDPC < 0), "IntraPDPC out of range 0 to 2" );
     xConfirmPara( (m_IntraPDPC & 2) && m_useStrongIntraSmoothing, "PDPC==2 requires disabling strong intra smoothing" );
-    xConfirmPara( (m_LMChroma > 1) && ! m_Intra65Ang, "ELM (LMChroma > 1) requires Intra65Ang" );
+    xConfirmPara( ( m_LMChroma > 1 ) && !m_Intra65Ang, "ELM (LMChroma > 1) requires Intra65Ang" );
+    xConfirmPara( m_maxNumAddHyps < 0, "number of additional hypotheseis shall not be negative" );
+    xConfirmPara( m_addHypTries < 0, "number of tries for additional hypotheseis shall not be negative" );
+    xConfirmPara( m_maxNumAddHyps && m_addHypTries == 0, "number of tries for additional hypotheseis is zero" );
+    xConfirmPara( m_maxNumAddHyps > HHI_MULTI_HYPOTHESEIS_MAX_CANDS, "number of additional hypotheseis exceeds the maximal limit" );
+    xConfirmPara( m_numAddHypWeights < 1, "number of weights for additional hypotheseis must be at least one" );
+    xConfirmPara( m_numAddHypWeights > HHI_MULTI_HYPOTHESEIS_NUM_WEIGHTS, "number of weights for additional hypotheseis exceeds the maximal limit" );
+    xConfirmPara( m_maxNumAddHypRefFrames < 1, "number of ref frames for additional hypotheseis must be at least one" );
+    xConfirmPara( m_RegionSizeParameter > 4, "FTM Error: Large value for RegionSizeParameter is not recommended" );
+    xConfirmPara(m_DiffusionFilterMode > 7, "DiffusionFilterMode > 7 is not supported");
+    if ((m_DiffusionFilterMode>>1) & 1)
+    {
+      xConfirmPara(m_ImvMode == 0, "DiffusionFilterMode = 2 requires ImvMode != 0");
+    }
+    if( m_DiffusionFilterMode )
+    {
+      xConfirmPara( m_NumDiffusionFiltersIntra > 4, "NumDiffusionFiltersIntra must be in range [0;4]" );
+      xConfirmPara( m_NumDiffusionFiltersInter > 4, "NumDiffusionFiltersInter must be in range [0;4]" );
+      xConfirmPara( m_NumDiffusionFiltersIntra == 0 && m_NumDiffusionFiltersInter == 0, 
+                   "If DiffusionFilterMode > 0, either or both of NumDiffusionFiltersIntra and NumDiffusionFiltersInter must be greater than 0" );
+      xConfirmPara( m_NumDiffusionFiltersInter == 0 && m_DiffusionFilterMode >= 2,
+                   "If DiffusionFilterMode > 1, NumDiffusionFiltersInter must be greater than 0" );
+      xConfirmPara( m_NumDiffusionFiltersIntra == 0 && m_RestrIntraDiffusionMode,
+                   "If RestrictedIntraDiffusion == 1, NumDiffusionFiltersIntra must be greater than 0" );
+    }
+#if THRESHOLDING
+    xConfirmPara( m_thresholdingMaxSize[ 0 ] == 0 || m_thresholdingMaxSize[ 0 ] >  8, "Thresholding max number of intra transform sizes out of range" );
+    xConfirmPara( m_thresholdingMaxSize[ 1 ] == 0 || m_thresholdingMaxSize[ 1 ] >  8, "Thresholding max number of inter transform sizes out of range" );
+    xConfirmPara( m_thresholdingMaxThrs[ 0 ] == 0 || m_thresholdingMaxThrs[ 0 ] > MAX_THRESHOLD_CAND, "Thresholding max number of intra thresholds out of range" );
+    xConfirmPara( m_thresholdingMaxThrs[ 1 ] == 0 || m_thresholdingMaxThrs[ 1 ] > MAX_THRESHOLD_CAND, "Thresholding max number of inter thresholds out of range" );
+#endif
+    xConfirmPara( m_SetOfTrafos && !(m_EMT & 1),          "intraEMT needs to be enabled for SOT" );
+    xConfirmPara( m_CIPF > 2, "CIPF must be in range [0:2]" );
+    xConfirmPara( m_intraNNTrafos && !m_Intra_NN, "Intra NN transforms are only allowed with Intra NN." );
+
+    if( !m_GenBinSplit && !m_QTBT && m_OBMC )
+    {
+      xConfirmPara( ( m_uiMaxCUWidth >> m_uiMaxCUDepth ) != 4, "When using OBMC with QT+RQT partitioning, MaxPartitionDepth has to be set to the allowed maximum!" );
+    }
   }
 
-
-#if ( SHARP_LUMA_DELTA_QP && HHI_HLM_USE_QPA )
-  xConfirmPara( m_bUsePerceptQPA && m_lumaLevelToDeltaQPMapping.mode != 0, "QPA and SharpDeltaQP cannot be used together" );
+#if HHI_SPLIT_PARALLELISM
+  xConfirmPara( m_numSplitThreads < 1, "Number of used threads cannot be smaller than 1" );
+  xConfirmPara( m_numSplitThreads > HHI_SPLIT_MAX_NUM_THREADS, "Number of used threads cannot be higher than the number of actual jobs" );
+#if _MSC_VER && HHI_WPP_PARALLELISM
+  xConfirmPara( m_numSplitThreads > 1 && m_numSplitThreads != NUM_SPLIT_THREADS_IF_MSVC, "Due to poor implementation by Microsoft, NumSplitThreads cannot be set dynamically on runtime!" );
+#endif
+#else
+  xConfirmPara( m_numSplitThreads != 1, "HHI_SPLIT_PARALLELISM is disabled, numSplitThreads has to be 1" );
 #endif
 
+#if HHI_WPP_PARALLELISM
+  xConfirmPara( m_numWppThreads < 1, "Number of threads used for WPP-style parallelization cannot be smaller than 1" );
+  xConfirmPara( m_numWppThreads > HHI_WPP_MAX_NUM_THREADS, "Number of threads used for WPP-style parallelization cannot be bigger than HHI_WPP_MAX_NUM_THREADS" );
+  xConfirmPara( !m_ensureWppBitEqual && m_numWppThreads > 1, "WPP bit equality is implied when using WPP-style parallelism" );
+#if HHI_WPP_STATIC_LINK
+  xConfirmPara( m_numWppExtraLines != 0, "WPP-style extra lines out of range" );
+#else
+  xConfirmPara( m_numWppExtraLines < 0, "WPP-style extra lines out of range" );
+#endif
+#else
+  xConfirmPara( m_numWppThreads != 1, "HHI_WPP_PARALLELISM is disabled, numWppThreads has to be 1" );
+  xConfirmPara( m_ensureWppBitEqual, "HHI_WPP_PARALLELISM is disabled, cannot ensure being WPP bit-equal" );
+#endif
 
-  xConfirmPara( m_altResiCompId > 1, "Alternative residual compression Id out of range  (0:off, 1:JEM)" );
+  xConfirmPara( m_IntraMRL && !m_GenBinSplit && !m_QTBT , "IntraMRL can only be used with QTBT/GBS!" );
 
-  xConfirmPara( m_useAMaxBT && !m_QTBT, "AMaxBT can only be used with QTBT!" );
+#if SHARP_LUMA_DELTA_QP
+  xConfirmPara( m_bUsePerceptQPA && m_lumaLevelToDeltaQPMapping.mode >= 2, "QPA and SharpDeltaQP mode 2 cannot be used together" );
+  if( m_bUsePerceptQPA && m_lumaLevelToDeltaQPMapping.mode == LUMALVL_TO_DQP_AVG_METHOD )
+  {
+    msg( WARNING, "*********************************************************************************\n" );
+    msg( WARNING, "** WARNING: Applying custom luma-based QPA with activity-based perceptual QPA! **\n" );
+    msg( WARNING, "*********************************************************************************\n" );
+
+    m_lumaLevelToDeltaQPMapping.mode = LUMALVL_TO_DQP_NUM_MODES;
+  }
+#endif
+
+  xConfirmPara( m_altResiCompId > 2, "Alternative residual compression Id out of range  (0:off, 1:JEM, 2:HHI)" );
+
+  xConfirmPara( m_useAMaxBT && !m_QTBT && !m_GenBinSplit, "AMaxBT can only be used with QTBT!" );
 
 #if GALF
   xConfirmPara( m_ALF == 1, "ALF == 1 not supported with GALF enabled" );
@@ -1831,9 +2009,27 @@ Bool EncAppCfg::xCheckParameter()
 #endif
 
   xConfirmPara( m_ALF<0 || m_ALF>2, "ALF parameter out of range (0..2)" );
-  xConfirmPara( m_AClipEnc && !m_AClip,  " AClipEnc=1 requires AClip=1" );
+  xConfirmPara( m_AClipEnc && !m_AClip,  "AClipEnc=1 requires AClip=1" );
 
 
+
+  xConfirmPara(m_mode1dPartitions && !m_QTBT && !m_GenBinSplit, "Intra 1-D partitions are incompatible with the RQT!");
+
+  if( m_LICMode )
+  {
+    if( m_QTBT && !m_FastPicLevelLIC )
+    {
+      msg( DETAILS, "***************************************************************************\n" );
+      msg( DETAILS, "** WARNING: To be equal to JEM, FastPicLevelLIC has to be on with QTBT!  **\n" );
+      msg( DETAILS, "***************************************************************************\n" );
+    }
+    else if( !m_QTBT && m_FastPicLevelLIC )
+    {
+      msg( DETAILS, "*****************************************************************************\n" );
+      msg( DETAILS, "** WARNING: To be equal to JEM, FastPicLevelLIC has to be off without QTBT!**\n" );
+      msg( DETAILS, "*****************************************************************************\n" );
+    }
+  }
 
   xConfirmPara(m_bitstreamFileName.empty(), "A bitstream file name must be specified (BitstreamFile)");
   const UInt maxBitDepth=(m_chromaFormatIDC==CHROMA_400) ? m_internalBitDepth[CHANNEL_TYPE_LUMA] : std::max(m_internalBitDepth[CHANNEL_TYPE_LUMA], m_internalBitDepth[CHANNEL_TYPE_CHROMA]);
@@ -1905,10 +2101,7 @@ Bool EncAppCfg::xCheckParameter()
     xConfirmPara(m_enableIntraReferenceSmoothing==false, "EnableIntraReferenceSmoothing must be enabled for non main-RExt profiles.");
     xConfirmPara(m_cabacBypassAlignmentEnabledFlag, "AlignCABACBeforeBypass cannot be enabled for non main-RExt profiles.");
   }
-#if ENABLE_CHROMA_422
-#else
   xConfirmPara( m_chromaFormatIDC==CHROMA_422, "4:2:2 chroma sampling format not supported with current compiler setting. Set compiler flag \"ENABLE_CHROMA_422\" equal to 1 for enabling 4:2:2.\n\n" );
-#endif
 
   // check range of parameters
   xConfirmPara( m_inputBitDepth[CHANNEL_TYPE_LUMA  ] < 8,                                   "InputBitDepth must be at least 8" );
@@ -2018,6 +2211,13 @@ Bool EncAppCfg::xCheckParameter()
     msg( WARNING, "****************************************************************************\n" );
   }
 
+  if( m_ImvMode == IMV_DEFAULT )
+  {
+    msg( WARNING, "********************************************************\n" );
+    msg( WARNING, "** WARNING: IMVMode=1 is not compatible with JEM 7.0  **\n" );
+    msg( WARNING, "********************************************************\n" );
+  }
+
   xConfirmPara( m_iQP < -6 * (m_internalBitDepth[CHANNEL_TYPE_LUMA] - 8) || m_iQP > MAX_QP, "QP exceeds supported range (-QpBDOffsety to 51)" );
 #if W0038_DB_OPT
   xConfirmPara( m_deblockingFilterMetric!=0 && (m_bLoopFilterDisable || m_loopFilterOffsetInPPS), "If DeblockingFilterMetric is non-zero then both LoopFilterDisable and LoopFilterOffsetInPPS must be 0");
@@ -2031,9 +2231,9 @@ Bool EncAppCfg::xCheckParameter()
   xConfirmPara( m_minSearchWindow < 0,                                                      "Minimum motion search window size for the adaptive window ME must be greater than or equal to 0" );
   xConfirmPara( m_iMaxDeltaQP > MAX_DELTA_QP,                                               "Absolute Delta QP exceeds supported range (0 to 7)" );
 #if SHARP_LUMA_DELTA_QP
-  xConfirmPara(m_lumaLevelToDeltaQPMapping.mode &&  m_uiDeltaQpRD > 0, "Luma-level-based Delta QP cannot be used together with slice level multiple-QP optimization\n" );
+  xConfirmPara( m_lumaLevelToDeltaQPMapping.mode && m_uiDeltaQpRD > 0,                      "Luma-level-based Delta QP cannot be used together with slice level multiple-QP optimization\n" );
 #endif
-  if( !m_QTBT )
+  if( !m_GenBinSplit && !m_QTBT )
   {
     xConfirmPara( m_iMaxCuDQPDepth > m_uiMaxCUDepth - 1, "Absolute depth for a minimum CuDQP exceeds maximum coding unit depth" );
   }
@@ -2075,7 +2275,7 @@ Bool EncAppCfg::xCheckParameter()
   {
     xConfirmPara( m_uiMaxCUHeight > 64, "CTU bigger than 64 only allowed with large CTU." );
     xConfirmPara( m_uiMaxCUWidth  > 64, "CTU bigger than 64 only allowed with large CTU." );
-    if( m_QTBT ) xConfirmPara( m_uiCTUSize > 64, "CTU bigger than 64 only allowed with large CTU." );
+    if( m_GenBinSplit || m_QTBT ) xConfirmPara( m_uiCTUSize > 64, "CTU bigger than 64 only allowed with large CTU." );
   }
 
   if( m_profile == Profile::NEXT )
@@ -2105,7 +2305,6 @@ Bool EncAppCfg::xCheckParameter()
   {
     xConfirmPara( m_maxNumMergeCand > 5, "MaxNumMergeCand must be 5 or smaller." );
   }
-
   xConfirmPara( m_EMT < 0 || m_EMT >3, "EMT must be 0, 1, 2 or 3" );
   xConfirmPara( m_FastEMT < 0 || m_FastEMT >3, "FEMT must be 0, 1, 2 or 3" );
 
@@ -2578,6 +2777,55 @@ Bool EncAppCfg::xCheckParameter()
     }
   }
 
+
+#if MCTS_ENC_CHECK
+  if( ( m_tmctsSEITileConstraint ) && ( m_bLFCrossTileBoundaryFlag ) )
+  {
+    printf( "Warning: Constrained Encoding for Temporal Motion Constrained Tile Sets is enabled. Disabling filtering across tile boundaries!\n" );
+    m_bLFCrossTileBoundaryFlag = false;
+  }
+  if( ( m_tmctsSEITileConstraint ) && ( m_TMVPModeId ) )
+  {
+    printf( "Warning: Constrained Encoding for Temporal Motion Constrained Tile Sets is enabled. Disabling TMVP!\n" );
+    m_TMVPModeId = 0;
+  }
+  if( ( m_tmctsSEITileConstraint ) && ( m_OBMC ) )
+  {
+    printf( "Warning: Constrained Encoding for Temporal Motion Constrained Tile Sets is enabled. Disabling OBMC!\n" );
+    m_OBMC = false;
+  }
+  if( ( m_tmctsSEITileConstraint ) && ( m_SubPuMvp ) )
+  {
+    printf( "Warning: Constrained Encoding for Temporal Motion Constrained Tile Sets is enabled. Disabling SubPUMvp!\n" );
+    m_SubPuMvp = false;
+  }
+  if( ( m_tmctsSEITileConstraint ) && ( m_Affine ) )
+  {
+    printf( "Warning: Constrained Encoding for Temporal Motion Constrained Tile Sets is enabled. Disabling Affine!\n" );
+    m_Affine = false;
+  }
+  if( ( m_tmctsSEITileConstraint ) && ( m_BIO ) )
+  {
+    printf( "Warning: Constrained Encoding for Temporal Motion Constrained Tile Sets is enabled. Disabling BIO!\n" );
+    m_BIO = false;
+  }
+  if( ( m_tmctsSEITileConstraint ) && ( m_FRUC ) )
+  {
+    printf( "Warning: Constrained Encoding for Temporal Motion Constrained Tile Sets is enabled. Disabling FRUC!\n" );
+    m_FRUC = false;
+  }
+  if( ( m_tmctsSEITileConstraint ) && ( m_DMVR ) )
+  {
+    printf( "Warning: Constrained Encoding for Temporal Motion Constrained Tile Sets is enabled. Disabling DMVR!\n" );
+    m_DMVR = false;
+  }
+  if( ( m_tmctsSEITileConstraint ) && ( m_LICMode ) )
+  {
+    printf( "Warning: Constrained Encoding for Temporal Motion Constrained Tile Sets is enabled. Disabling LIC!\n" );
+    m_LICMode = 0;
+  }
+
+#endif
   if (m_toneMappingInfoSEIEnabled)
   {
     xConfirmPara( m_toneMapCodedDataBitDepth < 8 || m_toneMapCodedDataBitDepth > 14 , "SEIToneMapCodedDataBitDepth must be in rage 8 to 14");
@@ -2675,13 +2923,14 @@ Bool EncAppCfg::xCheckParameter()
 #if U0033_ALTERNATIVE_TRANSFER_CHARACTERISTICS_SEI
   xConfirmPara(m_preferredTransferCharacteristics > 255, "transfer_characteristics_idc should not be greater than 255.");
 #endif
-
   xConfirmPara( unsigned(m_ImvMode) > 2, "ImvMode exceeds range (0 to 2)" );
-
   xConfirmPara( m_decodeBitstreams[0] == m_bitstreamFileName, "Debug bitstream and the output bitstream cannot be equal.\n" );
   xConfirmPara( m_decodeBitstreams[1] == m_bitstreamFileName, "Decode2 bitstream and the output bitstream cannot be equal.\n" );
-
   xConfirmPara(unsigned(m_LMChroma) > 4, "ELMMode exceeds range (0 to 4)");
+
+  xConfirmPara( m_MvReestimationIters < 0, "MVReestIters should not be negative" );
+  xConfirmPara( m_MvReestimationRange < 0, "MVReestRange should not be negative" );
+  xConfirmPara( m_MvReestimationIters > 0 && m_MvReestimationRange == 0, "MVReestRange should not be zero" );
 
 #undef xConfirmPara
   return check_failed;
@@ -2793,6 +3042,8 @@ Void EncAppCfg::xPrintParameter()
     msg( DETAILS, "log2_sao_offset_scale_luma             : %d\n", m_log2SaoOffsetScale[CHANNEL_TYPE_LUMA] );
     msg( DETAILS, "log2_sao_offset_scale_chroma           : %d\n", m_log2SaoOffsetScale[CHANNEL_TYPE_CHROMA] );
   }
+  msg( DETAILS, "Motion vector re-estimation iterations : %d\n", m_MvReestimationIters );
+  msg( DETAILS, "Motion vector re-estimation range      : %d\n", m_MvReestimationRange );
 
   switch (m_costMode)
   {
@@ -2845,7 +3096,7 @@ Void EncAppCfg::xPrintParameter()
   msg( VERBOSE, "FDM:%d ", m_useFastDecisionForMerge            );
   msg( VERBOSE, "CFM:%d ", m_bUseCbfFastMode                    );
   msg( VERBOSE, "ESD:%d ", m_useEarlySkipDetection              );
-  msg( VERBOSE, "RQT:%d ", !m_QTBT                              );
+  msg( VERBOSE, "RQT:%d ", !m_GenBinSplit &&  !m_QTBT           );
   msg( VERBOSE, "TransformSkip:%d ",     m_useTransformSkip     );
   msg( VERBOSE, "TransformSkipFast:%d ", m_useTransformSkipFast );
   msg( VERBOSE, "TransformSkipLog2MaxSize:%d ", m_log2MaxTransformSkipBlockSize);
@@ -2888,9 +3139,9 @@ Void EncAppCfg::xPrintParameter()
     msg( VERBOSE, "\nNEXT TOOL CFG: " );
     msg( VERBOSE, "Intra4Tap:%d ", m_Intra4Tap );
     msg( VERBOSE, "Intra65Ang:%d ", m_Intra65Ang );
+    msg( VERBOSE, "IntraBoundaryFilter:%d ", m_IntraBoundaryFilter );
     msg( VERBOSE, "NSST:%d ", m_NSST );
     msg( VERBOSE, "Affine:%d ", m_Affine );
-    msg( VERBOSE, "IntraBoundaryFilter:%d ", m_IntraBoundaryFilter );
     msg( VERBOSE, "SubPuMvp:%d ", m_SubPuMvp );
     if( m_SubPuMvp )
     {
@@ -2901,12 +3152,15 @@ Void EncAppCfg::xPrintParameter()
     if( m_QTBT ) msg( VERBOSE, "DualITree:%d ", m_dualTree );
     msg( VERBOSE, "LargeCTU:%d ", m_LargeCTU );
     msg( VERBOSE, "IMV:%d ", m_ImvMode );
-    if( !m_QTBT ) msg( VERBOSE, "IMVMaxCand:%d ", m_ImvMaxCand );
+    if( !m_GenBinSplit && !m_QTBT ) msg( VERBOSE, "IMVMaxCand:%d ", m_ImvMaxCand );
     msg( VERBOSE, "AltResiComp:%d ", m_altResiCompId );
     msg( VERBOSE, "HighPrecMv:%d ", m_highPrecisionMv );
     msg( VERBOSE, "BIO:%d ", m_BIO );
     msg( VERBOSE, "DisMDC:%d ", m_DisableMotionCompression );
     msg( VERBOSE, "LICMode:%d ", m_LICMode );
+    msg( VERBOSE, "MTT:%d ", m_MTT );
+    msg( VERBOSE, "AltDQPCoding:%d ", m_AltDQPCoding );
+    msg( VERBOSE, "SkipOddPocDQP:%d ", m_skipDQPinOddPOCs );
     msg( VERBOSE, "IntraPDPC:%d ", m_IntraPDPC );
     msg( VERBOSE, "ALF:%d ", m_ALF );
     msg( VERBOSE, "LMChroma:%d ", m_LMChroma );
@@ -2923,8 +3177,43 @@ Void EncAppCfg::xPrintParameter()
     msg( VERBOSE, "BIF:%d ", m_BIF );
     msg( VERBOSE, "AClip:%d ", m_AClip );
     msg( VERBOSE, "AClipEnc:%d ", m_AClipEnc );
+    msg( VERBOSE, "GenBinSplit:%d ", m_GenBinSplit );
+    if( m_GenBinSplit )
+    {
+      msg( VERBOSE, "GBSFourths:%d GBSEights:%d GBSNonLog2Halving:%d DualITree:%d GBSNonLog2CUs:%d GBSForceSplitToLog2:%d ", m_gbsFourths, m_gbsEights, m_gbsNonLog2Halving, m_dualTree, m_gbsNonLog2CUs, m_gbsForceSplitToLog2 );
+    }
+    msg( VERBOSE, "IntraBiFi:%d ", m_IntraBiFi );
+    msg( VERBOSE, "TCQ:%d ", m_UseTCQ );
     msg( VERBOSE, "DMVR:%d ", m_DMVR );
     msg( VERBOSE, "MDMS:%d ", m_MDMS );
+    msg( VERBOSE, "AdditionalInterHyps:%d ", m_maxNumAddHyps );
+    if( m_maxNumAddHyps )
+    {
+      msg( VERBOSE, "(%d weight%s,",  m_numAddHypWeights, m_numAddHypWeights > 1 ? "s" : "" );
+      msg( VERBOSE, "%d ref frame%s,",  m_maxNumAddHypRefFrames, m_maxNumAddHypRefFrames > 1 ? "s" : "" );
+      msg( VERBOSE, "%d %s) ", m_addHypTries, m_addHypTries == 1 ? "try" : "tries" );
+    }
+    msg( VERBOSE, "MDBP:%d ", m_MDBP );
+    msg( VERBOSE, "RestrictedMerge:%d ", m_restrictedMerge );
+    msg( VERBOSE, "IntraFTM:%d ", m_IntraFTM );
+    if( m_IntraFTM )
+    {
+      msg( VERBOSE, "RegionSizeParameter:%d ", m_RegionSizeParameter );
+      msg( VERBOSE, "FTMmode:%d ", m_FTMmode );
+    }
+    msg( VERBOSE, "Mode1dPartitions:%d ", m_mode1dPartitions );
+    msg( VERBOSE, "IntraNNMode:%d ", m_Intra_NN );
+    msg( VERBOSE, "IntraNNTrafos:%d ", m_intraNNTrafos );
+    msg( VERBOSE, "SOT:%d ", m_SetOfTrafos );
+    msg(VERBOSE, "DiffusionFilterMode:%d [%d(%d)|%d|%d] ", m_DiffusionFilterMode, m_NumDiffusionFiltersIntra, m_RestrIntraDiffusionMode ? 1 : 0, m_NumDiffusionFiltersInter, m_RestrDiffusionMode);
+#if THRESHOLDING
+    msg( VERBOSE, "Thresholding:%d ", m_thresholding );
+    if( m_thresholding )
+    {
+      msg( VERBOSE, "(%d,%d;%d,%d) ", m_thresholdingMaxSize[0], m_thresholdingMaxThrs[0], m_thresholdingMaxSize[1], m_thresholdingMaxThrs[1] );
+    }
+#endif
+    msg( VERBOSE, "IntraMRL:%d ", m_IntraMRL );
   }
   // ADD_NEW_TOOL (add some output indicating the usage of tools)
 
@@ -2945,14 +3234,31 @@ Void EncAppCfg::xPrintParameter()
   if( m_EMT ) msg( VERBOSE, "EMTFast: %1d(intra) %1d(inter) ", ( m_FastEMT & m_EMT & 1 ), ( m_FastEMT >> 1 ) & ( m_EMT >> 1 ) & 1 );
   if( m_QTBT ) msg( VERBOSE, "AMaxBT:%d ", m_useAMaxBT );
   if( m_QTBT ) msg( VERBOSE, "E0023FastEnc:%d ", m_e0023FastEnc );
+  if( m_GenBinSplit )
+  {
+    msg( VERBOSE, "GBSFast:%d ", m_gbsFast );
+    if( m_gbsFast ) msg( VERBOSE, "AnisoTVTh:%1.2f ", m_anisoTVTh );
+  }
+  if( m_mode1dPartitions )
+  {
+    msg( VERBOSE, "Mode1dPartitionsFast:%d ", m_mode1dPartitionsFast );
+  }
   if( m_QTBT ) msg( VERBOSE, "ContentBasedFastQtbt:%d ", m_contentBasedFastQtbt );
   msg( VERBOSE, "RDOQfn:%d ", m_RDOQfn );
+
+  msg( VERBOSE, "NumSplitThreads:%d ", m_numSplitThreads );
+  if( m_numSplitThreads > 1 )
+  {
+    msg( VERBOSE, "ForceSingleSplitThread:%d ", m_forceSplitSequential );
+  }
+  msg( VERBOSE, "NumWppThreads:%d+%d ", m_numWppThreads, m_numWppExtraLines );
+  msg( VERBOSE, "EnsureWppBitEqual:%d ", m_ensureWppBitEqual );
 
   msg( VERBOSE, "\n\n");
 
   msg( NOTICE, "\n");
 
-  fflush(stdout);
+  fflush( stdout );
 }
 
 Bool confirmPara(Bool bflag, const TChar* message)

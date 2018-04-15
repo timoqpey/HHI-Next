@@ -39,6 +39,7 @@
 
 #include "CommonLib/UnitTools.h"
 #include "CommonLib/dtrace_codingstruct.h"
+#include "CommonLib/dtrace_buffer.h"
 #include "CommonLib/CodingStructure.h"
 
 #include <string.h>
@@ -186,11 +187,11 @@ Void EncSampleAdaptiveOffset::destroyEncData()
   m_preDBFstatData.clear();
 }
 
-Void EncSampleAdaptiveOffset::initCABACEstimator( CABACEncoder* cabacEncoder, CtxCache* ctxCache, Slice* pcSlice )
+Void EncSampleAdaptiveOffset::initCABACEstimator( CABACDataStore* cabacDataStore, CABACEncoder* cabacEncoder, CtxCache* ctxCache, Slice* pcSlice )
 {
   m_CABACEstimator = cabacEncoder->getCABACEstimator( pcSlice->getSPS() );
   m_CtxCache       = ctxCache;
-  m_CABACEstimator->initCtxModels( *pcSlice, cabacEncoder );
+  m_CABACEstimator->initCtxModels( *pcSlice, cabacDataStore );
   m_CABACEstimator->resetBits();
 }
 
@@ -216,12 +217,15 @@ Void EncSampleAdaptiveOffset::SAOProcess(CodingStructure& cs, Bool* sliceEnabled
 
   //block on/off
   std::vector<SAOBlkParam> reconParams(cs.pcv->sizeInCtus);
-  decideBlkParams(cs, sliceEnabled, m_statData, src, res, &reconParams[0], cs.getSAO(), bTestSAODisableAtPictureLevel, saoEncodingRate, saoEncodingRateChroma);
+  decideBlkParams(cs, sliceEnabled, m_statData, src, res, &reconParams[0], cs.picture->getSAO(), bTestSAODisableAtPictureLevel, saoEncodingRate, saoEncodingRateChroma);
 
   DTRACE_UPDATE(g_trace_ctx, (std::make_pair("poc", cs.slice->getPOC())));
   DTRACE_PIC_COMP(D_REC_CB_LUMA_SAO, cs, cs.getRecoBuf(), COMPONENT_Y);
   DTRACE_PIC_COMP(D_REC_CB_CHROMA_SAO, cs, cs.getRecoBuf(), COMPONENT_Cb);
   DTRACE_PIC_COMP(D_REC_CB_CHROMA_SAO, cs, cs.getRecoBuf(), COMPONENT_Cr);
+
+  DTRACE    ( g_trace_ctx, D_CRC, "SAO" );
+  DTRACE_CRC( g_trace_ctx, D_CRC, cs, cs.getRecoBuf() );
 
   xPCMLFDisableProcess(cs);
 }
@@ -848,15 +852,22 @@ Void EncSampleAdaptiveOffset::decideBlkParams(CodingStructure& cs, Bool* sliceEn
     m_CABACEstimator->getCtx() = SAOCtx(ctxPicStart);
   }
 
+  EncSampleAdaptiveOffset::disabledRate( cs, reconParams, saoEncodingRate, saoEncodingRateChroma );
+}
+
+Void EncSampleAdaptiveOffset::disabledRate( CodingStructure& cs, SAOBlkParam* reconParams, const Double saoEncodingRate, const Double saoEncodingRateChroma )
+{
   if (saoEncodingRate > 0.0)
   {
+    const PreCalcValues& pcv = *cs.pcv;
+    const UInt numberOfComponents = m_numberOfComponents;
     Int picTempLayer = cs.slice->getDepth();
     Int numCtusForSAOOff[MAX_NUM_COMPONENT];
 
     for (Int compIdx = 0; compIdx < numberOfComponents; compIdx++)
     {
       numCtusForSAOOff[compIdx] = 0;
-      for( ctuRsAddr=0; ctuRsAddr< pcv.sizeInCtus; ctuRsAddr++)
+      for( int ctuRsAddr=0; ctuRsAddr< pcv.sizeInCtus; ctuRsAddr++)
       {
         if( reconParams[ctuRsAddr][compIdx].modeIdc == SAO_MODE_OFF)
         {
@@ -877,7 +888,6 @@ Void EncSampleAdaptiveOffset::decideBlkParams(CodingStructure& cs, Bool* sliceEn
     }
   }
 }
-
 
 Void EncSampleAdaptiveOffset::getBlkStats(const ComponentID compIdx, const Int channelBitDepth, SAOStatData* statsDataTypes
                         , Pel* srcBlk, Pel* orgBlk, Int srcStride, Int orgStride, Int width, Int height
@@ -1255,10 +1265,10 @@ Void EncSampleAdaptiveOffset::deriveLoopFilterBoundaryAvailibility(CodingStructu
 
   const int width = cs.pcv->maxCUWidth;
   const int height = cs.pcv->maxCUHeight;
-  const CodingUnit* cuCurr = cs.getCU(pos);
-  const CodingUnit* cuLeft = cs.getCU(pos.offset(-width, 0));
-  const CodingUnit* cuAbove = cs.getCU(pos.offset(0, -height));
-  const CodingUnit* cuAboveLeft = cs.getCU(pos.offset(-width, -height));
+  const CodingUnit* cuCurr = cs.getCU(pos, CH_L);
+  const CodingUnit* cuLeft = cs.getCU(pos.offset(-width, 0), CH_L);
+  const CodingUnit* cuAbove = cs.getCU(pos.offset(0, -height), CH_L);
+  const CodingUnit* cuAboveLeft = cs.getCU(pos.offset(-width, -height), CH_L);
 
   {
     isLeftAvail      = (cuLeft != NULL)      ? ( !CU::isSameSlice(*cuCurr, *cuLeft)      ? cuCurr->slice->getLFCrossSliceBoundaryFlag() : true ) : false;

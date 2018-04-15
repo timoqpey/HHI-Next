@@ -26,6 +26,7 @@ add_executable( ${EXE_NAME} ${SRC_FILES} ${INC_FILES} ${NATVIS_FILES} ${CMAKE_CU
 # include the output directory, where the svnrevision.h file is generated
 include_directories(${CMAKE_CURRENT_BINARY_DIR})
 target_compile_definitions( ${EXE_NAME} PUBLIC RExt__DECODER_DEBUG_BIT_STATISTICS=1 )
+
 if( SET_ENABLE_TRACING )
   if( ENABLE_TRACING )
     target_compile_definitions( ${EXE_NAME} PUBLIC ENABLE_TRACING=1 )
@@ -33,6 +34,32 @@ if( SET_ENABLE_TRACING )
     target_compile_definitions( ${EXE_NAME} PUBLIC ENABLE_TRACING=0 )
   endif()
 endif()
+
+if( ${CMAKE_SYSTEM_NAME} MATCHES "Darwin" )
+  target_compile_definitions( ${EXE_NAME} PUBLIC HHI_SPLIT_PARALLELISM=0 )
+  target_compile_definitions( ${EXE_NAME} PUBLIC HHI_WPP_PARALLELISM=0 )
+else()
+  if( SET_HHI_SPLIT_PARALLELISM )
+    if( HHI_SPLIT_PARALLELISM )
+      target_compile_definitions( ${EXE_NAME} PUBLIC HHI_SPLIT_PARALLELISM=1 )
+    else()
+      target_compile_definitions( ${EXE_NAME} PUBLIC HHI_SPLIT_PARALLELISM=0 )
+    endif()
+  endif()
+  if( SET_HHI_WPP_PARALLELISM )
+    if( HHI_WPP_PARALLELISM )
+      target_compile_definitions( ${EXE_NAME} PUBLIC HHI_WPP_PARALLELISM=1 )
+    else()
+      target_compile_definitions( ${EXE_NAME} PUBLIC HHI_WPP_PARALLELISM=0 )
+    endif()
+  endif()
+endif()
+
+if( CMAKE_COMPILER_IS_GNUCC AND BUILD_STATIC )
+  set( ADDITIONAL_LIBS ${ADDITIONAL_LIBS} -static -static-libgcc -static-libstdc++ )
+  target_compile_definitions( ${EXE_NAME} PUBLIC HHI_WPP_STATIC_LINK=1 )
+endif()
+
 target_link_libraries( ${EXE_NAME} CommonLib DecoderAnalyserLib Utilities Threads::Threads ${ADDITIONAL_LIBS} )
 
 # Add a SVN revision generator
@@ -46,6 +73,11 @@ set_source_files_properties( ${CMAKE_CURRENT_BINARY_DIR}/svnrevision.h PROPERTIE
 # explicitly say that the executable depends on the EncSvnHeader
 add_dependencies( ${EXE_NAME} DecAnalyserSvnHeader )
 
+# lldb custom data formatters
+if( XCODE )
+  add_dependencies( ${EXE_NAME} Install${PROJECT_NAME}LldbFiles )
+endif()
+
 if( CMAKE_SYSTEM_NAME STREQUAL "Linux" )
   add_custom_command( TARGET ${EXE_NAME} POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy
                                                           $<$<CONFIG:Debug>:${CMAKE_RUNTIME_OUTPUT_DIRECTORY_DEBUG}/DecoderAnalyserApp>
@@ -56,11 +88,11 @@ if( CMAKE_SYSTEM_NAME STREQUAL "Linux" )
                                                           $<$<CONFIG:Release>:${CMAKE_SOURCE_DIR}/bin/DecoderAnalyserAppStatic>
                                                           $<$<CONFIG:RelWithDebInfo>:${CMAKE_SOURCE_DIR}/bin/DecoderAnalyserAppStaticp>
                                                           $<$<CONFIG:MinSizeRel>:${CMAKE_SOURCE_DIR}/bin/DecoderAnalyserAppStaticm> )
-endif()                    
+endif()
 
 # example: place header files in different folders
 source_group( "Natvis Files" FILES ${NATVIS_FILES} )
 
 # set the folder where to place the projects
-set_target_properties( ${EXE_NAME}          PROPERTIES FOLDER app )
+set_target_properties( ${EXE_NAME}          PROPERTIES FOLDER app LINKER_LANGUAGE CXX )
 set_target_properties( DecAnalyserSvnHeader PROPERTIES FOLDER svn )

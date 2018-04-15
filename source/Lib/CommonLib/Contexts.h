@@ -56,6 +56,9 @@ enum BPMType
   BPM_JMP,
   BPM_JAW,
   BPM_JMPAW,
+  BPM_MP,
+  BPM_MPI,
+  BPM_MPCW,
   BPM_NUM
 };
 
@@ -121,7 +124,6 @@ public:
 private:
   uint8_t   m_State;
 };
-
 
 
 // JEM multi parameter CABAC
@@ -272,7 +274,132 @@ protected:
 };
 
 
+class BinProbModel_MP : public BinProbModelBase
+{
+public:
+  BinProbModel_MP  () : m_P0( 0 ), m_P1( 0 )  {}
+  ~BinProbModel_MP ()                         {}
+public:
+  void  init( int qp, int initId );
+  void  update( unsigned bin )
+  {
+    if( bin )
+    {
+      m_P0 += ( uint16_t( 32768 - m_P0 ) >> m_Log2WindowSize0 );
+      m_P1 += ( uint16_t( 32768 - m_P1 ) >> m_Log2WindowSize1 );
+    }
+    else
+    {
+      m_P0 -= ( m_P0 >> m_Log2WindowSize0 );
+      m_P1 -= ( m_P1 >> m_Log2WindowSize1 );
+    }
+  }
+  static uint8_t  getDefaultWinSize ()                                  { return uint8_t(0); }
+  void            setLog2WindowSize ( uint8_t log2WindowSize )          {}
+  void            estFracBitsUpdate ( unsigned bin, uint64_t& b )       { b += estFracBits( bin ); update( bin ); }
+  uint32_t        estFracBits       ( unsigned bin )              const { return m_BinFracBits_256[ ( m_P0 + m_P1 ) >> 8 ].intBits[bin]; }
+  static uint32_t estFracBitsTrm    ( unsigned bin )                    { return ( bin ? 0x3bfbb : 0x0010c ); }
+  BinFracBits     getFracBitsArray  ()                            const { return m_BinFracBits_256[ ( m_P0 + m_P1 ) >> 8 ]; }
+public:
+  uint8_t         state             ()                            const { const  int32_t ret  = ( (m_P0 + m_P1) >> 1 ) - 16384;
+                                                                          const  int32_t mask = ret >> 31;
+                                                                          return uint8_t( ( ret ^ mask  ) >> 9  ); }
+  uint8_t         mps               ()                            const { return uint8_t( ( m_P0 + m_P1 ) >> 15 ); }
+  uint8_t         getLPS            ( unsigned range )            const { return m_LPSTable_32_8 [ state() ][ (range>>5) & 7 ]; }
+  static uint8_t  getRenormBitsLPS  ( unsigned LPS )                    { return m_RenormTable_32[ LPS>>3 ]; }
+  static uint8_t  getRenormBitsRange( unsigned range )                  { return 1; }
+  uint16_t        getState          ()                            const { return (m_P0+m_P1)>>1; }
+  void            setState          ( uint16_t pState )                 { m_P0 = m_P1 = pState; }
+public:
+  uint64_t        estFracExcessBits ( const BinProbModel_MP& r )  const
+  {
+    const  int32_t prob = (m_P0 + m_P1) >> 1;
+    return uint32_t( ( int64_t(32768 - prob) * r.estFracBits(0) + int64_t(prob) * r.estFracBits(1) + ( 1 << ( SCALE_BITS - 1 ) ) ) >> SCALE_BITS);
+  }
+protected:
+  static const uint8_t m_Log2WindowSize0 = 4;
+  static const uint8_t m_Log2WindowSize1 = 8;
+  uint16_t  m_P0;
+  uint16_t  m_P1;
+};
 
+
+
+class BinProbModel_MPI : public BinProbModel_MP
+{
+public:
+  BinProbModel_MPI () : BinProbModel_MP(), m_BinCounter( 0 ) {}
+  ~BinProbModel_MPI()                                        {}
+public:
+  void  init( int qp, int initId )
+  {
+    BinProbModel_MP::init( qp, initId );
+    m_BinCounter = 0;
+  }
+  void  update( unsigned bin )
+  {
+    if( m_BinCounter <= 50 )
+    {
+      m_BinCounter++;
+    }
+    BinProbModel_MP::update( bin );
+  }
+  void            estFracBitsUpdate ( unsigned bin, uint64_t& b )       { b += estFracBits( bin ); update( bin ); }
+  uint32_t        estFracBits       ( unsigned bin )              const { return m_BinFracBits_256[ m_BinCounter <= 50 ? m_P0 >> 7 : ( m_P0 + m_P1 ) >> 8 ].intBits[bin]; }
+  BinFracBits     getFracBitsArray  ()                            const { return m_BinFracBits_256[ m_BinCounter <= 50 ? m_P0 >> 7 : ( m_P0 + m_P1 ) >> 8 ]; }
+public:
+  uint8_t         state             ()                            const { const  int32_t ret  = ( m_BinCounter <= 50 ? m_P0 : (m_P0 + m_P1) >> 1 ) - 16384;
+                                                                          const  int32_t mask = ret >> 31;
+                                                                          return uint8_t( ( ret ^ mask  ) >> 9  ); }
+  uint8_t         mps               ()                            const { return uint8_t( m_BinCounter <= 50 ? m_P0 >> 14 : ( m_P0 + m_P1 ) >> 15 ); }
+  uint8_t         getLPS            ( unsigned range )            const { return m_LPSTable_32_8[ state() ][ (range>>5) & 7 ]; }
+public:
+  uint64_t        estFracExcessBits ( const BinProbModel_MPI& r ) const
+  {
+    const  int32_t prob = ( m_BinCounter <= 50 ? m_P0 : (m_P0 + m_P1) >> 1 );
+    return uint32_t( ( int64_t(32768 - prob) * r.estFracBits(0) + int64_t(prob) * r.estFracBits(1) + ( 1 << ( SCALE_BITS - 1 ) ) ) >> SCALE_BITS );
+  }
+private:
+  uint8_t m_BinCounter;
+};
+
+class BinProbModel_MPCW : public BinProbModel_MP
+{
+public:
+  BinProbModel_MPCW () : BinProbModel_MP(), m_CustomLog2WindowSize0( 4 ), m_CustomLog2WindowSize1( 8 )  {}
+  ~BinProbModel_MPCW()                                        {}
+public:
+  void  update( unsigned bin )
+  {
+    if( bin )
+    {
+      m_P0 += ( uint16_t( 32768 - m_P0 ) >> m_CustomLog2WindowSize0 );
+      m_P1 += ( uint16_t( 32768 - m_P1 ) >> m_CustomLog2WindowSize1 );
+    }
+    else
+    {
+      m_P0 -= ( m_P0 >> m_CustomLog2WindowSize0 );
+      m_P1 -= ( m_P1 >> m_CustomLog2WindowSize1 );
+    }
+  }
+  void setLog2WindowSize( uint8_t log2WindowSize )
+  {
+    if(log2WindowSize)
+    {
+      m_CustomLog2WindowSize0 = ( log2WindowSize >> 4 )&0xF;
+      m_CustomLog2WindowSize1 = log2WindowSize&0xF;
+    }
+    else
+    {
+      m_CustomLog2WindowSize0 = m_Log2WindowSize0;
+      m_CustomLog2WindowSize1 = m_Log2WindowSize1;
+    }
+  }
+  void            estFracBitsUpdate ( unsigned bin, uint64_t& b ){ b += BinProbModel_MP::estFracBits( bin ); update( bin ); }
+private:
+  uint8_t m_CustomLog2WindowSize0;
+  uint8_t m_CustomLog2WindowSize1;
+};
 
 
 
@@ -313,26 +440,39 @@ public:
   // context sets: specify offset and size
   static const CtxSet   SplitFlag;
   static const CtxSet   BTSplitFlag;
+  static const CtxSet   GBSSplitFlag;
+  static const CtxSet   GBSSplitMod;
   static const CtxSet   SkipFlag;
   static const CtxSet   MergeFlag;
   static const CtxSet   MergeIdx;
+  static const CtxSet   MergeList;
   static const CtxSet   PartSize;
   static const CtxSet   PredMode;
   static const CtxSet   IPredMode       [2];    // [ ChannelType ]
+  static const CtxSet   IntraNNFlag;
+  static const CtxSet   IntraPredModeANN[2];    // [ ChannelType ]
+  static const CtxSet   NSST_For_NN_Ctxts;
+
+  static const CtxSet   FtmFlag;                // Context model for FTM flag
+  static const CtxSet   FtmReg          [2];    // Context model for FTM regions
+  static const CtxSet   MrlIdx;
   static const CtxSet   PdpcFlag;
   static const CtxSet   DeltaQP;
   static const CtxSet   InterDir;
   static const CtxSet   RefPic;
   static const CtxSet   AffineFlag;
   static const CtxSet   Mvd;
+  static const CtxSet   MultiHypothesisFlag;
+  static const CtxSet   MHRefPic;
+  static const CtxSet   MHWeight;
   static const CtxSet   TransSubdivFlag;
   static const CtxSet   QtRootCbf;
-  static const CtxSet   QtCbf           [2];    // [ ChannelType ]
+  static const CtxSet   QtCbf           [3];    // [ ChannelType + INTER_CHANNEL_CBF ]
   static const CtxSet   SigCoeffGroup   [4];    // [ ChannelType ]
-  static const CtxSet   SigFlag         [4];    // [ ChannelType ]
+  static const CtxSet   SigFlag        [10];    // [ ChannelType ]
   static const CtxSet   LastX           [2];    // [ ChannelType ]
   static const CtxSet   LastY           [2];    // [ ChannelType ]
-  static const CtxSet   GreaterOneFlag  [8];    // [ ContextSet  ]
+  static const CtxSet   GreaterOneFlag [16];    // [ ContextSet  ]
   static const CtxSet   GreaterTwoFlag;
   static const CtxSet   MVPIdx;
   static const CtxSet   SaoMergeFlag;
@@ -346,6 +486,7 @@ public:
   static const CtxSet   RdpcmDir;
   static const CtxSet   EMTTuIndex;
   static const CtxSet   EMTCuFlag;
+  static const CtxSet   Mode1dPartitions;
   static const CtxSet   CrossCompPred;
   static const CtxSet   ChromaQpAdjFlag;
   static const CtxSet   ChromaQpAdjIdc;
@@ -354,6 +495,10 @@ public:
   static const CtxSet   ObmcFlag;
   static const CtxSet   FrucFlag;
   static const CtxSet   FrucMode;
+  static const CtxSet   DiffusionFilterIdx;
+#if THRESHOLDING
+  static const CtxSet   Thresholding;
+#endif
   static const unsigned NumberOfContexts;
 
   // combined sets for less complex copying
@@ -432,6 +577,9 @@ public:
   Ctx( const BinProbModel_JMP*    dummy );
   Ctx( const BinProbModel_JAW*    dummy );
   Ctx( const BinProbModel_JMPAW*  dummy );
+  Ctx( const BinProbModel_MP*     dummy );
+  Ctx( const BinProbModel_MPI*    dummy );
+  Ctx( const BinProbModel_MPCW*   dummy );
   Ctx( const Ctx&                 ctx   );
 
 public:
@@ -458,7 +606,6 @@ public:
     }
     return defWinSize;
   }
-
   const Ctx& operator= ( const Ctx& ctx )
   {
     m_BPMType = ctx.m_BPMType;
@@ -468,6 +615,9 @@ public:
     case BPM_JMP:   m_CtxStore_JMP  .copyFrom( ctx.m_CtxStore_JMP   );  break;
     case BPM_JAW:   m_CtxStore_JAW  .copyFrom( ctx.m_CtxStore_JAW   );  break;
     case BPM_JMPAW: m_CtxStore_JMPAW.copyFrom( ctx.m_CtxStore_JMPAW );  break;
+    case BPM_MP:    m_CtxStore_MP   .copyFrom( ctx.m_CtxStore_MP    );  break;
+    case BPM_MPI:   m_CtxStore_MPI  .copyFrom( ctx.m_CtxStore_MPI   );  break;
+    case BPM_MPCW:  m_CtxStore_MPCW .copyFrom( ctx.m_CtxStore_MPCW  );  break;
     default:        break;
     }
     ::memcpy( m_GRAdaptStats, ctx.m_GRAdaptStats, sizeof( unsigned ) * RExt__GOLOMB_RICE_ADAPTATION_STATISTICS_SETS );
@@ -483,6 +633,9 @@ public:
     case BPM_JMP:   m_CtxStore_JMP  .copyFrom( subCtx.m_Ctx.m_CtxStore_JMP,   subCtx.m_CtxSet );  break;
     case BPM_JAW:   m_CtxStore_JAW  .copyFrom( subCtx.m_Ctx.m_CtxStore_JAW,   subCtx.m_CtxSet );  break;
     case BPM_JMPAW: m_CtxStore_JMPAW.copyFrom( subCtx.m_Ctx.m_CtxStore_JMPAW, subCtx.m_CtxSet );  break;
+    case BPM_MP:    m_CtxStore_MP   .copyFrom( subCtx.m_Ctx.m_CtxStore_MP,    subCtx.m_CtxSet );  break;
+    case BPM_MPI:   m_CtxStore_MPI  .copyFrom( subCtx.m_Ctx.m_CtxStore_MPI,   subCtx.m_CtxSet );  break;
+    case BPM_MPCW:  m_CtxStore_MPCW .copyFrom( subCtx.m_Ctx.m_CtxStore_MPCW,  subCtx.m_CtxSet );  break;
     default:        break;
     }
     return std::move(subCtx);
@@ -496,6 +649,9 @@ public:
     case BPM_JMP:   m_CtxStore_JMP  .init( qp, initId );  break;
     case BPM_JAW:   m_CtxStore_JAW  .init( qp, initId );  break;
     case BPM_JMPAW: m_CtxStore_JMPAW.init( qp, initId );  break;
+    case BPM_MP:    m_CtxStore_MP   .init( qp, initId );  break;
+    case BPM_MPI:   m_CtxStore_MPI  .init( qp, initId );  break;
+    case BPM_MPCW:  m_CtxStore_MPCW .init( qp, initId );  m_CtxStore_MPCW.setWinSizes( ContextSetCfg::getInitTable(initId+NUMBER_OF_SLICE_TYPES) );  break;
     default:        break;
     }
     for( std::size_t k = 0; k < RExt__GOLOMB_RICE_ADAPTATION_STATISTICS_SETS; k++ )
@@ -512,6 +668,9 @@ public:
     case BPM_JMP:   m_CtxStore_JMP  .loadPStates( probStates );  break;
     case BPM_JAW:   m_CtxStore_JAW  .loadPStates( probStates );  break;
     case BPM_JMPAW: m_CtxStore_JMPAW.loadPStates( probStates );  break;
+    case BPM_MP:    m_CtxStore_MP   .loadPStates( probStates );  break;
+    case BPM_MPI:   m_CtxStore_MPI  .loadPStates( probStates );  break;
+    case BPM_MPCW:  m_CtxStore_MPCW .loadPStates( probStates );  break;
     default:        break;
     }
   }
@@ -524,6 +683,9 @@ public:
     case BPM_JMP:   m_CtxStore_JMP  .savePStates( probStates );  break;
     case BPM_JAW:   m_CtxStore_JAW  .savePStates( probStates );  break;
     case BPM_JMPAW: m_CtxStore_JMPAW.savePStates( probStates );  break;
+    case BPM_MP:    m_CtxStore_MP   .savePStates( probStates );  break;
+    case BPM_MPI:   m_CtxStore_MPI  .savePStates( probStates );  break;
+    case BPM_MPCW:  m_CtxStore_MPCW .savePStates( probStates );  break;
     default:        break;
     }
   }
@@ -540,7 +702,6 @@ public:
       }
     }
   }
-
   void  initCtxAndWinSize( unsigned ctxId, const Ctx& ctx, const uint8_t winSize )
   {
     switch( m_BPMType )
@@ -559,8 +720,19 @@ public:
       break;
     case BPM_JMPAW:
       m_CtxStore_JMPAW[ctxId] = ctx.m_CtxStore_JMPAW[ctxId];
-      m_CtxStore_JMPAW[ctxId] .setLog2WindowSize    (winSize);
+      m_CtxStore_JMPAW[ctxId] . setLog2WindowSize   (winSize);
       break;
+    case BPM_MP:
+      m_CtxStore_MP   [ctxId] = ctx.m_CtxStore_MP   [ctxId];
+      m_CtxStore_MP   [ctxId] . setLog2WindowSize   (winSize);
+      break;
+    case BPM_MPI:
+      m_CtxStore_MPI  [ctxId] = ctx.m_CtxStore_MPI  [ctxId];
+      m_CtxStore_MPI  [ctxId] . setLog2WindowSize   (winSize);
+      break;
+    case BPM_MPCW:
+      m_CtxStore_MPCW [ctxId] = ctx.m_CtxStore_MPCW [ctxId];
+      m_CtxStore_MPCW [ctxId] . setLog2WindowSize   (winSize);
     default:
       break;
     }
@@ -582,6 +754,12 @@ public:
   explicit operator         CtxStore<BinProbModel_JAW>  &()           { return m_CtxStore_JAW;  }
   explicit operator   const CtxStore<BinProbModel_JMPAW>&()     const { return m_CtxStore_JMPAW;  }
   explicit operator         CtxStore<BinProbModel_JMPAW>&()           { return m_CtxStore_JMPAW;  }
+  explicit operator   const CtxStore<BinProbModel_MP>   &()     const { return m_CtxStore_MP;  }
+  explicit operator         CtxStore<BinProbModel_MP>   &()           { return m_CtxStore_MP;  }
+  explicit operator   const CtxStore<BinProbModel_MPI>  &()     const { return m_CtxStore_MPI; }
+  explicit operator         CtxStore<BinProbModel_MPI>  &()           { return m_CtxStore_MPI; }
+  explicit operator   const CtxStore<BinProbModel_MPCW> &()     const { return m_CtxStore_MPCW; }
+  explicit operator         CtxStore<BinProbModel_MPCW> &()           { return m_CtxStore_MPCW; }
 
   const FracBitsAccess&   getFracBitsAcess()  const
   {
@@ -591,6 +769,9 @@ public:
     case BPM_JMP:   return m_CtxStore_JMP;
     case BPM_JAW:   return m_CtxStore_JAW;
     case BPM_JMPAW: return m_CtxStore_JMPAW;
+    case BPM_MP:    return m_CtxStore_MP;
+    case BPM_MPI:   return m_CtxStore_MPI;
+    case BPM_MPCW:  return m_CtxStore_MPCW;
     default:        THROW("BPMType out of range");
     }
   }
@@ -601,8 +782,17 @@ private:
   CtxStore<BinProbModel_JMP>    m_CtxStore_JMP;
   CtxStore<BinProbModel_JAW>    m_CtxStore_JAW;
   CtxStore<BinProbModel_JMPAW>  m_CtxStore_JMPAW;
+  CtxStore<BinProbModel_MP>     m_CtxStore_MP;
+  CtxStore<BinProbModel_MPI>    m_CtxStore_MPI;
+  CtxStore<BinProbModel_MPCW>   m_CtxStore_MPCW;
 protected:
   unsigned                      m_GRAdaptStats[RExt__GOLOMB_RICE_ADAPTATION_STATISTICS_SETS];
+#if HHI_SPLIT_PARALLELISM || HHI_WPP_PARALLELISM
+
+public:
+  int64_t cacheId;
+  bool    cacheUsed;
+#endif
 };
 
 
@@ -628,40 +818,74 @@ private:
 };
 
 
+
+class CtxStateBuf
+{
+public:
+  CtxStateBuf () : m_valid(false)                 {}
+  ~CtxStateBuf()                                  {}
+  __inline void reset       ()                    {   m_valid = false; }
+  __inline bool getIfValid  ( Ctx& ctx )  const   { if( m_valid ) { ctx.loadPStates( m_states ); return true; } return false; }
+  __inline void store ( const Ctx& ctx )          { ctx.savePStates( m_states ); m_valid = true; }
+private:
+  std::vector<uint16_t> m_states;
+  bool                  m_valid;
+};
+
+class CtxStateArray
+{
+public:
+  CtxStateArray () {}
+  ~CtxStateArray() {}
+  __inline void resetAll    ()                              { for( std::size_t k = 0; k < m_data.size(); k++ ) { m_data[k].reset(); } }
+  __inline void resize      ( std::size_t reqSize )         { if( m_data.size() < reqSize ) { m_data.resize(reqSize); } }
+  __inline bool getIfValid  ( Ctx& ctx, unsigned id ) const { if( id <  m_data.size() ) { return m_data[id].getIfValid(ctx); } return false; }
+  __inline void store ( const Ctx& ctx, unsigned id )       { if( id >= m_data.size() ) { resize(id+1); } m_data[id].store(ctx); }    
+private:
+  std::vector<CtxStateBuf> m_data;
+};
+
 class CtxStateStore
 {
-  public:
-    CtxStateStore() : m_bufValid{ { false } } { static_assert( ( B_SLICE < NUMBER_OF_SLICE_TYPES - 1 ) && ( P_SLICE < NUMBER_OF_SLICE_TYPES - 1 ), "index out of bound" ); }
-    ~CtxStateStore()                          {}
+public:
+  CtxStateStore () { static_assert( ( B_SLICE < NUMBER_OF_SLICE_TYPES - 1 ) && ( P_SLICE < NUMBER_OF_SLICE_TYPES - 1 ), "index out of bound" ); }
+  ~CtxStateStore() {}
 
-    void storeCtx( const Slice* slice, const Ctx& ctx )
+  void storeCtx( const Slice* slice, const Ctx& ctx, int id )
+  {
+    SliceType t = slice->getSliceType();
+    if( t != I_SLICE )
     {
-      SliceType t   = slice->getSliceType();
-      int       qp  = slice->getSliceQpBase();
-      if( t != I_SLICE )
+      CtxStateArray& ctxStateArray = m_stateBuf[ t ][ slice->getSliceQpBase() ];
+      ctxStateArray.resize( slice->getPPS()->pcv->heightInCtus + 1 );
+      ctxStateArray.store ( ctx, id );
+    }
+  }
+  bool loadCtx( const Slice* slice, Ctx& ctx, int id ) const
+  {
+    SliceType t = slice->getSliceType();
+    if( t != I_SLICE )
+    {
+      const CtxStateArray& ctxStateArray = m_stateBuf[ t ][ slice->getSliceQpBase() ];
+      return ctxStateArray.getIfValid( ctx, id );
+    }
+    return false;
+  }
+  void clearValid()
+  {
+    for( int t = 0; t < NUMBER_OF_SLICE_TYPES - 1; t++ )
+    {
+      for( int q = 0; q <= MAX_QP; q++ )
       {
-        ctx.savePStates( m_pStateBuffer[ t ][ qp ] );
-        m_bufValid [ t ][ qp ] = true;
+        m_stateBuf[t][q].resetAll();
       }
     }
-    void loadCtx ( const Slice* slice, Ctx& ctx ) const
-    {
-      SliceType t   = slice->getSliceType();
-      int       qp  = slice->getSliceQpBase();
-      if( t != I_SLICE && m_bufValid[t][qp] )
-      {
-        ctx.loadPStates( m_pStateBuffer[ t ][ qp ] );
-      }
-    }
-    void clearValid()
-    {
-      memset( m_bufValid, 0, sizeof( m_bufValid ) );
-    }
+  }
 
-  private:
-    std::vector<uint16_t> m_pStateBuffer[ NUMBER_OF_SLICE_TYPES - 1 ][ MAX_QP + 1 ];
-    bool                  m_bufValid    [ NUMBER_OF_SLICE_TYPES - 1 ][ MAX_QP + 1 ];
+private:
+  CtxStateArray m_stateBuf[ NUMBER_OF_SLICE_TYPES - 1 ][ MAX_QP + 1 ];
 };
+
 
 
 class CtxWSizeSet
@@ -731,4 +955,32 @@ private:
 };
 
 
+class CABACDataStore
+{
+public:
+  void                        checkInit               ( const SPS*    sps  )        {        m_CtxWSizeStore.checkInit(sps); }
+  bool                        validWinSizes           ( const Slice* slice )  const { return m_CtxWSizeStore.validWinSizes(slice); }
+  void                        setSliceWinUpdateMode   (       Slice* slice )  const {        m_CtxWSizeStore.setSliceWinUpdateMode(slice); }
+  void                        setWSizeSetValid        ( const Slice* slice )        {        m_CtxWSizeStore.getWSizeSet(slice).setValid( Ctx::getDefaultWindowSize( slice->getSPS()->getSpsNext().getCABACEngineMode() ) ); }
+  void                        setWSizeSetCoded        ( const Slice* slice )        {        m_CtxWSizeStore.getWSizeSet(slice).setCoded(); }
+  const std::vector<uint8_t>& getWSizeWriteBuffer     ( const Slice* slice )        { return m_CtxWSizeStore.getWriteBuffer(slice); }
+  std::vector<uint8_t>&       getWSizeReadBuffer      ()                            { return m_CtxWSizeStore.getReadBuffer(); }
+  const std::vector<uint8_t>* getWinSizes             ( const Slice* slice )  const { return m_CtxWSizeStore.getWinSizes(slice); }
+  std::vector<uint8_t>&       getWinSizeBuffer        ( const Slice* slice )        { return m_CtxWSizeStore.getWSizeSet(slice).getWinSizeBuffer(); }
+  std::size_t                 getNumWSizeCodeIds      ()                      const { return m_CtxWSizeStore.getNumCodeIds(); }
+  int                         getCtxIdFromWSizeCodeId ( std::size_t  id    )  const { return m_CtxWSizeStore.getCtxId(id); }
+  bool loadCtxStates     ( const Slice* slice,       Ctx& ctx, int id ) const { return m_CtxStateStore.loadCtx ( slice, ctx, id ); }
+  void storeCtxStates    ( const Slice* slice, const Ctx& ctx, int id )       {        m_CtxStateStore.storeCtx( slice, ctx, id ); }
+  void updateBufferState ( const Slice* slice )
+  {
+    if ( slice->getPendingRasInit() )
+    {
+      m_CtxStateStore.clearValid();
+    }
+    m_CtxWSizeStore.updateState( slice, true );
+  }
+private:
+  CtxStateStore       m_CtxStateStore;
+  CtxWSizeStore       m_CtxWSizeStore;
+};
 #endif

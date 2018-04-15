@@ -80,7 +80,7 @@ Bool DecAppCfg::parseCfg( Int argc, TChar* argv[] )
 #if HHI_SIMD_OPT
   ("SIMD",                      ignore,                                string(""), "SIMD extension to use (SCALAR, SSE41, SSE42, AVX, AVX2, AVX512), default: the highest supported extension\n")
 #endif
-      
+
   ("WarnUnknowParameter,w",     warnUnknowParameter,                   0,          "warn for unknown configuration parameters instead of failing")
   ("SkipFrames,s",              m_iSkipFrame,                          0,          "number of frames to skip before random access")
   ("OutputBitDepth,d",          m_outputBitDepth[CHANNEL_TYPE_LUMA],   0,          "bit depth of YUV output luma component (default: use 0 for native depth)")
@@ -96,10 +96,15 @@ Bool DecAppCfg::parseCfg( Int argc, TChar* argv[] )
   ("SEIColourRemappingInfoFilename",  m_colourRemapSEIFileName,        string(""), "Colour Remapping YUV output file name. If empty, no remapping is applied (ignore SEI message)\n")
   ("OutputDecodedSEIMessagesFilename",  m_outputDecodedSEIMessagesFilename,    string(""), "When non empty, output decoded SEI messages to the indicated file. If file is '-', then output to stdout\n")
   ("ClipOutputVideoToRec709Range",      m_bClipOutputVideoToRec709Range,  false,   "If true then clip output video to the Rec. 709 Range on saving")
+  ("DiscardPrefixSEIBits",      m_bDiscardPrefixSEIBits,                false,     "discard prefix SEI bits in per pic statistics(default: 0)")
+  ("DiscardSuffixSEIBits",      m_bDiscardSuffixSEIBits,                true,      "discard suffix SEI bits in per pic statistics(default: 1)")
 #if ENABLE_TRACING
   ("TraceChannelsList",         bTracingChannelsList,                        false, "List all available tracing channels" )
   ("TraceRule",                 sTracingRule,                         string( "" ), "Tracing rule (ex: \"D_CABAC:poc==8\" or \"D_REC_CB_LUMA:poc==8\")" )
   ("TraceFile",                 sTracingFile,                         string( "" ), "Tracing file" )
+#endif
+#if MCTS_ENC_CHECK
+  ( "TMCTSCheck",               m_tmctsCheck,                           false, "    If enabled, the decoder checks for violations of mc_exact_sample_value_match_flag in Temporal MCTS " )
 #endif
   ;
 
@@ -217,6 +222,11 @@ DecAppCfg::DecAppCfg()
 , m_respectDefDispWindow(0)
 , m_outputDecodedSEIMessagesFilename()
 , m_bClipOutputVideoToRec709Range(false)
+, m_bDiscardPrefixSEIBits( false )
+, m_bDiscardSuffixSEIBits( false )
+#if MCTS_ENC_CHECK
+, m_tmctsCheck( false )
+#endif
 {
   for (UInt channelTypeIndex = 0; channelTypeIndex < MAX_NUM_CHANNEL_TYPE; channelTypeIndex++)
   {
@@ -224,11 +234,11 @@ DecAppCfg::DecAppCfg()
   }
 }
 
-DecAppCfg::~DecAppCfg() 
+DecAppCfg::~DecAppCfg()
 {
 #if ENABLE_TRACING
   tracing_uninit( g_trace_ctx );
-#endif 
+#endif
 }
 
 //! \}

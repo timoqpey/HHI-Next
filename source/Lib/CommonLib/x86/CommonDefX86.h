@@ -43,17 +43,7 @@
 //! \ingroup CommonLib
 //! \{
 
-
-#if defined _MSC_VER
-#include <tmmintrin.h>
-#if _MSC_VER >= 1910
-#include <smmintrin.h>
-#include <intrin.h>
-#endif
-#else
 #include <immintrin.h>
-#endif
-
 
 #ifdef USE_AVX512
 #define SIMDX86 AVX512
@@ -192,22 +182,19 @@ static inline __m128i _mm_clip_epi8(__m128i v, __m128i low, __m128i hi)
 
 // will be available in AVX2-512
 #ifndef USE_AVX512
-namespace emu {
-static inline __m128i _mm256_cvtsepi32_epi16( __m256i I )
+#if ( _MSC_VER < 1910 )
+static inline __m128i _mm256_cvtsepi32_epi16_wrapper(__m256i I)
 {
-  __m256i T = _mm256_packs_epi32( I, I );  // Saturate_Int32_To_Int16
-  T = _mm256_permute4x64_epi64( T, 0xD8 ); // permute 1 <-> 2
-  return ( _mm256_castsi256_si128( T ) );
+  __m256i T = _mm256_packs_epi32(I, I);  // Saturate_Int32_To_Int16
+  T = _mm256_permute4x64_epi64(T, 0xD8); // permute 1 <-> 2
+  return (_mm256_castsi256_si128(T));
 }
-
-
-static inline __m128i _mm256_cvtsepi16_epu8( __m256i I )
+#else
+static inline __m128i _mm256_cvtsepi32_epi16_wrapper(__m256i I)
 {
-  __m256i T = _mm256_packus_epi16( I, I ); // Saturate_Int16_To_UnsignedInt8
-  T = _mm256_permute4x64_epi64( T, 0xD8 ); // permute 1 <-> 2
-  return ( _mm256_castsi256_si128( T ) );
+  return _mm256_cvtsepi32_epi16( I );
 }
-}
+#endif
 #endif
 
 

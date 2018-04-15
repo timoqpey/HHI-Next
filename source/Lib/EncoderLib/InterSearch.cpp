@@ -49,6 +49,7 @@
 
 
 #include "EncModeCtrl.h"
+#include "EncLib.h"
 
 #include <math.h>
 #include <limits>
@@ -90,6 +91,7 @@ InterSearch::InterSearch()
   , m_pFullCS                     (nullptr)
   , m_pcEncCfg                    (nullptr)
   , m_pcTrQuant                   (nullptr)
+  , m_bilateralFilter             (nullptr)
   , m_iSearchRange                (0)
   , m_bipredSearchRange           (0)
   , m_motionEstimationSearchMethod(MESEARCH_FULL)
@@ -130,6 +132,7 @@ Void InterSearch::destroy()
   }
   m_tmpStorageLCU.destroy();
   m_tmpAffiStorage.destroy();
+  m_tmpStorageMDBP.destroy();
 
   if ( m_tmpAffiError != NULL )
   {
@@ -143,9 +146,7 @@ Void InterSearch::destroy()
   {
     delete[] m_tmpAffiDeri[1];
   }
-
   m_obmcOrgMod.destroy();
-
   m_isInitialized = false;
 }
 
@@ -155,6 +156,18 @@ Void InterSearch::setTempBuffers( CodingStructure ****pSplitCS, CodingStructure 
   m_pFullCS  = pFullCS;
   m_pSaveCS  = pSaveCS;
 }
+
+#if HHI_SPLIT_PARALLELISM
+Void InterSearch::copyState( const InterSearch& other )
+{
+  if( !m_pcEncCfg->getGenBinSplit() && !m_pcEncCfg->getQTBT()  )
+  {
+    memcpy( m_integerMv2Nx2N, other.m_integerMv2Nx2N, sizeof( m_integerMv2Nx2N ) );
+  }
+
+  memcpy( m_aaiAdaptSR, other.m_aaiAdaptSR, sizeof( m_aaiAdaptSR ) );
+}
+#endif
 
 InterSearch::~InterSearch()
 {
@@ -166,6 +179,8 @@ InterSearch::~InterSearch()
 
 Void InterSearch::init( EncCfg*        pcEncCfg,
                         TrQuant*       pcTrQuant,
+                        BilateralFilter*
+                                       bilateralFilter,
                         Int            iSearchRange,
                         Int            bipredSearchRange,
                         MESearchMethod motionEstimationSearchMethod,
@@ -180,6 +195,7 @@ Void InterSearch::init( EncCfg*        pcEncCfg,
   CHECK(m_isInitialized, "Already initialized");
   m_pcEncCfg                     = pcEncCfg;
   m_pcTrQuant                    = pcTrQuant;
+  m_bilateralFilter              = bilateralFilter;
   m_iSearchRange                 = iSearchRange;
   m_bipredSearchRange            = bipredSearchRange;
   m_motionEstimationSearchMethod = motionEstimationSearchMethod;
@@ -223,13 +239,40 @@ Void InterSearch::init( EncCfg*        pcEncCfg,
   m_tmpAffiDeri[0] = new Double[MAX_CU_SIZE * MAX_CU_SIZE];
   m_tmpAffiDeri[1] = new Double[MAX_CU_SIZE * MAX_CU_SIZE];
 
+  m_tmpStorageMDBP.create( UnitArea( cform, Area( 0, 0, MAX_CU_SIZE, MAX_CU_SIZE ) ) );
   m_obmcOrgMod.create( UnitArea( cform, Area( 0, 0, MAX_CU_SIZE, MAX_CU_SIZE ) ) );
-
   m_pTempPel = new Pel[maxCUWidth*maxCUHeight];
 
   m_isInitialized = true;
 }
 
+inline Void InterSearch::getMdbpModeCost( const PredictionUnit& pu, const RefPicList eRefPicList, const Int iRefIdx, const Mv &rcMv, UInt imvShift, MdbpMode& mdbpMode, Distortion& ruiCost )
+{
+  PelUnitBuf predBuf    = m_tmpStorageMDBP.getBuf( UnitAreaRelative(*pu.cu, pu) );
+  const Picture* picRef = pu.cu->slice->getRefPic( eRefPicList, iRefIdx );
+  const SPS& sps        = *pu.cs->sps;
+
+  Mv cMvCand = rcMv;
+  clipMv( cMvCand, pu.cu->lumaPos(), sps );
+
+  m_mdbpPred.estimateMdbpMode( COMPONENT_Y, pu, picRef, cMvCand, mdbpMode );
+
+  if ( mdbpMode.mdMode != MDBP_MODE_OFF )
+  {
+    // use temporary buffer
+    const Pel* const curBuf = m_cDistParam.cur.buf;
+    const int curStride     = m_cDistParam.cur.stride;
+    m_cDistParam.cur.buf    = predBuf.Y().buf;
+    m_cDistParam.cur.stride = predBuf.Y().stride;
+
+    xPredInterBlk( COMPONENT_Y, pu, picRef, cMvCand, predBuf, false, pu.cu->slice->clpRng(COMPONENT_Y), false, false, FRUC_MERGE_OFF, true, mdbpMode );
+    ruiCost = m_cDistParam.distFunc( m_cDistParam );
+
+    // reset original buffer
+    m_cDistParam.cur.buf    = curBuf;
+    m_cDistParam.cur.stride = curStride;
+  }
+}
 
 inline Void InterSearch::xTZSearchHelp( IntTZSearchStruct& rcStruct, const Int iSearchX, const Int iSearchY, const UChar ucPointNr, const UInt uiDistance )
 {
@@ -765,7 +808,7 @@ Void InterSearch::xFRUCMrgEstimation( PredictionUnit& pu, PelUnitBuf& origBuf, D
 #if AMP_MRG
 Void InterSearch::predInterSearch(CodingUnit& cu, Partitioner& partitioner, Bool bUseMRG)
 #else
-Void InterSearch::predInterSearch(CodingUnit& cu)
+Void InterSearch::predInterSearch(CodingUnit& cu, Partitioner& partitioner)
 #endif
 {
   CodingStructure& cs = *cu.cs;
@@ -780,7 +823,6 @@ Void InterSearch::predInterSearch(CodingUnit& cu)
   Mv           cMvBi[2];
   Mv           cMvTemp[2][33];
   Mv           cMvHevcTemp[2][33];
-
   Int          iNumPredDir = cs.slice->isInterP() ? 1 : 2;
 
   Mv           cMvPred[2][33];
@@ -810,8 +852,8 @@ Void InterSearch::predInterSearch(CodingUnit& cu)
 
   // Loop over Prediction Units
   CHECK(!cu.firstPU, "CU does not contain any PUs");
-  UInt         numPUs = CU::getNumPUs(cu);
   UInt         puIdx = 0;
+  UInt         numPUs = CU::getNumPUs(cu);
 
   for( auto &pu : CU::traversePUs( cu ) )
   {
@@ -835,7 +877,6 @@ Void InterSearch::predInterSearch(CodingUnit& cu)
     }
 
     PU::spanMotionInfo( pu );
-
     PelUnitBuf obmcOrgBuf = m_obmcOrgMod.subBuf( UnitAreaRelative( pu, pu ) );
     obmcOrgBuf.copyFrom( pu.cs->getOrgBuf( pu ) );
     //consider OBMC in motion estimation
@@ -881,7 +922,6 @@ Void InterSearch::predInterSearch(CodingUnit& cu)
       SaveLoadEncInfoCtrl* modeCtrl = dynamic_cast<SaveLoadEncInfoCtrl*>( m_modeCtrl );
       bFastSkipAffine = modeCtrl && LOAD_ENC_INFO == modeCtrl->getSaveLoadTag( pu ) && !modeCtrl->getSaveLoadAffineFlag( pu );
     }
-
     unsigned imvShift = pu.cu->imv << 1;
 
 #if AMP_MRG
@@ -978,18 +1018,19 @@ Void InterSearch::predInterSearch(CodingUnit& cu)
         }
       }
 
-      ::memcpy( cMvHevcTemp, cMvTemp, sizeof( cMvTemp ) );
-
+      if( cu.Y().width > 8 && cu.Y().height > 8 && cu.partSize == SIZE_2Nx2N && cu.slice->getSPS()->getSpsNext().getUseAffine() && !cu.LICFlag && cu.imv == 0 && !bFastSkipAffine )
+      {
+        ::memcpy( cMvHevcTemp, cMvTemp, sizeof( cMvTemp ) );
+      }
       auto hevcPartitioner = dynamic_cast<HEVCPartitioner*>( &partitioner );
 
-      if( !bFastSkipBi && m_pcEncCfg->getUseFastLCTU() && m_pcEncCfg->getLargeCTU() && !m_pcEncCfg->getQTBT() && hevcPartitioner )
+      if( !bFastSkipBi && m_pcEncCfg->getUseFastLCTU() && m_pcEncCfg->getLargeCTU() && hevcPartitioner )
       {
         unsigned minDepth = 0;
         unsigned maxDepth = g_aucLog2[pu.cs->sps->getSpsNext().getCTUSize()] - g_aucLog2[pu.cs->sps->getSpsNext().getMinQTSize( B_SLICE, CHANNEL_TYPE_LUMA )];
         hevcPartitioner->setMaxMinDepth( minDepth, maxDepth, cs );
         bFastSkipBi = !(pu.cu->qtDepth < maxDepth || pu.lumaSize().area() >= 64);
       }
-
 
       //  Bi-predictive Motion estimation
       if ( (cs.slice->isInterB()) && ( PU::isBipredRestriction(pu) == false)  && !bFastSkipBi )
@@ -999,8 +1040,8 @@ Void InterSearch::predInterSearch(CodingUnit& cu)
         iRefIdxBi[0] = iRefIdx[0];
         iRefIdxBi[1] = iRefIdx[1];
 
-        ::memcpy(cMvPredBi, cMvPred, sizeof(cMvPred));
-        ::memcpy(aaiMvpIdxBi, aaiMvpIdx, sizeof(aaiMvpIdx));
+        ::memcpy( cMvPredBi,   cMvPred,   sizeof( cMvPred   ) );
+        ::memcpy( aaiMvpIdxBi, aaiMvpIdx, sizeof( aaiMvpIdx ) );
 
         UInt uiMotBits[2];
 
@@ -1106,12 +1147,13 @@ Void InterSearch::predInterSearch(CodingUnit& cu)
               }
             }
             uiBitsTemp += m_auiMVPIdxCost[aaiMvpIdxBi[iRefList][iRefIdxTemp]][AMVP_MAX_NUM_CANDS];
+            if( cs.sps->getSpsNext().getUseInterMultiHyp() )
+              uiBitsTemp++; // terminating 0 mh_flag
 
             // call ME
             xCopyAMVPInfo(&aacAMVPInfo[iRefList][iRefIdxTemp], &amvp[eRefPicList] );
             xMotionEstimation ( pu, origBuf, eRefPicList, cMvPredBi[iRefList][iRefIdxTemp], iRefIdxTemp, cMvTemp[iRefList][iRefIdxTemp], aaiMvpIdxBi[iRefList][iRefIdxTemp], uiBitsTemp, uiCostTemp, amvp[eRefPicList], true );
             xCheckBestMVP( eRefPicList, cMvTemp[iRefList][iRefIdxTemp], cMvPredBi[iRefList][iRefIdxTemp], aaiMvpIdxBi[iRefList][iRefIdxTemp], amvp[eRefPicList], uiBitsTemp, uiCostTemp, pu.cu->imv);
-
             if ( uiCostTemp < uiCostBi )
             {
               bChanged = true;
@@ -1287,13 +1329,16 @@ Void InterSearch::predInterSearch(CodingUnit& cu)
       {
         pu = savedPU;
       }
-      uiHevcCost = ( uiMRGCost < uiMECost ) ? uiMRGCost : uiMECost;
+      if( cs.sps->getSpsNext().getUseInterMultiHyp() && !pu.mergeFlag && pu.interDir == 3 )
+      {
+        predInterSearchMultiHypotheseis( pu, origBuf, uiMEError );
+      }
+      // uiHevcCost is only relevant for 2Nx2N
     }
     if( cu.cs->pcv->only2Nx2N || cu.partSize == SIZE_2Nx2N )
     {
       uiHevcCost = ( uiCostBi <= uiCost[0] && uiCostBi <= uiCost[1] ) ? uiCostBi : ( ( uiCost[0] <= uiCost[1] ) ? uiCost[0] : uiCost[1] );
     }
-
     CHECK( !( !cu.cs->pcv->only2Nx2N || cu.partSize == SIZE_2Nx2N ), "Unexpected part size for QTBT." );
     if( cu.Y().width > 8 && cu.Y().height > 8 && cu.partSize == SIZE_2Nx2N && cu.slice->getSPS()->getSpsNext().getUseAffine() && !cu.LICFlag && cu.imv == 0 && !bFastSkipAffine )
     {
@@ -1342,12 +1387,11 @@ Void InterSearch::predInterSearch(CodingUnit& cu)
         uiLastMode = uiLastModeTemp;
       }
     }
-
     m_maxCompIDToPred = MAX_NUM_COMPONENT;
 
     if( pu.frucMrgMode == FRUC_MERGE_OFF )
     {
-      PU::spanMotionInfo( pu, mergeCtx ); // TODO: add sub pu setter for fruc
+      PU::spanMotionInfo( pu, mergeCtx );
     }
 
     //  MC
@@ -1362,6 +1406,128 @@ Void InterSearch::predInterSearch(CodingUnit& cu)
 }
 
 
+int InterSearch::predInterSearchMultiHypotheseis( PredictionUnit& pu, PelUnitBuf& origBuf, Distortion uiPrevCost )
+{
+  const SPS &sps = *pu.cs->sps;
+  CHECK( !sps.getSpsNext().getUseInterMultiHyp(), "Multi Hyp is not active" );
+  CHECK( !pu.cs->slice->isInterB(), "Multi Hyp only allowed in B slices" );
+  CHECK(pu.cu->predMode != MODE_INTER, "Multi Hyp: pu.cu->predMode != MODE_INTER");
+  CHECK(pu.interDir != 3, "Multi Hyp: pu.interDir != 3");
+  CHECK(pu.mergeFlag, "Multi Hyp: pu.mergeFlag");
+  CHECK(!pu.addHypData.empty(), "Multi Hyp: !pu.addHypData.empty()");
+
+  int prevBits = 0;
+  const size_t maxNumAddHyps = sps.getSpsNext().getMaxNumAddHyps();
+  while( pu.addHypData.size() < maxNumAddHyps )
+  {
+    const int addHypBits = predInterSearchAdditionalHypothesis( pu ) + prevBits;
+    const Distortion uiAddHypError = xGetInterPredictionError( pu, origBuf );
+    const Distortion uiAddHypCost = uiAddHypError + m_pcRdCost->getCost( addHypBits );
+
+    if( uiAddHypCost >= uiPrevCost )
+    {
+      // it's getting worse ==> remove last hypothesis
+      CHECK(pu.addHypData.empty(), "Multi Hyp: pu.addHypData.empty()");
+      pu.addHypData.pop_back();
+      break;
+    }
+    uiPrevCost = uiAddHypCost;
+    prevBits = addHypBits;
+  }
+  return prevBits;
+}
+
+int InterSearch::predInterSearchAdditionalHypothesis( PredictionUnit& pu )
+{
+  const SPS &sps = *pu.cs->sps;
+  CHECK(!sps.getSpsNext().getUseInterMultiHyp(), "Multi Hyp is not active");
+  CHECK(!pu.cs->slice->isInterB(), "Multi Hyp only allowed in B slices");
+  CHECK(pu.cu->predMode != MODE_INTER, "Multi Hyp: pu.cu->predMode != MODE_INTER");
+
+  // get first prediction hypothesis
+  PelUnitBuf tempPredBuf = pu.cs->getPredBuf(pu);
+  motionCompensation( pu );
+
+  const auto &MHRefPics = pu.cs->slice->getMultiHypRefPicList();
+  const int iNumMHRefPics = int(MHRefPics.size());
+  CHECK(iNumMHRefPics <= 0, "Multi Hyp: iNumMHRefPics <= 0");
+
+  const CPelUnitBuf origBuf = pu.cs->getOrgBuf(pu);
+
+  PelStorage tempOrigBuf;
+  tempOrigBuf.create( pu );
+
+  MultiHypPredictionData tempMHPredData, bestMHPredData;
+  Distortion uiCostBest = std::numeric_limits<Distortion>::max();
+  UInt uiBitsBest = 0;
+
+  const int numWeights = sps.getSpsNext().getNumAddHypWeights();
+  for( tempMHPredData.weightIdx = 0; tempMHPredData.weightIdx < numWeights; ++tempMHPredData.weightIdx )
+  {
+    tempOrigBuf.copyFrom( origBuf );
+
+    //consider OBMC in motion estimation
+    subBlockOBMC( pu, &tempOrigBuf, true );
+    tempOrigBuf.removeHighFreq( tempPredBuf, m_pcEncCfg->getClipForBiPredMeEnabled(), pu.cu->slice->clpRngs(), g_addHypWeight[tempMHPredData.weightIdx] );
+    for( tempMHPredData.refIdx = 0; tempMHPredData.refIdx < iNumMHRefPics; ++tempMHPredData.refIdx )
+    {
+      tempMHPredData.mvpIdx = 0;
+      {
+        const int iRefPicList = MHRefPics[tempMHPredData.refIdx].refList;
+        const int iRefIdxPred = MHRefPics[tempMHPredData.refIdx].refIdx;
+        const RefPicList eRefPicList = RefPicList( iRefPicList );
+        auto amvpInfo = PU::getMultiHypMVPCands( pu, tempMHPredData.refIdx );
+        Mv cMvPred = amvpInfo.mvCand[tempMHPredData.mvpIdx];
+        UInt uiBits = getAdditionalHypothesisInitialBits( tempMHPredData, numWeights, iNumMHRefPics );
+        if( (pu.addHypData.size()+1-pu.numMergedAddHyps) < sps.getSpsNext().getMaxNumAddHyps() )
+          uiBits++;
+        Mv cMv(0, 0);
+        Distortion uiCostTemp = 0;
+
+        xMotionEstimation( pu, tempOrigBuf, eRefPicList, cMvPred, iRefIdxPred, cMv, tempMHPredData.mvpIdx, uiBits, uiCostTemp, amvpInfo, false, g_addHypWeight[tempMHPredData.weightIdx] );
+        xCheckBestMVP( eRefPicList, cMv, cMvPred, tempMHPredData.mvpIdx, amvpInfo, uiBits, uiCostTemp, pu.cu->imv );
+
+        if( uiCostTemp < uiCostBest )
+        {
+          bestMHPredData = tempMHPredData;
+          bestMHPredData.mv = cMv;
+          bestMHPredData.mvd = cMv - cMvPred;
+          uiCostBest = uiCostTemp;
+          uiBitsBest = uiBits;
+        }
+      }
+    }
+  }
+
+  CHECK(uiCostBest == std::numeric_limits<Distortion>::max(), "Multi Hyp: No additional hypothesis with finite cost found!");
+
+  pu.addHypData.push_back( bestMHPredData );
+  return uiBitsBest;
+}
+
+inline unsigned InterSearch::getAdditionalHypothesisInitialBits( const MultiHypPredictionData& mhData,
+                                                                 const int iNumWeights,
+                                                                 const int iNumMHRefPics )
+{
+  unsigned uiBits = 0;
+
+  // weight idx
+  uiBits += mhData.weightIdx+1;
+  if( mhData.weightIdx == iNumWeights-1 )
+    uiBits--;
+
+  // AMVP flag
+  uiBits++;
+
+  // ref idx
+  uiBits += mhData.refIdx+1;
+  if ( mhData.refIdx == iNumMHRefPics-1 )
+  {
+    uiBits--;
+  }
+
+  return uiBits;
+}
 
 
 // AMVP
@@ -1498,7 +1664,6 @@ Void InterSearch::xCheckBestMVP ( RefPicList eRefPicList, Mv cMv, Mv& rcMvPred, 
   {
     return;
   }
-
   unsigned imvshift = imv << 1;
 
   AMVPInfo* pcAMVPInfo = &amvpInfo;
@@ -1565,11 +1730,22 @@ Distortion InterSearch::xGetTemplateCost( const PredictionUnit& pu,
 
   clipMv( cMvCand, pu.cu->lumaPos(), *pu.cs->sps );
 
+  MdbpMode mdbpMode;
+  if( PU::isMdbpPredEnabled( pu, cMvCand ) )
+  {
+    m_mdbpPred.estimateMdbpMode( COMPONENT_Y, pu, picRef, cMvCand, mdbpMode );
+  }
 
   // prediction pattern
   const Bool bi = !pu.cu->LICFlag && pu.cu->slice->testWeightPred() && pu.cu->slice->getSliceType()==P_SLICE;
-  xPredInterBlk( COMPONENT_Y, pu, picRef, cMvCand, predBuf, bi, pu.cu->slice->clpRng( COMPONENT_Y ), false, false, FRUC_MERGE_OFF, true );
 
+  
+  xPredInterBlk( COMPONENT_Y, pu, picRef, cMvCand, predBuf, bi, pu.cu->slice->clpRng( COMPONENT_Y )
+                , false, false, FRUC_MERGE_OFF, true
+                , mdbpMode
+                );
+  
+  
   if ( bi )
   {
     xWeightedPredictionUni( pu, predBuf, eRefPicList, predBuf, iRefIdx, m_maxCompIDToPred );
@@ -1605,18 +1781,23 @@ Distortion InterSearch::xGetAffineTemplateCost( PredictionUnit& pu, PelUnitBuf& 
   return uiCost;
 }
 
-Void InterSearch::xMotionEstimation(PredictionUnit& pu, PelUnitBuf& origBuf, RefPicList eRefPicList, Mv& rcMvPred, Int iRefIdxPred, Mv& rcMv, Int& riMVPIdx, UInt& ruiBits, Distortion& ruiCost, const AMVPInfo& amvpInfo, Bool bBi)
+Void InterSearch::xMotionEstimation(PredictionUnit& pu, PelUnitBuf& origBuf, RefPicList eRefPicList, Mv& rcMvPred, Int iRefIdxPred, Mv& rcMv, Int& riMVPIdx, UInt& ruiBits, Distortion& ruiCost, const AMVPInfo& amvpInfo, Bool bBi, const int weight)
 {
   Mv cMvHalf, cMvQter;
 
   CHECK(eRefPicList >= MAX_NUM_REF_LIST_ADAPT_SR || iRefIdxPred>=Int(MAX_IDX_ADAPT_SR), "Invalid reference picture list");
   m_iSearchRange = m_aaiAdaptSR[eRefPicList][iRefIdxPred];
+  if( weight )
+    m_iSearchRange = std::min( m_iSearchRange, HHI_MULTI_HYPOTHESEIS_SEARCH_RANGE );
 
   Int    iSrchRng   = (bBi ? m_bipredSearchRange : m_iSearchRange);
   Double fWeight    = 1.0;
 
   PelUnitBuf  origBufTmp = m_tmpStorageLCU.getBuf( UnitAreaRelative(*pu.cu, pu) );
   PelUnitBuf* pBuf       = &origBuf;
+#if MCTS_ENC_CHECK
+  xInitMctsTileInfo( pu, m_mctsTileInfo );
+#endif
 
   if(bBi) // Bi-predictive ME
   {
@@ -1629,9 +1810,13 @@ Void InterSearch::xMotionEstimation(PredictionUnit& pu, PelUnitBuf& origBuf, Ref
 
     fWeight = 0.5;
   }
+  else if(weight)
+  {
+    CHECK( bBi, "Multi Hyp: bBi" );
+    fWeight = fabs( double(weight) / double(1 << HHI_MULTI_HYPOTHESEIS_WEIGHT_BITS) );
+  }
   m_cDistParam.isBiPred = bBi;
   m_cDistParam.useMR    = pu.cu->LICFlag;
-
 
   //  Search key pattern initialization
   CPelBuf  tmpPattern   = pBuf->Y();
@@ -1646,20 +1831,18 @@ Void InterSearch::xMotionEstimation(PredictionUnit& pu, PelUnitBuf& origBuf, Ref
   cStruct.iRefStride    = buf.stride;
   cStruct.piRefY        = buf.buf;
   cStruct.imvShift      = pu.cu->imv << 1;
+  auto blkCache = dynamic_cast<CacheBlkInfoCtrl*>( m_modeCtrl );
 
   bool bQTBTMV  = false;
   bool bQTBTMV2 = false;
   Mv cIntMv;
-  if( !bBi )
+  if( !bBi && !weight )
   {
-    auto blkCache = dynamic_cast< CacheBlkInfoCtrl* >( m_modeCtrl );
     bool bValid = blkCache && blkCache->getMv( pu, eRefPicList, iRefIdxPred, cIntMv );
     if( bValid )
     {
       bQTBTMV2 = true;
       cIntMv <<= 2;
-//      xSetSearchRange( pu, cIntMv, (bQTBTMV2? (m_iSearchRange>>2) : 1), cStruct.searchRange );
-//      bQTBTMV = true;
     }
   }
 
@@ -1701,12 +1884,14 @@ Void InterSearch::xMotionEstimation(PredictionUnit& pu, PelUnitBuf& origBuf, Ref
                             ( m_pcEncCfg->getFastInterSearchMode() == FASTINTERSEARCH_MODE1 || m_pcEncCfg->getFastInterSearchMode() == FASTINTERSEARCH_MODE3 ) ? 2 : 0;
     rcMv = rcMvPred;
     const Mv *pIntegerMv2Nx2NPred = 0;
+    if(!weight)
     if( !pu.cs->pcv->only2Nx2N && ( pu.cu->partSize != SIZE_2Nx2N || pu.cu->qtDepth != 0 ) )
     {
       pIntegerMv2Nx2NPred = &( m_integerMv2Nx2N[eRefPicList][iRefIdxPred] );
     }
     xPatternSearchFast( pu, cStruct, rcMv, ruiCost, pIntegerMv2Nx2NPred );
-    if( auto blkCache = dynamic_cast<CacheBlkInfoCtrl*>( m_modeCtrl ) )
+    if(!weight) {
+    if( blkCache )
     {
       blkCache->setMv( pu.cs->area, eRefPicList, iRefIdxPred, rcMv );
     }
@@ -1714,10 +1899,10 @@ Void InterSearch::xMotionEstimation(PredictionUnit& pu, PelUnitBuf& origBuf, Ref
     {
       m_integerMv2Nx2N[eRefPicList][iRefIdxPred] = rcMv;
     }
+    }
   }
 
-  DTRACE( g_trace_ctx, D_ME, "%d %d %d :MECostFPel<L%d,%d>: %d,%d,%dx%d,%2d: %d", DTRACE_GET_COUNTER( g_trace_ctx, D_ME ), pu.cu->slice->getPOC(), pu.cu->imv, ( int ) eRefPicList, ( int ) bBi, pu.Y().x, pu.Y().y, pu.Y().width, pu.Y().height, pu.cu->partSize, ruiCost );
-
+  DTRACE( g_trace_ctx, D_ME, "%d %d %d :MECostFPel<L%d,%d>: %d,%d,%dx%d,%2d: %d", DTRACE_GET_COUNTER( g_trace_ctx, D_ME ), pu.cu->slice->getPOC(), pu.cu->imv, (int)eRefPicList, (int)bBi, pu.Y().x, pu.Y().y, pu.Y().width, pu.Y().height, pu.cu->partSize, ruiCost );
   // sub-pel refinement for sub-pel resolution
   if( pu.cu->imv == 0 )
   {
@@ -1734,10 +1919,33 @@ Void InterSearch::xMotionEstimation(PredictionUnit& pu, PelUnitBuf& origBuf, Ref
   {
     xPatternSearchIntRefine( pu, cStruct, rcMv, rcMvPred, riMVPIdx, ruiBits, ruiCost, amvpInfo, fWeight);
   }
-
   DTRACE( g_trace_ctx, D_ME, "   MECost<L%d,%d>: %6d (%d)  MV:%d,%d\n", ( int ) eRefPicList, ( int ) bBi, ruiCost, ruiBits, rcMv.getHor() << ( pu.cs->sps->getSpsNext().getUseHighPrecMv() ? 2 : 0 ), rcMv.getVer() << ( pu.cs->sps->getSpsNext().getUseHighPrecMv() ? 2 : 0 ) );
 }
 
+#if MCTS_ENC_CHECK
+Void InterSearch::xInitMctsTileInfo( const PredictionUnit& pu, MCTSTileInfo& mctsTileInfo )
+{
+  if( m_pcEncCfg->getTMCTSSEITileConstraint() )
+  {
+    UInt  tileXPosInCtus = 0;
+    UInt  tileYPosInCtus = 0;
+    UInt  tileWidthtInCtus = 0;
+    UInt  tileHeightInCtus = 0;
+
+    getTilePosition( pu, tileXPosInCtus, tileYPosInCtus, tileWidthtInCtus, tileHeightInCtus );
+    const Int  ctuLength = pu.cs->pcv->maxCUWidth;
+
+    // tile position in full pels
+    const Int tileLeftTopPelPosX = ctuLength * tileXPosInCtus;
+    const Int tileLeftTopPelPosY = ctuLength * tileYPosInCtus;
+    const Int tileRightBottomPelPosX = ( ( tileWidthtInCtus + tileXPosInCtus ) * ctuLength ) - 1;
+    const Int tileRightBottomPelPosY = ( ( tileHeightInCtus + tileYPosInCtus ) * ctuLength ) - 1;
+
+    mctsTileInfo.init( tileLeftTopPelPosX, tileLeftTopPelPosY, tileRightBottomPelPosX, tileRightBottomPelPosY );
+  }
+}
+
+#endif
 
 
 Void InterSearch::xSetSearchRange ( const PredictionUnit& pu,
@@ -1752,6 +1960,22 @@ Void InterSearch::xSetSearchRange ( const PredictionUnit& pu,
   Mv mvTL( cFPMvPred.getHor() - ( iSrchRng << iMvShift ), cFPMvPred.getVer() - ( iSrchRng << iMvShift ), cFPMvPred.highPrec );
   Mv mvBR( cFPMvPred.getHor() + ( iSrchRng << iMvShift ), cFPMvPred.getVer() + ( iSrchRng << iMvShift ), cFPMvPred.highPrec );
 
+#if MCTS_ENC_CHECK
+  if( m_pcEncCfg->getTMCTSSEITileConstraint() )
+  {
+    const Int lRangeXLeft = std::max<Int>( cMvPred.getHor() - ( iSrchRng << iMvShift ), ( m_mctsTileInfo.getTileLeftTopPelPosX() - pu.lx() ) << iMvShift );
+    const Int lRangeYTop = std::max<Int>( cMvPred.getVer() - ( iSrchRng << iMvShift ), ( m_mctsTileInfo.getTileLeftTopPelPosY() - pu.ly() ) << iMvShift );
+    const Int lRangeXRight = std::min<Int>( cMvPred.getHor() + ( iSrchRng << iMvShift ), ( m_mctsTileInfo.getTileRightBottomPelPosX() - ( pu.lx() + pu.lwidth() ) ) << iMvShift );
+    const Int lRangeYBottom = std::min<Int>( cMvPred.getVer() + ( iSrchRng << iMvShift ), ( m_mctsTileInfo.getTileRightBottomPelPosY() - ( pu.ly() + pu.lheight() ) ) << iMvShift );
+
+    mvTL.setHor( lRangeXLeft );
+    mvTL.setVer( lRangeYTop );
+
+    mvBR.setHor( lRangeXRight );
+    mvBR.setVer( lRangeYBottom );
+  }
+
+#endif
   clipMv( mvTL, pu.cu->lumaPos(), *pu.cs->sps );
   clipMv( mvBR, pu.cu->lumaPos(), *pu.cs->sps );
 
@@ -2247,7 +2471,6 @@ Void InterSearch::xTZSearchSelective( const PredictionUnit& pu,
   ruiSAD = cStruct.uiBestSad - m_pcRdCost->getCostOfVectorWithPredictor( cStruct.iBestX, cStruct.iBestY, cStruct.imvShift );
 }
 
-
 Void InterSearch::xPatternSearchIntRefine(PredictionUnit& pu, IntTZSearchStruct&  cStruct, Mv& rcMv, Mv& rcMvPred, Int& riMVPIdx, UInt& ruiBits, Distortion& ruiCost, const AMVPInfo& amvpInfo, Double fWeight)
 {
 
@@ -2342,7 +2565,6 @@ Void InterSearch::xPatternSearchIntRefine(PredictionUnit& pu, IntTZSearchStruct&
   return;
 }
 
-
 Void InterSearch::xPatternSearchFracDIF(
   const PredictionUnit& pu,
   RefPicList            eRefPicList,
@@ -2360,6 +2582,7 @@ Void InterSearch::xPatternSearchFracDIF(
   Int         iOffset    = rcMvInt.getHor() + rcMvInt.getVer() * cStruct.iRefStride;
   CPelBuf cPatternRoi(cStruct.piRefY + iOffset, cStruct.iRefStride, *cStruct.pcPatternKey);
 
+  
   if( cStruct.imvShift )
   {
     m_pcRdCost->setDistParam( m_cDistParam, *cStruct.pcPatternKey, cStruct.piRefY + iOffset, cStruct.iRefStride, m_lumaClpRng.bd, COMPONENT_Y, 0, 1, m_pcEncCfg->getUseHADME() && !bIsLosslessCoded );
@@ -2385,6 +2608,27 @@ Void InterSearch::xPatternSearchFracDIF(
   rcMvQter = rcMvInt;    rcMvQter <<= 1;    // for mv-cost
   rcMvQter += rcMvHalf;  rcMvQter <<= 1;
   ruiCost = xPatternRefinement( cStruct.pcPatternKey, baseRefMv, 1, rcMvQter, !bIsLosslessCoded );
+
+  // MDBP: update cost after sub-pel motion estimation
+  if ( pu.cs->sps->getSpsNext().getUseMDBP() )
+  {
+    Mv bestMv = rcMvInt;
+    bestMv <<= 1;
+    bestMv += rcMvHalf;
+    bestMv <<= 1;
+    bestMv += rcMvQter;
+    if( PU::isMdbpPredEnabled( pu, bestMv ) )
+    {
+      MdbpMode mdbpMode;
+      Distortion mdbpCost = std::numeric_limits<Distortion>::max();
+      getMdbpModeCost( pu, eRefPicList, iRefIdx, bestMv, 0, mdbpMode, mdbpCost );
+      if ( mdbpMode.mdMode != MDBP_MODE_OFF )
+      {
+        ruiCost = mdbpCost + m_pcRdCost->getCostOfVectorWithPredictor( bestMv.getHor(), bestMv.getVer(), 0 );
+        m_cDistParam.maximumDistortionForEarlyExit = ruiCost;
+      }
+    }
+  }
 }
 
 Void InterSearch::xPredAffineInterSearch( PredictionUnit&       pu,
@@ -3530,7 +3774,7 @@ Void InterSearch::xEncodeInterResidualQT(CodingStructure &cs, Partitioner &parti
 {
   const UnitArea& currArea    = partitioner.currArea();
   const SPS &sps              = *cs.sps;
-  const TransformUnit &currTU = *cs.getTU(currArea.lumaPos());
+  const TransformUnit &currTU = *cs.getTU(currArea.lumaPos(), partitioner.chType);
   const CodingUnit &cu        = *currTU.cu;
   const unsigned currDepth    = partitioner.currTrDepth;
 
@@ -3567,46 +3811,25 @@ Void InterSearch::xEncodeInterResidualQT(CodingStructure &cs, Partitioner &parti
 
     if( cu.chromaFormat != CHROMA_400 )
     {
-      const bool firstCbfOfCU   = ( currDepth == 0 );
-      const bool allQuadrants   = TU::isProcessingAllQuadrants(currArea);
-#if ENABLE_CHROMA_422
-      const bool twoChromaCbfs  = ( cs.pcv->multiBlock422 && ( !bSubdiv || currArea.lumaSize().width == 8 ) );
-      if( twoChromaCbfs )
+      const bool firstCbfOfCU = ( currDepth == 0 );
+      const bool allQuadrants = TU::isProcessingAllQuadrants( currArea );
       {
-        if( firstCbfOfCU || ( allQuadrants && TU::getCbfAtDepth(currTU, COMPONENT_Cb, currDepth - 1) ) )
+        if( firstCbfOfCU || ( allQuadrants && TU::getCbfAtDepth( currTU, COMPONENT_Cb, currDepth - 1 ) ) )
         {
-          const bool  chroma_cbf1 = TU::getCbfAtDepth( currTU,     COMPONENT_Cb,  currDepth );
-          const bool  chroma_cbf2 = TU::getCbfAtDepth( currTU,     COMPONENT_Cb2, currDepth );
-          m_CABACEstimator->cbf_comp( chroma_cbf1, currArea.blocks[COMPONENT_Cb], currDepth );
-          m_CABACEstimator->cbf_comp( chroma_cbf2, currArea.blocks[COMPONENT_Cb], currDepth );
+          const bool  chroma_cbf = TU::getCbfAtDepth( currTU, COMPONENT_Cb, currDepth );
+          m_CABACEstimator->cbf_comp( cs, chroma_cbf, currArea.blocks[COMPONENT_Cb], currDepth );
         }
-        if( firstCbfOfCU || ( allQuadrants && TU::getCbfAtDepth(currTU, COMPONENT_Cr, currDepth - 1) ) )
+        if( firstCbfOfCU || ( allQuadrants && TU::getCbfAtDepth( currTU, COMPONENT_Cr, currDepth - 1 ) ) )
         {
-          const bool  chroma_cbf1 = TU::getCbfAtDepth( currTU,     COMPONENT_Cr,  currDepth );
-          const bool  chroma_cbf2 = TU::getCbfAtDepth( currTU,     COMPONENT_Cr2, currDepth );
-          m_CABACEstimator->cbf_comp( chroma_cbf1, currArea.blocks[COMPONENT_Cr], currDepth );
-          m_CABACEstimator->cbf_comp( chroma_cbf2, currArea.blocks[COMPONENT_Cr], currDepth );
-        }
-      }
-      else
-#endif
-      {
-        if( firstCbfOfCU || ( allQuadrants && TU::getCbfAtDepth(currTU, COMPONENT_Cb, currDepth - 1) ) )
-        {
-          const bool  chroma_cbf  = TU::getCbfAtDepth( currTU,    COMPONENT_Cb,  currDepth );
-          m_CABACEstimator->cbf_comp( chroma_cbf, currArea.blocks[COMPONENT_Cb], currDepth );
-        }
-        if( firstCbfOfCU || ( allQuadrants && TU::getCbfAtDepth(currTU, COMPONENT_Cr, currDepth - 1) ) )
-        {
-          const bool  chroma_cbf  = TU::getCbfAtDepth( currTU,    COMPONENT_Cr,  currDepth );
-          m_CABACEstimator->cbf_comp( chroma_cbf, currArea.blocks[COMPONENT_Cr], currDepth );
+          const bool  chroma_cbf = TU::getCbfAtDepth( currTU, COMPONENT_Cr, currDepth );
+          m_CABACEstimator->cbf_comp( cs, chroma_cbf, currArea.blocks[COMPONENT_Cr], currDepth, false, TU::getCbfAtDepth( currTU, COMPONENT_Cb, currDepth ) );
         }
       }
     }
 
-    if (!bSubdiv)
+    if( !bSubdiv )
     {
-      m_CABACEstimator->cbf_comp( TU::getCbfAtDepth(currTU, COMPONENT_Y, currDepth), currArea.Y(), currDepth );
+      m_CABACEstimator->cbf_comp( cs, TU::getCbfAtDepth( currTU, COMPONENT_Y, currDepth ), currArea.Y(), currDepth );
     }
   }
 
@@ -3624,16 +3847,6 @@ Void InterSearch::xEncodeInterResidualQT(CodingStructure &cs, Partitioner &parti
         {
           m_CABACEstimator->residual_coding( currTU, compID );
         }
-#if ENABLE_CHROMA_422
-        if( cs.pcv->multiBlock422 && compID != COMPONENT_Y )
-        {
-          ComponentID compID2 = ComponentID( compID + SCND_TBLOCK_OFFSET );
-          if( TU::getCbf( currTU, compID2 ) )
-          {
-            m_CABACEstimator->residual_coding( currTU, compID2 );
-          }
-        }
-#endif
       }
     }
   }
@@ -3660,7 +3873,7 @@ Void InterSearch::xEstimateInterResidualQT(CodingStructure &cs, Partitioner &par
   const PPS &pps           = *cs.pps;
   const UInt numValidComp  = getNumberValidComponents( sps.getChromaFormatIdc() );
   const UInt numTBlocks    = getNumberValidTBlocks   ( *cs.pcv );
-  const CodingUnit &cu     = *cs.getCU();
+  const CodingUnit &cu     = *cs.getCU( partitioner.chType );
   const unsigned currDepth = partitioner.currTrDepth;
 
   const UInt uiLog2TrSize = g_aucLog2[currArea.lumaSize().width];
@@ -3695,8 +3908,8 @@ Void InterSearch::xEstimateInterResidualQT(CodingStructure &cs, Partitioner &par
     csSplit = m_pSplitCS[gp_sizeIdxInfo->idxFrom( cu.lwidth() )][gp_sizeIdxInfo->idxFrom( cu.lheight() )][currDepth];
     csFull  = m_pFullCS [gp_sizeIdxInfo->idxFrom( cu.lwidth() )][gp_sizeIdxInfo->idxFrom( cu.lheight() )][currDepth];
 
-    cs.initSubStructure(*csSplit, cs.area, true);
-    cs.initSubStructure(*csFull,  cs.area, true);
+    cs.initSubStructure(*csSplit, partitioner.chType, cs.area, true);
+    cs.initSubStructure(*csFull,  partitioner.chType, cs.area, true);
 
     csFull ->getOrgResiBuf().copyFrom(cs.getOrgResiBuf());
     csSplit->getOrgResiBuf().copyFrom(cs.getOrgResiBuf());
@@ -3716,20 +3929,15 @@ Void InterSearch::xEstimateInterResidualQT(CodingStructure &cs, Partitioner &par
   }
 
   Distortion uiSingleDist         = 0;
-#if ENABLE_CHROMA_422
-  Distortion uiSingleDistComp [5] = { 0, 0, 0, 0, 0 };
-  TCoeff     uiAbsSum         [5] = { 0, 0, 0, 0, 0 };
-#else
   Distortion uiSingleDistComp [3] = { 0, 0, 0 };
   TCoeff     uiAbsSum         [3] = { 0, 0, 0 };
-#endif
 
   const TempCtx ctxStart  ( m_CtxCache, m_CABACEstimator->getCtx() );
   TempCtx       ctxBest   ( m_CtxCache );
 
   if (bCheckFull)
   {
-    TransformUnit &tu = csFull->addTU(currArea);
+    TransformUnit &tu = csFull->addTU(currArea, partitioner.chType);
     tu.depth          = currDepth;
     tu.emtIdx         = 0;
 
@@ -3745,30 +3953,18 @@ Void InterSearch::xEstimateInterResidualQT(CodingStructure &cs, Partitioner &par
       minCost[i] = MAX_DOUBLE;
     }
 
-    CodingStructure &saveCS = *m_pSaveCS[currDepth + 1];
+    CodingStructure &saveCS = *m_pSaveCS[0];
     saveCS.pcv     = cs.pcv;
     saveCS.picture = cs.picture;
     saveCS.area.repositionTo(currArea);
     saveCS.clearTUs();
 
-    TransformUnit &bestTU = saveCS.addTU(currArea);
+    TransformUnit &bestTU = saveCS.addTU( currArea, partitioner.chType );
 
-#if ENABLE_CHROMA_422
-    static const ComponentID c2comp[2][MAX_NUM_TBLOCKS] =
-    {
-      { COMPONENT_Y, COMPONENT_Cb, COMPONENT_Cr,  MAX_NUM_TBLOCKS, MAX_NUM_TBLOCKS },
-      { COMPONENT_Y, COMPONENT_Cb, COMPONENT_Cb2, COMPONENT_Cr,    COMPONENT_Cr2   }
-    };
-    const ComponentID*  getComp     = c2comp[ numTBlocks >> 2 ];
-#endif
 
     for( UInt c = 0; c < numTBlocks; c++ )
     {
-#if ENABLE_CHROMA_422
-      const ComponentID compID    = getComp[c];
-#else
       const ComponentID compID    = ComponentID(c);
-#endif
       const CompArea&   compArea  = tu.blocks[compID];
       const Int channelBitDepth   = sps.getBitDepth(toChannelType(compID));
 
@@ -3780,7 +3976,6 @@ Void InterSearch::xEstimateInterResidualQT(CodingStructure &cs, Partitioner &par
       }
 
       checkTransformSkip[compID] = pps.getUseTransformSkip() && TU::hasTransformSkipFlag( *tu.cs, tu.blocks[compID] ) && !cs.isLossless;
-
       if( isLuma(compID) )
       {
         checkTransformSkip[compID]  &= !tu.cu->emtFlag;
@@ -3861,7 +4056,7 @@ Void InterSearch::xEstimateInterResidualQT(CodingStructure &cs, Partitioner &par
               nonCoeffDist = m_pcRdCost->getDistPart( zeroBuf, orgResi, channelBitDepth, compID ); // initialized with zero residual distortion
             }
 
-            m_CABACEstimator->cbf_comp( false, compArea, currDepth );
+            m_CABACEstimator->cbf_comp( *csFull, false, compArea, currDepth );
 
             if( isCrossCPredictionAvailable )
             {
@@ -3884,18 +4079,19 @@ Void InterSearch::xEstimateInterResidualQT(CodingStructure &cs, Partitioner &par
               m_CABACEstimator->getCtx() = ctxStart;
               m_CABACEstimator->resetBits();
             }
-            m_CABACEstimator->cbf_comp( true, compArea, currDepth );
+            m_CABACEstimator->cbf_comp( *csFull, true, compArea, currDepth );
             if( isCrossCPredictionAvailable )
             {
               m_CABACEstimator->cross_comp_pred( tu, compID );
             }
             m_CABACEstimator->residual_coding( tu, compID );
 
+#if !HM_EMT_NSST_AS_IN_JEM
             if( isLuma( compID ) )
             {
               m_CABACEstimator->cu_emt_noqrt_idx( *tu.cu );
             }
-
+#endif
             currCompFracBits = m_CABACEstimator->getEstFracBits();
 
             PelBuf resiBuf     = csFull->getResiBuf(compArea);
@@ -3906,8 +4102,7 @@ Void InterSearch::xEstimateInterResidualQT(CodingStructure &cs, Partitioner &par
             if( cs.sps->getSpsNext().getUseBIF() &&  isLuma(compID) && (tu.cu->qp > 17) && (16 > std::min(tu.lumaSize().width, tu.lumaSize().height) ) )
             {
               const CPelBuf predBuf    = csFull->getPredBuf(compArea);
-              BilateralFilter::instance()->bilateralFilterInter( resiBuf, predBuf, tu.cu->qp, cs.slice->clpRng( COMPONENT_Y ) );
-              DTRACE_CCRC( g_trace_ctx, D_TMP, csFull, resiBuf, COMPONENT_Y );
+              m_bilateralFilter->bilateralFilterInter( resiBuf, predBuf, tu.cu->qp, cs.slice->clpRng( COMPONENT_Y ) );
             }
 
             if (bUseCrossCPrediction)
@@ -4003,22 +4198,13 @@ Void InterSearch::xEstimateInterResidualQT(CodingStructure &cs, Partitioner &par
         }
       }
     }
-#if ENABLE_CHROMA_422
-    static const ComponentID cbf_c2comp[2][5] =
-    {
-      { COMPONENT_Cb, COMPONENT_Cr,  COMPONENT_Y,  MAX_NUM_TBLOCKS, MAX_NUM_TBLOCKS },
-      { COMPONENT_Cb, COMPONENT_Cb2, COMPONENT_Cr, COMPONENT_Cr2,   COMPONENT_Y     }
-    };
-    const ComponentID*       cbf_getComp      = cbf_c2comp[ numTBlocks >> 2 ];
-#else
     static const ComponentID cbf_getComp[3] = { COMPONENT_Cb, COMPONENT_Cr, COMPONENT_Y };
-#endif
     for( unsigned c = 0; c < numTBlocks; c++)
     {
       const ComponentID compID = cbf_getComp[c];
       if( tu.blocks[compID].valid() )
       {
-        m_CABACEstimator->cbf_comp( TU::getCbfAtDepth(tu, compID, currDepth), tu.blocks[compID], currDepth );
+        m_CABACEstimator->cbf_comp( *csFull, TU::getCbfAtDepth( tu, compID, currDepth ), tu.blocks[compID], currDepth, false, compID == COMPONENT_Cr && TU::getCbfAtDepth( tu, COMPONENT_Cb, currDepth ) );
       }
     }
 
@@ -4037,26 +4223,15 @@ Void InterSearch::xEstimateInterResidualQT(CodingStructure &cs, Partitioner &par
           m_CABACEstimator->residual_coding( tu, compID );
         }
         uiSingleDist += uiSingleDistComp[compID];
-#if ENABLE_CHROMA_422
-        if( cs.pcv->multiBlock422 && ch != COMPONENT_Y )
-        {
-          ComponentID compID2 = ComponentID( compID + SCND_TBLOCK_OFFSET );
-          if( TU::getCbf( tu, compID2 ) )
-          {
-            m_CABACEstimator->residual_coding( tu, compID2 );
-          }
-          uiSingleDist += uiSingleDistComp[compID2];
-        }
-#endif
       }
     }
 
+#if !HM_EMT_NSST_AS_IN_JEM
     m_CABACEstimator->cu_emt_noqrt_idx( *tu.cu );
-
+#endif
     csFull->fracBits += m_CABACEstimator->getEstFracBits();
     csFull->dist     += uiSingleDist;
     csFull->cost      = m_pcRdCost->calcRdCost(csFull->fracBits, csFull->dist);
-
     if (bCheckSplit)
     {
       ctxBest = m_CABACEstimator->getCtx();
@@ -4087,18 +4262,12 @@ Void InterSearch::xEstimateInterResidualQT(CodingStructure &cs, Partitioner &par
     partitioner.exitCurrSplit();
 
     unsigned        anyCbfSet   =   0;
-#if ENABLE_CHROMA_422
-    unsigned        compCbf[5]  = { 0, 0, 0, 0, 0 };
-    const bool      is_NxN_422  = ( cs.pcv->multiBlock422 && currArea.lumaSize().width == 8 );
-#else
     unsigned        compCbf[3]  = { 0, 0, 0 };
-#endif
 
     bool isSplit = bCheckFull ? false : true;
-
     if( !bCheckFull || ( csSplit->cost < csFull->cost && m_pcEncCfg->getFastInterEMT() ) || !m_pcEncCfg->getFastInterEMT() )
     {
-      for( auto &currTU : csSplit->traverseTUs( currArea ) )
+      for( auto &currTU : csSplit->traverseTUs( currArea, partitioner.chType ) )
       {
         for( unsigned ch = 0; ch < numTBlocks; ch++ )
         {
@@ -4106,36 +4275,9 @@ Void InterSearch::xEstimateInterResidualQT(CodingStructure &cs, Partitioner &par
         }
       }
 
-#if ENABLE_CHROMA_422
-      if( is_NxN_422 ) // very special case
       {
-        for( auto &currTU : csSplit->traverseTUs( currArea ) )
-        {
-          TU::setCbfAtDepth ( currTU, COMPONENT_Y,   currDepth, compCbf[ COMPONENT_Y  ] );
-          TU::setCbfAtDepth ( currTU, COMPONENT_Cb,  currDepth, compCbf[ COMPONENT_Cb ] );
-          TU::setCbfAtDepth ( currTU, COMPONENT_Cr,  currDepth, compCbf[ COMPONENT_Cr ] );
-          TU::setCbfAtDepth ( currTU, COMPONENT_Cb2, currDepth, compCbf[ COMPONENT_Cb2] );
-          TU::setCbfAtDepth ( currTU, COMPONENT_Cr2, currDepth, compCbf[ COMPONENT_Cr2] );
-        }
 
-        anyCbfSet  = compCbf[ COMPONENT_Y  ];
-        anyCbfSet |= compCbf[ COMPONENT_Cb ];
-        anyCbfSet |= compCbf[ COMPONENT_Cr ];
-        anyCbfSet |= compCbf[ COMPONENT_Cb2];
-        anyCbfSet |= compCbf[ COMPONENT_Cr2];
-      }
-      else // usual case
-#endif
-      {
-#if ENABLE_CHROMA_422
-        if( cs.pcv->multiBlock422 )
-        {
-          compCbf[ COMPONENT_Cb ] |= compCbf[ COMPONENT_Cb2 ];
-          compCbf[ COMPONENT_Cr ] |= compCbf[ COMPONENT_Cr2 ];
-        }
-#endif
-
-        for( auto &currTU : csSplit->traverseTUs( currArea ) )
+        for( auto &currTU : csSplit->traverseTUs( currArea, partitioner.chType ) )
         {
           TU::setCbfAtDepth   ( currTU, COMPONENT_Y,  currDepth, compCbf[ COMPONENT_Y  ] );
           if( currArea.chromaFormat != CHROMA_400 )
@@ -4168,7 +4310,7 @@ Void InterSearch::xEstimateInterResidualQT(CodingStructure &cs, Partitioner &par
 
       if( bCheckFull && anyCbfSet && csSplit->cost < csFull->cost )
       {
-        cs.useSubStructure( *csSplit, currArea, false, false, false, true );
+        cs.useSubStructure( *csSplit, partitioner.chType, currArea, false, false, false, true );
         cs.cost = csSplit->cost;
         isSplit = true;
       }
@@ -4177,7 +4319,7 @@ Void InterSearch::xEstimateInterResidualQT(CodingStructure &cs, Partitioner &par
     if( ( !isSplit && m_pcEncCfg->getFastInterEMT() ) || ( !m_pcEncCfg->getFastInterEMT() && !( !bCheckFull || ( anyCbfSet && csSplit->cost < csFull->cost ) ) ) )
     {
       CHECK( !bCheckFull, "Error!" );
-      cs.useSubStructure( *csFull, currArea, false, false, false, true );
+      cs.useSubStructure( *csFull, partitioner.chType, currArea, false, false, false, true );
       cs.cost = csFull->cost;
       m_CABACEstimator->getCtx() = ctxBest;
     }
@@ -4192,7 +4334,7 @@ Void InterSearch::xEstimateInterResidualQT(CodingStructure &cs, Partitioner &par
 
 Void InterSearch::encodeResAndCalcRdInterCU(CodingStructure &cs, Partitioner &partitioner, const Bool &skipResidual)
 {
-  CodingUnit &cu = *cs.getCU();
+  CodingUnit &cu = *cs.getCU( partitioner.chType );
 
   const ChromaFormat format     = cs.area.chromaFormat;;
   const Int  numValidComponents = getNumberValidComponents(format);
@@ -4203,7 +4345,6 @@ Void InterSearch::encodeResAndCalcRdInterCU(CodingStructure &cs, Partitioner &pa
   {
     cu.skip    = true;
     cu.rootCbf = false;
-
     cs.getResiBuf().fill(0);
     if( sps.getSpsNext().getUseAClip() )
     {
@@ -4216,7 +4357,7 @@ Void InterSearch::encodeResAndCalcRdInterCU(CodingStructure &cs, Partitioner &pa
 
 
     // add an empty TU
-    cs.addTU(cs.area);
+    cs.addTU(cs.area, partitioner.chType);
 
     Distortion distortion = 0;
 
@@ -4226,7 +4367,6 @@ Void InterSearch::encodeResAndCalcRdInterCU(CodingStructure &cs, Partitioner &pa
 
       CPelBuf reco = cs.getRecoBuf (compID);
       CPelBuf org  = cs.getOrgBuf  (compID);
-
       distortion += m_pcRdCost->getDistPart(org, reco, sps.getBitDepth(toChannelType(compID)), compID);
     }
 
@@ -4237,12 +4377,19 @@ Void InterSearch::encodeResAndCalcRdInterCU(CodingStructure &cs, Partitioner &pa
       m_CABACEstimator->cu_transquant_bypass_flag( cu );
     }
 
-    PredictionUnit &pu = *cs.getPU();
+    PredictionUnit &pu = *cs.getPU( partitioner.chType );
+    CHECK( pu.mergeRefPicList != REF_PIC_LIST_X, "merge list selected for SKIP" );
 
     m_CABACEstimator->cu_skip_flag  ( cu );
     m_CABACEstimator->fruc_mrg_mode ( pu );
-    m_CABACEstimator->affine_flag   ( cu ); //TODO: adjust this
+    m_CABACEstimator->affine_flag   ( cu );
     m_CABACEstimator->merge_idx     ( pu );
+    m_CABACEstimator->cu_lic_flag   ( cu );
+    if( sps.getSpsNext().getDiffusionFilterMode() >> 2 )
+    {
+      CHECK( cu.diffFilterIdx != 0, "cu.skip && cu.diffFilterIdx!=0" );
+    }
+    CHECK( pu.frucMrgMode != FRUC_MERGE_OFF && cu.diffFilterIdx != 0, "PDE selected in FRUC SKIP" );
 
 
     cs.dist     = distortion;
@@ -4257,10 +4404,11 @@ Void InterSearch::encodeResAndCalcRdInterCU(CodingStructure &cs, Partitioner &pa
   cs.getResiBuf().subtract (cs.getPredBuf());
 
   Distortion zeroDistortion = 0;
+
   if( m_pcEncCfg->getUseAClipEnc() )
   {
     PelUnitBuf resi = cs.getResiBuf();
-    smoothResidual( resi, cs.getOrgBuf(), cs.slice->clpRngs() );
+    resi.smoothWithRef( cs.getOrgBuf(), cs.slice->clpRngs() );
   }
 
   const TempCtx ctxStart( m_CtxCache, m_CABACEstimator->getCtx() );
@@ -4269,18 +4417,30 @@ Void InterSearch::encodeResAndCalcRdInterCU(CodingStructure &cs, Partitioner &pa
 
   xEstimateInterResidualQT(cs, partitioner, &zeroDistortion);
 
-  TransformUnit &firstTU = *cs.getTU();
+  TransformUnit &firstTU = *cs.getTU( partitioner.chType );
 
   cu.rootCbf = false;
   m_CABACEstimator->resetBits();
   m_CABACEstimator->rqt_root_cbf( cu );
   const uint64_t  zeroFracBits = m_CABACEstimator->getEstFracBits();
-  const Double    zeroCost     = cs.isLossless ? (cs.cost + 1) : m_pcRdCost->calcRdCost(zeroFracBits, zeroDistortion);
+
+  Double zeroCost;
+  if( sps.getSpsNext().getDiffusionFilterMode() >> 2 )
+  {
+    if( cu.diffFilterIdx )
+      zeroCost = MAX_DOUBLE; //soll nicht gemacht werden, da skip fall nicht erlaubt
+    else
+      zeroCost = cs.isLossless ? ( cs.cost + 1 ) : m_pcRdCost->calcRdCost( zeroFracBits, zeroDistortion );
+  }
+  else
+  {
+    zeroCost = cs.isLossless ? (cs.cost + 1) : m_pcRdCost->calcRdCost(zeroFracBits, zeroDistortion);
+  }
 
   const Int  numValidTBlocks   = ::getNumberValidTBlocks( *cs.pcv );
   for (UInt i = 0; i < numValidTBlocks; i++)
   {
-    cu.rootCbf |= TU::getCbfAtDepth(firstTU, ComponentID(i), 0);
+    cu.rootCbf |= TU::getCbfAtDepth( firstTU, ComponentID( i ), 0 );
   }
 
   // -------------------------------------------------------
@@ -4294,13 +4454,12 @@ Void InterSearch::encodeResAndCalcRdInterCU(CodingStructure &cs, Partitioner &pa
     cs.clearTUs();
 
     // add a new "empty" TU spanning the whole CU
-    TransformUnit& tu = cs.addTU(cu);
+    TransformUnit& tu = cs.addTU(cu, partitioner.chType);
 
     for (Int comp = 0; comp < numValidComponents; comp++)
     {
       tu.rdpcm[comp] = RDPCM_OFF;
     }
-
     cu.firstTU = cu.lastTU = &tu;
   }
 
@@ -4309,7 +4468,14 @@ Void InterSearch::encodeResAndCalcRdInterCU(CodingStructure &cs, Partitioner &pa
   m_CABACEstimator->getCtx() = ctxStart;
 
   UInt64 finalFracBits = xGetSymbolFracBitsInter( cs, partitioner );
-
+  if( sps.getSpsNext().getDiffusionFilterMode() >> 2 )
+  {
+    if( cu.diffFilterIdx == 0 && cu.partSize == SIZE_2Nx2N )
+    {
+      if( cu.rootCbf == 0 && !cu.skip && cu.firstPU->mergeFlag && cu.firstPU->frucMrgMode == FRUC_MERGE_OFF &&  cu.firstPU->mergeRefPicList == REF_PIC_LIST_X &&  cu.firstPU->numMergedAddHyps == cu.firstPU->addHypData.size() )
+        CHECK( cu.rootCbf == 0 && !cu.skip && cu.firstPU->mergeFlag && cu.firstPU->frucMrgMode == FRUC_MERGE_OFF &&  cu.firstPU->mergeRefPicList == REF_PIC_LIST_X &&  cu.firstPU->numMergedAddHyps == cu.firstPU->addHypData.size(), "cu.rootCbf == 0 && !cu.skip && cu.firstPU->mergeRefPicList != REF_PIC_LIST_X &&  cu.firstPU->numMergedAddHyps != cu.firstPU->addHypData.size()" );
+    }
+  }
   // we've now encoded the CU, and so have a valid bit cost
   if (!cu.rootCbf)
   {
@@ -4340,13 +4506,25 @@ Void InterSearch::encodeResAndCalcRdInterCU(CodingStructure &cs, Partitioner &pa
 
 UInt64 InterSearch::xGetSymbolFracBitsInter(CodingStructure &cs, Partitioner &partitioner)
 {
-  UInt64 fracBits = 0;
-
-  CodingUnit &cu     = *cs.getCU();
+  UInt64 fracBits   = 0;
+  CodingUnit &cu    = *cs.getCU( partitioner.chType );
 
   m_CABACEstimator->resetBits();
 
-  if( cu.partSize == SIZE_2Nx2N && cu.firstPU->mergeFlag && !cu.rootCbf )
+  bool testMergeDF = true;
+  if( cu.slice->getSPS()->getSpsNext().getDiffusionFilterMode() >> 2 )
+  {
+    if( !( cu.diffFilterIdx == 0 ) )
+    {
+      testMergeDF = false;
+    }
+  }
+  if( cu.partSize == SIZE_2Nx2N && cu.firstPU->mergeFlag && testMergeDF && !cu.rootCbf
+      && (
+          cu.firstPU->frucMrgMode == FRUC_MERGE_OFF ||
+          cu.diffFilterIdx == 0 )
+    && cu.firstPU->mergeRefPicList == REF_PIC_LIST_X
+    && cu.firstPU->numMergedAddHyps == cu.firstPU->addHypData.size() )
   {
     cu.skip = true;
 
@@ -4357,13 +4535,15 @@ UInt64 InterSearch::xGetSymbolFracBitsInter(CodingStructure &cs, Partitioner &pa
 
     m_CABACEstimator->cu_skip_flag  ( cu );
     m_CABACEstimator->fruc_mrg_mode ( *cu.firstPU );
-    m_CABACEstimator->affine_flag   ( cu ); //TODO: adjust this
+    m_CABACEstimator->affine_flag   ( cu );
     m_CABACEstimator->merge_idx     ( *cu.firstPU );
     m_CABACEstimator->cu_lic_flag   ( cu );
     fracBits   += m_CABACEstimator->getEstFracBits();
   }
   else
   {
+    CHECK( cu.skip, "Skip flag has to be off at this point!" );
+
     if( cs.pps->getTransquantBypassEnabledFlag() )
     {
       m_CABACEstimator->cu_transquant_bypass_flag( cu );
@@ -4373,6 +4553,10 @@ UInt64 InterSearch::xGetSymbolFracBitsInter(CodingStructure &cs, Partitioner &pa
     m_CABACEstimator->pred_mode   ( cu );
     m_CABACEstimator->part_mode   ( cu );
     m_CABACEstimator->cu_pred_data( cu );
+    if( CU::isDiffIdxPresent( cu ) )
+    {
+      m_CABACEstimator->cu_diffusion_filter_idx( cu );
+    }
     CUCtx cuCtx;
     cuCtx.isDQPCoded = true;
     cuCtx.isChromaQpAdjCoded = true;
@@ -4382,4 +4566,5 @@ UInt64 InterSearch::xGetSymbolFracBitsInter(CodingStructure &cs, Partitioner &pa
 
   return fracBits;
 }
+
 

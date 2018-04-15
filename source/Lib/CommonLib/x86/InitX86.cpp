@@ -43,7 +43,7 @@
 #include "CommonLib/TrQuant.h"
 #include "CommonLib/RdCost.h"
 #include "CommonLib/Buffer.h"
-
+#include "CommonLib/IntraPrediction_NN.h"
 
 #ifdef TARGET_SIMD_X86
 
@@ -111,9 +111,32 @@ Void RdCost::initRdCostX86()
 }
 #endif
 
+#if HHI_SIMD_OPT_INTRA_PRED_NN
+void IntraPrediction_NN::initIntraPredNNX86()
+{
+  auto vext = read_x86_extension_flags();
+  switch( vext ) {
+  case AVX512:
+#ifdef USE_AVX512
+    _initIntraPredNNX86<AVX512>();
+    break;
+#endif
+  case AVX2:
+    _initIntraPredNNX86<AVX2>();
+    break;
+  case AVX:
+  case SSE42:
+  case SSE41:
+    _initIntraPredNNX86<SSE41>();
+    break;
+  default:
+    break;
+  }
+}
+#endif
+
 
 
 
 #endif
-
 

@@ -48,6 +48,7 @@
 #include "CommonLib/InterPrediction.h"
 #include "CommonLib/IntraPrediction.h"
 #include "CommonLib/Unit.h"
+#include "CommonLib/BilateralFilter.h"
 
 //! \ingroup DecoderLib
 //! \{
@@ -56,6 +57,10 @@
 // Class definition
 // ====================================================================================================================
 
+class DiffusionFilter;
+#if THRESHOLDING
+class Thresholding;
+#endif
 /// CU decoder class
 class DecCu
 {
@@ -64,7 +69,11 @@ public:
   virtual ~DecCu();
 
   /// initialize access channels
-  Void  init              ( TrQuant* pcTrQuant, IntraPrediction* pcIntra, InterPrediction* pcInter );
+#if THRESHOLDING
+  Void  init              ( TrQuant* pcTrQuant, IntraPrediction* pcIntra, InterPrediction* pcInter, DiffusionFilter* diffFilt, Thresholding* pcThresholding );
+#else
+  Void  init              ( TrQuant* pcTrQuant, IntraPrediction* pcIntra, InterPrediction* pcInter, DiffusionFilter* diffFilt );
+#endif
 
   /// destroy internal buffers
   Void  decompressCtu     ( CodingStructure& cs, const UnitArea& ctuArea );
@@ -89,6 +98,11 @@ private:
   TrQuant*          m_pcTrQuant;
   IntraPrediction*  m_pcIntraPred;
   InterPrediction*  m_pcInterPred;
+  BilateralFilter   m_bilateralFilter;
+  DiffusionFilter*  m_DiffusionFilter;
+#if THRESHOLDING
+  Thresholding*     m_pcThresholding;
+#endif
 
   MotionInfo        m_SubPuMiBuf   [( MAX_CU_SIZE * MAX_CU_SIZE ) >> ( MIN_CU_LOG2 << 1 )];
   MotionInfo        m_SubPuExtMiBuf[( MAX_CU_SIZE * MAX_CU_SIZE ) >> ( MIN_CU_LOG2 << 1 )];

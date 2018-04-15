@@ -1,4 +1,4 @@
-BUILD_SCRIPT := $(CURDIR)/cmake/bin/cmake.py
+BUILD_SCRIPT := $(CURDIR)/cmake/CMakeBuild/bin/cmake.py
 
 # Define here a list of generic targets to be built separately using a suffix to select the variant and link option.
 # Examples: <project> must be replaced by a make target defined below.
@@ -17,7 +17,7 @@ BUILD_SCRIPT := $(CURDIR)/cmake/bin/cmake.py
 #
 
 TARGETS := CommonLib DecoderAnalyserApp DecoderAnalyserLib DecoderApp DecoderLib 
-TARGETS += EncoderApp EncoderLib Utilities
+TARGETS += EncoderApp EncoderLib Utilities SEIRemovalApp
 
 ifeq ($(OS),Windows_NT)
   PY := $(wildcard c:/windows/py.*)
@@ -27,7 +27,7 @@ ifeq ($(OS),Windows_NT)
     PYTHON_LAUNCHER := $(notdir $(PY))
   endif
 	# If a plain cmake.py is used, the exit codes won't arrive in make; i.e. build failures are reported as success by make.
-	BUILD_SCRIPT := $(PYTHON_LAUNCHER) $(CURDIR)/cmake/bin/cmake.py
+	BUILD_SCRIPT := $(PYTHON_LAUNCHER) $(CURDIR)/cmake/CMakeBuild/bin/cmake.py
 else
   UNAME_S := $(shell uname -s)
   ifeq ($(UNAME_S),Linux)
@@ -63,16 +63,24 @@ ifneq ($(verbose),)
 CMAKE_OPTIONS += -DCMAKE_VERBOSE_MAKEFILE=ON
 endif
 
-ifneq ($(next-hm-bit-equal),)
-CONFIG_OPTIONS += -DSET_NEXT_HM_BIT_EQUAL=ON -DNEXT_HM_BIT_EQUAL=$(next-hm-bit-equal)
-endif
-
 ifneq ($(enable-tracing),)
 CONFIG_OPTIONS += -DSET_ENABLE_TRACING=ON -DENABLE_TRACING=$(enable-tracing)
 endif
 
 ifneq ($(skip-svn-info),)
 CONFIG_OPTIONS += -DSKIP_SVN_REVISION=$(skip-svn-info)
+endif
+
+ifneq ($(parallel-split),)
+CONFIG_OPTIONS += -DSET_HHI_SPLIT_PARALLELISM=ON -DHHI_SPLIT_PARALLELISM=$(parallel-split)
+endif
+
+ifneq ($(parallel-wpp),)
+CONFIG_OPTIONS += -DSET_HHI_WPP_PARALLELISM=ON -DHHI_WPP_PARALLELISM=$(parallel-wpp)
+endif
+
+ifneq ($(static),)
+CONFIG_OPTIONS += -DBUILD_STATIC=$(static)
 endif
 
 BUILD_OPTIONS := $(CONFIG_OPTIONS) -b

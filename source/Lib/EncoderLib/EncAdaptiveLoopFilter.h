@@ -3,7 +3,7 @@
  * and contributor rights, including patent rights, and no such rights are
  * granted under this license.
  *
- * Copyright (c) 2010-2015, ITU/ISO/IEC
+ * Copyright (c) 2010-2017, ITU/ISO/IEC
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -38,7 +38,8 @@
 #ifndef __ENCADAPTIVELOOPFILTER__
 #define __ENCADAPTIVELOOPFILTER__
 
-#include "../CommonLib/AdaptiveLoopFilter.h"
+#include "CommonLib/AdaptiveLoopFilter.h"
+
 
 #include "CABACWriter.h"
 
@@ -66,12 +67,30 @@ private:
 
   static const Int* m_iTapPosTabIn9x9Sym[m_NO_TEST_FILT];
 
+  double    error_tab[m_NO_VAR_BINS];
+  double    error_comb_tab[m_NO_VAR_BINS];
+  int       indexList[m_NO_VAR_BINS];
+  int       available[m_NO_VAR_BINS];
+  int       noRemaining;
+
+  double   *y_temp1D, **E_temp2D, pixAcc_temp0D;
+
+  double ***E_temp3D;
+  double  **y_temp2D;
+  double   *pixAcc_temp1D;
+  int     **FilterCoeffQuantTemp;
+
+  int       m_is9x9Alloc;
+  double  **y_temp9x9;
+
+  int usePrevFiltBest[m_NO_VAR_BINS];
+
 public:
            EncAdaptiveLoopFilter ();
   virtual ~EncAdaptiveLoopFilter (){}
 
   Void create                      ( const Int iPicWidth, Int iPicHeight, const ChromaFormat chromaFormatIDC, const Int uiMaxCUWidth, const UInt uiMaxCUHeight, const UInt uiMaxCUDepth , const Int nInputBitDepth, const Int nInternalBitDepth, const Int numberOfCTUs );
-  Void init                        ( CodingStructure& cs, CABACEncoder* cabacEncoder );
+  Void init                        ( CodingStructure& cs, CABACDataStore* cabacDataStore, CABACEncoder* cabacEncoder );
   Void destroy                     ();
 
   Void ALFProcess                  ( CodingStructure& cs, ALFParam* pcAlfParam, Double dLambdaLuma, Double dLambdaChroma);
@@ -123,7 +142,11 @@ private:
   Double xTestFixedFilterFast      ( Double ***A, Double **b, Double *pixAcc, Double *filterCoeffSym, Double *filterCoeffDefault, Int varInd);
   Double xTestFixedFilter          ( const Pel *imgY_rec, const Pel *imgY_org, const Pel *imgY_append, Int usePrevFilt[], Int noVarBins, Int orgStride, Int recStride, Int filtType);
   Void   xPreFilterFr              ( Int** imgY_preFilter, const Pel* imgY_rec, const Pel * imgY_org, const Pel* imgY_append, Int usePrevFilt[], Int Stride, Int filtType);
-  Void   xfindBestFilterPredictor  ( Double ***E_temp, Double**y_temp, Double *pixAcc_temp, Int filtType, const Pel* ImgOrg, const Pel* ImgDec, Int orgStride, Int recStride, Int* usePrevFiltBest, Int sqrFiltLength, Int iFixedFilters);
+  Void   xfindBestFilterPredictor  ( Double ***E_temp, Double**y_temp, Double *pixAcc_temp, Int filtType, const Pel* ImgOrg, const Pel* ImgDec, Int orgStride, Int recStride, Int* usePrevFiltBest, Int sqrFiltLength, Int iFixedFilters
+#if MCALF
+    , Int mode
+#endif
+    );
 #endif
 
 #if FORCE0
@@ -141,6 +164,15 @@ private:
     Int           codedVarBins[m_NO_VAR_BINS]);
 
 #endif
+
+#if MCALF
+  Double xClassifyEnc(Pel** classes, const CPelBuf& orgUnitBuf, const CPelBuf& recUnitBuf, double thresh, Int maxNumClasses, Int classAccuracy[80][2], Area blk
+    , Bool ranking = false
+    );
+  Double xClassifyEncByPixelConf(Pel** classes, const CPelBuf& orgUnitBuf, const CPelBuf& recUnitBuf, const Area& blk, double tresh, Int maxNumClasses, Int classAccuracy[80][2]);
+  Double xClassifyEncByRankingConf(Pel** classes, const CPelBuf& orgUnitBuf, const CPelBuf& recUnitBuf, const Area& blk, double tresh, Int maxNumClasses, Int classAccuracy[80][2]);
+#endif
+
   Double xCalcFilterCoeffsGalf(Double     ***EGlobalSeq,
                                Double      **yGlobalSeq,
                                Double       *pixAccGlobalSeq,
@@ -172,6 +204,9 @@ private:
   Void   xCheckFilterMergingGalf(ALFParam& alfParam
 #if JVET_C0038_NO_PREV_FILTERS
     , const PelUnitBuf& orgUnitBuf, const PelUnitBuf& recExtBuf
+#endif
+#if MCALF
+    , Int mode = 1
 #endif
   );
   Void xMergeFiltersGreedyGalf( Double ***EGlobalSeq, Double **yGlobalSeq, Double *pixAccGlobalSeq, int intervalBest[m_NO_VAR_BINS][m_NO_VAR_BINS], int sqrFiltLength);
@@ -280,14 +315,25 @@ private:
 #if JVET_C0038_NO_PREV_FILTERS
   Int**      m_imgY_preFilter;
   Double     m_filterCoeffPrev[m_NO_VAR_BINS*JVET_C0038_NO_PREV_FILTERS][21];
+#if MCALF
+  Double     m_filterCoeffPrevPC[m_NO_VAR_BINS*JVET_C0038_NO_PREV_FILTERS][21];
+  Double     m_filterCoeffPrevRCLC[m_NO_VAR_BINS*JVET_C0038_NO_PREV_FILTERS][21];
+  Double     m_filterCoeffPrevRC[m_NO_VAR_BINS*JVET_C0038_NO_PREV_FILTERS][21];
 #endif
-  Double**     m_ppdAlfCorr;
+#endif
+  Double**   m_ppdAlfCorr;
 
   //R-D
-  CABACWriter*  m_CABACEstimator;
-  CABACEncoder* m_CABACEncoder;
-  Slice*        m_pSlice;
-  Double       m_dLambdaLuma;
-  Double       m_dLambdaChroma;
+  CABACWriter*    m_CABACEstimator;
+  CABACDataStore* m_CABACDataStore;
+  Slice*          m_pSlice;
+  Double          m_dLambdaLuma;
+  Double          m_dLambdaChroma;
+
+#if MCALF
+  Double          m_lagrangian;
+  Int             m_selectedBins[80];
+#endif
 };
+
 #endif

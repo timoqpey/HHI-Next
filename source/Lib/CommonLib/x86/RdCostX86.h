@@ -2271,7 +2271,7 @@ Distortion RdCost::xGetHADs_SIMD( const DistParam &rcDtParam )
   Int  x, y;
   UInt uiSum = 0;
 
-  if( rcDtParam.isQtbt && iCols > iRows && ( iCols & 15 ) == 0 && ( iRows & 7 ) == 0 )
+  if( ( rcDtParam.isQtbt || rcDtParam.isGBS ) && iCols > iRows && ( iCols & 15 ) == 0 && ( iRows & 7 ) == 0 )
   {
     for( y = 0; y < iRows; y += 8 )
     {
@@ -2286,7 +2286,7 @@ Distortion RdCost::xGetHADs_SIMD( const DistParam &rcDtParam )
       piCur += iStrideCur * 8;
     }
   }
-  else if( rcDtParam.isQtbt && iCols < iRows && ( iRows & 15 ) == 0 && ( iCols & 7 ) == 0 )
+  else if( ( rcDtParam.isQtbt || rcDtParam.isGBS ) && iCols < iRows && ( iRows & 15 ) == 0 && ( iCols & 7 ) == 0 )
   {
     for( y = 0; y < iRows; y += 16 )
     {
@@ -2301,7 +2301,7 @@ Distortion RdCost::xGetHADs_SIMD( const DistParam &rcDtParam )
       piCur += iStrideCur * 16;
     }
   }
-  else if( rcDtParam.isQtbt && iCols > iRows && ( iCols & 7 ) == 0 && ( iRows & 3 ) == 0 )
+  else if( ( rcDtParam.isQtbt || rcDtParam.isGBS ) && iCols > iRows && ( iCols & 7 ) == 0 && ( iRows & 3 ) == 0 )
   {
     for( y = 0; y < iRows; y += 4 )
     {
@@ -2313,7 +2313,7 @@ Distortion RdCost::xGetHADs_SIMD( const DistParam &rcDtParam )
       piCur += iStrideCur * 4;
     }
   }
-  else if( rcDtParam.isQtbt && iCols < iRows && ( iRows & 7 ) == 0 && ( iCols & 3 ) == 0 )
+  else if( (rcDtParam.isQtbt || rcDtParam.isGBS ) && iCols < iRows && ( iRows & 7 ) == 0 && ( iCols & 3 ) == 0 )
   {
     for( y = 0; y < iRows; y += 8 )
     {
@@ -2325,7 +2325,7 @@ Distortion RdCost::xGetHADs_SIMD( const DistParam &rcDtParam )
       piCur += iStrideCur * 8;
     }
   }
-  else if( vext >= AVX2 && ( ( ( iRows | iCols ) & 15 ) == 0 ) && ( iRows == iCols || !rcDtParam.isQtbt ) )
+  else if( vext >= AVX2 && ( ( ( iRows | iCols ) & 15 ) == 0 ) && ( iRows == iCols || !( rcDtParam.isQtbt || rcDtParam.isGBS ) ) )
   {
     Int  iOffsetOrg = iStrideOrg << 4;
     Int  iOffsetCur = iStrideCur << 4;
@@ -2339,7 +2339,7 @@ Distortion RdCost::xGetHADs_SIMD( const DistParam &rcDtParam )
       piCur += iOffsetCur;
     }
   }
-  else if( ( ( ( iRows | iCols ) & 7 ) == 0 ) && ( iRows == iCols || !rcDtParam.isQtbt ) )
+  else if( ( ( ( iRows | iCols ) & 7 ) == 0 ) && ( iRows == iCols || !( rcDtParam.isGBS || rcDtParam.isQtbt ) ) )
   {
     Int  iOffsetOrg = iStrideOrg << 3;
     Int  iOffsetCur = iStrideCur << 3;

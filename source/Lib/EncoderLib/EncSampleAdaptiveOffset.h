@@ -88,9 +88,10 @@ public:
   //interface
   Void createEncData(Bool isPreDBFSamplesUsed, UInt numCTUsPic);
   Void destroyEncData();
-  Void initCABACEstimator( CABACEncoder* cabacEncoder, CtxCache* ctxCache, Slice* pcSlice );
+  Void initCABACEstimator( CABACDataStore* cabacDataStore, CABACEncoder* cabacEncoder, CtxCache* ctxCache, Slice* pcSlice );
   Void SAOProcess(CodingStructure& cs, Bool* sliceEnabled, const Double *lambdas, const Bool bTestSAODisableAtPictureLevel, const Double saoEncodingRate, const Double saoEncodingRateChroma, Bool isPreDBFSamplesUsed);
 
+  Void disabledRate( CodingStructure& cs, SAOBlkParam* reconParams, const Double saoEncodingRate, const Double saoEncodingRateChroma );
   Void getPreDBFStatistics(CodingStructure& cs);
 private: //methods
 

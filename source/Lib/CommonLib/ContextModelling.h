@@ -62,6 +62,9 @@ public:
   void  setGoRiceStats  ( unsigned  GRStats )   { m_currentGolombRiceStatistic = GRStats; }
   void  incGoRiceStats  ()                      { m_currentGolombRiceStatistic++; }
   void  decGoRiceStats  ()                      { m_currentGolombRiceStatistic--; }
+#if HM_EMT_NSST_AS_IN_JEM
+  void  setIsEMT        ( bool      isEMT )     { m_isEMT = isEMT; }
+#endif
 public:
   ComponentID     compID          ()                        const { return m_compID; }
   int             subSetId        ()                        const { return m_subSetId; }
@@ -99,11 +102,258 @@ public:
   unsigned        lastXCtxId      ( unsigned  posLastX  )   const { return m_CtxSetLastX( m_lastOffsetX + ( posLastX >> m_lastShiftX ) ); }
   unsigned        lastYCtxId      ( unsigned  posLastY  )   const { return m_CtxSetLastY( m_lastOffsetY + ( posLastY >> m_lastShiftY ) ); }
   unsigned        sigGroupCtxId   ()                        const { return m_sigGroupCtxId; }
-  unsigned        sigCtxId        ( int       scanPos   )   const;
+  unsigned        sigCtxId        ( int       scanPos   )   const { return m_sigCtxSet( m_sigScanCtxId[ scanPos ] ); }
   unsigned        greater1CtxId   ( int       gt1Ctx    )   const { return m_gt1FlagCtxSet( gt1Ctx ); }
   unsigned        greater2CtxId   ()                        const { return m_gt2FlagCtxId; }
+
   unsigned        altResiCompId   ()                        const { return m_altResiCompId; }
   void            getAltResiCtxSet( const TCoeff* coeff, int scanPos, UInt& sigCtxIdx, UInt& gt1CtxIdx, UInt& gt2CtxIdx, UInt& goRicePar, int strd = 0 );
+  unsigned        sigCtxIdAbsTcq ( int stateId, int scanPos, const TCoeff* coeff )
+  {
+    const UInt posY = m_scanPosY[ scanPos ];
+    const UInt posX = m_scanPosX[ scanPos ];
+
+    const TCoeff *pData = coeff + posX + posY * m_width;
+    const Int   widthM1 = m_width - 1;
+    const Int  heightM1 = m_height - 1;
+    const Int      diag = posX + posY;
+
+    Int numPos = 0;
+    Int sumAbs = 0;
+
+    if( posX < widthM1 )
+    {
+      sumAbs += abs( pData[ 1 ] );
+      numPos += pData[ 1 ] != 0;
+      if( posX < widthM1 - 1 )
+      {
+        sumAbs += abs( pData[ 2 ] );
+        numPos += pData[ 2 ] != 0;
+      }
+      if( posY < heightM1 )
+      {
+        sumAbs += abs( pData[ m_width + 1 ] );
+        numPos += pData[ m_width + 1 ] != 0;
+      }
+    }
+    if( posY < heightM1 )
+    {
+      sumAbs += abs( pData[ m_width ] );
+      numPos += pData[ m_width ] != 0;
+      if( posY < heightM1 - 1 )
+      {
+        sumAbs += abs( pData[ 2 * m_width ] );
+        numPos += pData[ 2 * m_width ] != 0;
+      }
+    }
+
+    const Int ctxIdx = std::min( sumAbs, 5 );
+    Int ctxOfs = diag < 2 ? 6 : 0;
+
+    if( m_chType == CHANNEL_TYPE_LUMA )
+    {
+      ctxOfs += diag < 5 ? 6 : 0;
+    }
+
+    m_tmplCpDiag = diag;
+    m_tmplCpSum1 = sumAbs - numPos;
+
+    return m_sigCtxSetTCQ[stateId>>1]( ctxOfs + ctxIdx );
+  }
+
+  unsigned        greater1CtxIdTcq( int stateId )                        const
+  {
+    if( m_tmplCpDiag == -1 )
+    {
+      return m_gt1CtxSetTCQ[stateId>>1]( 0 );
+    }
+    else
+    {
+      int ofs = std::min( m_tmplCpSum1, 4 ) + 1;
+      ofs += m_tmplCpDiag == 0 ? ( m_chType == CHANNEL_TYPE_LUMA ? 15 : 5 ) : m_chType == CHANNEL_TYPE_LUMA ? m_tmplCpDiag < 3 ? 10 : ( m_tmplCpDiag < 10 ? 5 : 0 ) : 0;
+      return m_gt1CtxSetTCQ[stateId>>1]( ofs );
+    }
+  }
+
+  unsigned        greaterXCtxIdTcq()                        const
+  {
+    if( m_tmplCpDiag == -1 )
+    {
+      return m_gtxCtxSetTCQ( 0 );
+    }
+    else
+    {
+      int ofs = std::min( m_tmplCpSum1, 4 ) + 1;
+      ofs += m_tmplCpDiag == 0 ? ( m_chType == CHANNEL_TYPE_LUMA ? 15 : 5 ) : m_chType == CHANNEL_TYPE_LUMA ? m_tmplCpDiag < 3 ? 10 : ( m_tmplCpDiag < 10 ? 5 : 0 ) : 0;
+      return m_gtxCtxSetTCQ( ofs );
+    }
+  }
+
+  unsigned        sigCtxIdAbs     ( int       scanPos,
+                              const TCoeff*   coeff,
+                                    int       strd = 0  )
+  {
+    const UInt posY = m_scanPosY[ scanPos ];
+    const UInt posX = m_scanPosX[ scanPos ];
+
+    strd = strd == 0 ? m_width : strd;
+    const TCoeff *pData = coeff + posX + posY * strd;
+    const Int   widthM1 = m_width - 1;
+    const Int  heightM1 = m_height - 1;
+    const Int      diag = posX + posY;
+
+    Int numPos = 0;
+    Int sumAbs = 0;
+
+    if( posX < widthM1 )
+    {
+      sumAbs += abs( pData[ 1 ] );
+      numPos += pData[ 1 ] != 0;
+      if( posX < widthM1 - 1 )
+      {
+        sumAbs += abs( pData[ 2 ] );
+        numPos += pData[ 2 ] != 0;
+      }
+      if( posY < heightM1 )
+      {
+        sumAbs += abs( pData[ m_width + 1 ] );
+        numPos += pData[ m_width + 1 ] != 0;
+      }
+    }
+    if( posY < heightM1 )
+    {
+      sumAbs += abs( pData[ m_width ] );
+      numPos += pData[ m_width ] != 0;
+      if( posY < heightM1 - 1 )
+      {
+        sumAbs += abs( pData[ 2 * m_width ] );
+        numPos += pData[ 2 * m_width ] != 0;
+      }
+    }
+
+    const Int ctxIdx = std::min( sumAbs, 5 );
+          Int ctxOfs = diag < 2 ? 6 : 0;
+
+    if( m_chType == CHANNEL_TYPE_LUMA )
+    {
+      ctxOfs += diag < 5 ? 6 : 0;
+    }
+
+    m_tmplCpDiag = diag;
+    m_tmplCpSum1 = sumAbs - numPos;
+
+    return m_sigCtxSet( ctxOfs + ctxIdx );
+  }
+
+  unsigned        greaterXCtxId   ( int levelX )                        const
+  {
+    if( m_tmplCpDiag == -1 )
+    {
+      return m_gt1FlagCtxSet( 0 );
+    }
+    else
+    {
+      int ofs = std::min( m_tmplCpSum1, 4 ) + 1;
+      ofs += m_tmplCpDiag == 0 ? ( m_chType == CHANNEL_TYPE_LUMA ? 15 : 5 ) : m_chType == CHANNEL_TYPE_LUMA ? m_tmplCpDiag < 3 ? 10 : ( m_tmplCpDiag < 10 ? 5 : 0 ) : 0;
+
+#if HM_EMT_NSST_AS_IN_JEM
+      ofs += (levelX > 2 && m_isEMT) ? 21 : 0;
+#endif
+
+      return m_gt1FlagCtxSet( ofs );
+    }
+  }
+
+  unsigned        GoRicePar()                               const
+  {
+    return g_auiGoRiceTable[ std::min( m_tmplCpSum1, 31 ) ];
+  }
+
+  void getAltResiCompId2CtxSet( const TCoeff* coeff,
+                                  int   scanPos,
+                                  UInt& sigCtxIdx,
+                                  UInt& gt1CtxIdx,
+                                  UInt& gt2CtxIdx,
+                                  UInt& gt3CtxIdx,
+                                  UInt& goRicePar,
+                                  int   strd = 0
+                                  )                         /*const*/
+  {
+    const UInt posY = m_scanPosY[scanPos];
+    const UInt posX = m_scanPosX[scanPos];
+
+    strd = strd == 0 ? m_width : strd;
+    const TCoeff *pData = coeff + posX + posY * strd;
+    const Int   widthM1 = m_width - 1;
+    const Int  heightM1 = m_height - 1;
+    const Int      diag = posX + posY;
+
+
+    Int sumAbs  = 0;
+    Int numPos  = 0;
+
+    if( posX < widthM1 )
+    {
+      sumAbs  += abs( pData[ 1 ] );
+      numPos  +=      pData[ 1 ] != 0;
+      if( posX < widthM1 - 1 )
+      {
+        sumAbs  += abs( pData[ 2 ] );
+        numPos  +=      pData[ 2 ] != 0;
+      }
+      if( posY < heightM1 )
+      {
+        sumAbs  += abs( pData[ m_width + 1 ] );
+        numPos  +=      pData[ m_width + 1 ] != 0;
+      }
+    }
+    if( posY < heightM1 )
+    {
+      sumAbs  += abs( pData[ m_width ] );
+      numPos  +=      pData[ m_width ] != 0;
+      if( posY < heightM1 - 1 )
+      {
+        sumAbs  += abs( pData[ 2 * m_width ] );
+        numPos  +=      pData[ 2 * m_width ] != 0;
+      }
+    }
+
+    const Int ctxIdxN = std::min( sumAbs, 5 );
+          Int ctxOfsN = diag < 2 ? 6 : 0;
+
+
+    if( m_chType == CHANNEL_TYPE_LUMA )
+    {
+      ctxOfsN += diag < 5 ? 6 : 0;
+    }
+
+    m_tmplCpDiag = diag;
+    m_tmplCpSum1 = sumAbs - numPos;
+
+    Int ctxIdx = 0;
+    Int ctxIdx2 = 0;
+    if( m_tmplCpDiag != -1 )
+    {
+      int ofs = std::min( m_tmplCpSum1, 4 ) + 1;
+      ofs += m_tmplCpDiag == 0 ? (m_chType == CHANNEL_TYPE_LUMA ? 15 : 5) : m_chType == CHANNEL_TYPE_LUMA ? m_tmplCpDiag < 3 ? 10 : ( m_tmplCpDiag < 10 ? 5 : 0 ) : 0;
+
+      ctxIdx = ofs;
+
+#if HM_EMT_NSST_AS_IN_JEM
+      ofs += m_isEMT ? 21 : 0;
+#endif
+
+      ctxIdx2 = ofs;
+    }
+
+    goRicePar = g_auiGoRiceTable[std::min( m_tmplCpSum1, 31 )];
+
+    gt1CtxIdx = m_gt1FlagCtxSet( ctxIdx );
+    gt2CtxIdx = m_gt1FlagCtxSet( ctxIdx );
+    gt3CtxIdx = m_gt1FlagCtxSet( ctxIdx2 );
+    sigCtxIdx = m_sigCtxSet    ( ctxOfsN + ctxIdxN );
+  }
+/*#endif*/
 
   unsigned        sigGroupCtxIdOfs() const
   {
@@ -359,7 +609,11 @@ private:
   const int                 m_lastShiftY;
   const bool                m_TrafoBypass;
   const int                 m_SigBlockType;
+  const uint8_t**           m_SigScanPatternBase;
   CtxSet                    m_sigCtxSet;
+  CtxSet                    m_sigCtxSetTCQ[2];
+  CtxSet                    m_gt1CtxSetTCQ[2];
+  CtxSet                    m_gtxCtxSetTCQ;
   // modified
   int                       m_scanPosLast;
   int                       m_subSetId;
@@ -369,12 +623,17 @@ private:
   int                       m_minSubPos;
   int                       m_maxSubPos;
   unsigned                  m_sigGroupCtxId;
-  int                       m_sigCGPattern;
+  const uint8_t*            m_sigScanCtxId;
   CtxSet                    m_gt1FlagCtxSet;
   unsigned                  m_gt2FlagCtxId;
   unsigned                  m_currentGolombRiceStatistic;
   bool                      m_prevGt2;
   std::bitset<MLS_GRP_NUM>  m_sigCoeffGroupFlag;
+  int                       m_tmplCpSum1;
+  int                       m_tmplCpDiag;
+#if HM_EMT_NSST_AS_IN_JEM
+  bool                      m_isEMT;
+#endif
   unsigned                  m_altResiCompId;
   unsigned                  m_emtNumSigCoeff;
 };
@@ -383,45 +642,51 @@ private:
 class CUCtx
 {
 public:
-  CUCtx()              : isDQPCoded(false), isChromaQpAdjCoded(false), numNonZeroCoeffNonTs(0) {}
-  CUCtx(int _qp)       : isDQPCoded(false), isChromaQpAdjCoded(false), numNonZeroCoeffNonTs(0), qp(_qp) {}
+  CUCtx()              : isDQPCoded(false), isChromaQpAdjCoded(false),
+                         numNonZeroCoeffNonTs(0) {}
+  CUCtx(int _qp)       : isDQPCoded(false), isChromaQpAdjCoded(false),
+                         numNonZeroCoeffNonTs(0), qp(_qp) {}
   ~CUCtx() {}
 public:
   bool      isDQPCoded;
   bool      isChromaQpAdjCoded;
   UInt      numNonZeroCoeffNonTs;
-  int       qp;                   // used as a previous(last) QP and for QP prediction
+  SChar     qp;                   // used as a previous(last) QP and for QP prediction
   int       quadtreeTULog2MinSizeInCU;
 };
 
 class MergeCtx
 {
 public:
-  MergeCtx() : numValidMergeCand( 0 ), hasMergedCandList( false ) { for( unsigned i = 0; i < MRG_MAX_NUM_CANDS; i++ ) mrgTypeNeighnours[i] = MRG_TYPE_DEFAULT_N; }
+  MergeCtx() : numValidMergeCand( 0 ), hasMergedCandList( false ) { for( unsigned i = 0; i < MRG_MAX_NUM_CANDS; i++ ) mrgTypeNeighbours[i] = MRG_TYPE_DEFAULT_N; }
   ~MergeCtx() {}
 public:
   MvField       mvFieldNeighbours [ MRG_MAX_NUM_CANDS << 1 ]; // double length for mv of both lists
   bool          LICFlags          [ MRG_MAX_NUM_CANDS      ];
   unsigned char interDirNeighbours[ MRG_MAX_NUM_CANDS      ];
-  MergeType     mrgTypeNeighnours [ MRG_MAX_NUM_CANDS      ];
+  MergeType     mrgTypeNeighbours [ MRG_MAX_NUM_CANDS      ];
+  MultiHypVec   addHypNeighbours  [ MRG_MAX_NUM_CANDS      ];
+  unsigned int  interDiffNeighbours[MRG_MAX_NUM_CANDS      ];
   int           numValidMergeCand;
   bool          hasMergedCandList;
 
   MotionBuf     subPuMvpMiBuf;
   MotionBuf     subPuMvpExtMiBuf;
   MotionBuf     subPuFrucMiBuf;
-
   Void setMergeInfo( PredictionUnit& pu, int candIdx );
 };
 
 
 namespace DeriveCtx
 {
+unsigned CtxSplitMod  ( const CodingStructure& cs, Partitioner& partitioner, const PartSplit splitBase );
 unsigned CtxCUsplit   ( const CodingStructure& cs, Partitioner& partitioner );
 unsigned CtxBTsplit   ( const CodingStructure& cs, Partitioner& partitioner );
-unsigned CtxQtCbf     ( const ComponentID compID, const unsigned trDepth );
+unsigned CtxQtCbf     ( const ComponentID compID, const unsigned trDepth, const bool useMode1dPartitions, const bool previousCbf );
 unsigned CtxInterDir  ( const PredictionUnit& pu );
 unsigned CtxSkipFlag  ( const CodingUnit& cu );
+unsigned CtxIntraNNModel
+                      ( const CodingUnit& cu );
 unsigned CtxIMVFlag   ( const CodingUnit& cu );
 unsigned CtxAffineFlag( const CodingUnit& cu );
 unsigned CtxFrucFlag  ( const PredictionUnit& pu );

@@ -97,7 +97,6 @@ public:
 
       if( highPrec && !rcMv.highPrec ) rcMv.setHighPrec();
       if( !highPrec && rcMv.highPrec )      setHighPrec();
-
       hor += rcMv.hor;
       ver += rcMv.ver;
     }
@@ -117,7 +116,6 @@ public:
 
       if( highPrec && !rcMv.highPrec ) rcMv.setHighPrec();
       if( !highPrec && rcMv.highPrec )      setHighPrec();
-
       hor -= rcMv.hor;
       ver -= rcMv.ver;
     }

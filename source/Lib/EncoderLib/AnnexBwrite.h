@@ -83,6 +83,11 @@ static std::vector<UInt> writeAnnexB(std::ostream& out, const AccessUnit& au)
     annexBsizes.push_back(size);
   }
 
+  if (au.size() > 0)
+  {
+    out.flush();
+  }
+
   return annexBsizes;
 }
 //! \}

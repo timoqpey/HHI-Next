@@ -1,5 +1,4 @@
 /* The copyright in this software is being made available under the BSD
-
  * License, included below. This software may be subject to other third party
  * and contributor rights, including patent rights, and no such rights are
  * granted under this license.
@@ -98,9 +97,11 @@ void QuantErrScale::uninit()
 }
 
 
-QuantRDOQ2::QuantRDOQ2() : m_bSBH( true ), m_iLambda( 0 )
+QuantRDOQ2::QuantRDOQ2( const Quant* other ) : Quant( other ), m_bSBH( true ), m_iLambda( 0 )
 {
-  xInitScalingList();
+  const QuantRDOQ2 *rdoq2 = dynamic_cast<const QuantRDOQ2*>( other );
+  CHECK( other && !rdoq2, "The RDOQ cast must be successfull!" );
+  xInitScalingList( rdoq2 );
 }
 
 QuantRDOQ2::~QuantRDOQ2()
@@ -109,9 +110,10 @@ QuantRDOQ2::~QuantRDOQ2()
 }
 
 
-Void QuantRDOQ2::init( UInt uiMaxTrSize, Bool useRDOQ, Bool useRDOQTS, UInt uiAltResiCompId,
+Void QuantRDOQ2::init( UInt uiMaxTrSize, Bool useRDOQ, Bool useRDOQTS
+                       , UInt uiAltResiCompId
 #if T0196_SELECTIVE_RDOQ
-                       Bool useSelectiveRDOQ
+                       , Bool useSelectiveRDOQ
 #endif
                        )
 {
@@ -125,6 +127,15 @@ Void QuantRDOQ2::init( UInt uiMaxTrSize, Bool useRDOQ, Bool useRDOQTS, UInt uiAl
   m_quantErrScale.init( gp_sizeIdxInfo->numWidths(), gp_sizeIdxInfo->numHeights() );
 }
 
+#if HHI_SPLIT_PARALLELISM
+void QuantRDOQ2::copyState( const QuantRDOQ2& other )
+{
+  Quant::copyState( other );
+  m_iLambda = other.m_iLambda;
+  m_bSBH    = other.m_bSBH;
+}
+
+#endif
 
 Void QuantRDOQ2::setFlatScalingList( const Int maxLog2TrDynamicRange[MAX_NUM_CHANNEL_TYPE], const BitDepths &bitDepths )
 {
@@ -178,9 +189,22 @@ Void QuantRDOQ2::quant( TransformUnit &tu, const ComponentID &compID, const CCoe
   const Bool useTransformSkip = tu.transformSkip[compID];
 
   Bool useRDOQ = useTransformSkip ? m_useRDOQTS : m_useRDOQ;
-  useRDOQ &= uiWidth > 2;
-  useRDOQ &= uiHeight > 2;
-  if( useRDOQ && ( isLuma( compID ) || RDOQ_CHROMA ) )
+
+  if( tu.cu->mode1dPartitions && CU::divideTuInRows( *tu.cu ) && uiHeight == 1 )
+  {
+    useRDOQ &= uiWidth > 2;
+  }
+  else if( tu.cu->mode1dPartitions && !CU::divideTuInRows( *tu.cu ) && uiWidth == 1 )
+  {
+    useRDOQ &= uiHeight > 2;
+  }
+  else
+  {
+    useRDOQ &= uiWidth > 2;
+    useRDOQ &= uiHeight > 2;
+  }
+
+  if (useRDOQ && (isLuma(compID) || RDOQ_CHROMA))
   {
 #if T0196_SELECTIVE_RDOQ
     const CCoeffBuf &piCoef = pSrc;
@@ -216,16 +240,12 @@ Void QuantRDOQ2::xSetErrScaleCoeffNoScalingList( UInt list, UInt wIdx, UInt hIdx
   const ChannelType channelType = ( ( list == 0 ) || ( list == MAX_NUM_COMPONENT ) ) ? CHANNEL_TYPE_LUMA : CHANNEL_TYPE_CHROMA;
   const Int channelBitDepth     = bitDepths.recon[channelType];
   const Int iTransformShift     = getTransformShift( channelBitDepth, Size( width, height ), maxLog2TrDynamicRange[channelType] );
-  const Bool needsSrqt2         = needsBlockSizeQuantScale( Size( width, height ) );
+  const Int errScaleExponent    = SCALE_BITS - ( iTransformShift/*<<1*/ );
+  const Int errScale            = 1 << errScaleExponent;
+  const Int QStep               = g_quantScales[qp];
+  double result = errScale / (double)QStep /*/ (double)QStep*/ / (double)( 1 << DISTORTION_PRECISION_ADJUSTMENT(/*2 **/ ( channelBitDepth - 8 ) ) );
 
-  Double dTransShift = (Double)iTransformShift + ( needsSrqt2 ? -0.5 : 0.0 );
-  Double dErrScale   = (Double)( 1 << SCALE_BITS );                   // Compensate for scaling of bitcount in Lagrange cost function
-  dErrScale          = dErrScale*pow( 2.0, ( -/*2.0**/( dTransShift ) ) );   // Compensate for scaling through forward transform
-
-  Int QStep = ( needsSrqt2 ? ( ( g_quantScales[qp] * 181 ) >> 7 ) : g_quantScales[qp] );
-
-  Double errScale = dErrScale / QStep /*/ QStep*/ / ( 1 << DISTORTION_PRECISION_ADJUSTMENT( /*2 **/ ( bitDepths.recon[channelType] - 8 ) ) );
-  m_quantErrScale.getErrScaleNoScalingList( wIdx, hIdx, list, qp ) = (Int)( errScale * (Double)( 1 << COEFF_ERR_SCALE_PRECISION_BITS ) );
+  m_quantErrScale.getErrScaleNoScalingList( wIdx, hIdx, list, qp ) = (Int)( result * (Double)( 1 << COEFF_ERR_SCALE_PRECISION_BITS ) );
 }
 
 /**
@@ -258,8 +278,10 @@ Void QuantRDOQ2::xSetErrScaleCoeff( UInt list, UInt sizeX, UInt sizeY, Int qp, c
 
 /** initialization process of scaling list array
 */
-Void QuantRDOQ2::xInitScalingList()
+Void QuantRDOQ2::xInitScalingList( const QuantRDOQ2* other )
 {
+  m_isErrListOwner = other == nullptr;
+
   for( UInt sizeIdX = 0; sizeIdX < SCALING_LIST_SIZE_NUM; sizeIdX++ )
   {
     for( UInt sizeIdY = 0; sizeIdY < SCALING_LIST_SIZE_NUM; sizeIdY++ )
@@ -268,7 +290,14 @@ Void QuantRDOQ2::xInitScalingList()
       {
         for( UInt listId = 0; listId < SCALING_LIST_NUM; listId++ )
         {
-          m_errScale[sizeIdX][sizeIdY][listId][qp] = new Int[g_scalingListSizeX[sizeIdX] * g_scalingListSizeX[sizeIdY]];
+          if( m_isErrListOwner )
+          {
+            m_errScale[sizeIdX][sizeIdY][listId][qp] = new Int[g_scalingListSizeX[sizeIdX] * g_scalingListSizeX[sizeIdY]];
+          }
+          else
+          {
+            m_errScale[sizeIdX][sizeIdY][listId][qp] = other->m_errScale[sizeIdX][sizeIdY][listId][qp];
+          }
         } // listID loop
       }
     }
@@ -279,6 +308,8 @@ Void QuantRDOQ2::xInitScalingList()
 */
 Void QuantRDOQ2::xDestroyScalingList()
 {
+  if( !m_isErrListOwner ) return;
+
   for( UInt sizeIdX = 0; sizeIdX < SCALING_LIST_SIZE_NUM; sizeIdX++ )
   {
     for( UInt sizeIdY = 0; sizeIdY < SCALING_LIST_SIZE_NUM; sizeIdY++ )
@@ -310,6 +341,112 @@ inline Int QuantRDOQ2::xGetIEPRate() const
 
 #define LEVEL_FRAC_BITS(_id,_b) fracBits.getFracBitsArray(_id).intBits[_b]
 
+
+/** Calculates the cost for specific absolute transform level
+* \param uiAbsLevel scaled quantized level
+* \param ui16CtxNumOne current ctxInc for coeff_abs_level_greater1 (1st bin of coeff_abs_level_minus1 in AVC)
+* \param ui16CtxNumAbs current ctxInc for coeff_abs_level_greater2 (remaining bins of coeff_abs_level_minus1 in AVC)
+* \param ui16AbsGoRice Rice parameter for coeff_abs_level_minus3
+* \returns cost of given absolute transform level
+*/
+template< UInt altResiCompId >
+inline Int64 QuantRDOQ2::xiGetICRateCost( const UInt uiAbsLevel,
+                                          const UInt ui16CtxNumOne,
+                                          const UInt ui16CtxNumAbs,
+                                          const UInt ui16CtxNumAbsThree,
+                                          const UInt ui16AbsGoRice,
+                                          const UInt c1Idx,
+                                          const UInt c2Idx,
+                                          const Bool useLimitedPrefixLength,
+                                          const Int  maxLog2TrDynamicRange,
+                                          const FracBitsAccess& fracBits
+                                        ) const
+{
+
+  CHECK( altResiCompId != 2, "Error: This function is for use of altResiComp==2 only!" );
+
+  Int iRate = xGetIEPRate();
+  UInt baseLevel = ( c1Idx < CXFLAG_NUMBER ) ? 5 : 1;
+
+  if( uiAbsLevel >= baseLevel )
+  {
+    Int symbol = uiAbsLevel - baseLevel;
+    UInt length;
+
+    const int threshold = altResiCompId ? g_auiGoRiceRange[ui16AbsGoRice] : COEF_REMAIN_BIN_REDUCTION;
+
+    if( symbol < ( threshold << ui16AbsGoRice ) )
+    {
+      length = symbol >> ui16AbsGoRice;
+      iRate += ( length + 1 + ui16AbsGoRice ) << 15;
+    }
+    else if( useLimitedPrefixLength )
+    {
+      const UInt maximumPrefixLength = ( 32 - ( COEF_REMAIN_BIN_REDUCTION + maxLog2TrDynamicRange ) );
+
+      UInt prefixLength = 0;
+      UInt suffix = ( symbol >> ui16AbsGoRice ) - COEF_REMAIN_BIN_REDUCTION;
+
+      while( ( prefixLength < maximumPrefixLength ) && ( suffix > ( ( 2 << prefixLength ) - 2 ) ) )
+      {
+        prefixLength++;
+      }
+
+      const UInt suffixLength = ( prefixLength == maximumPrefixLength ) ? ( maxLog2TrDynamicRange - ui16AbsGoRice ) : ( prefixLength + 1/*separator*/ );
+
+      iRate += ( COEF_REMAIN_BIN_REDUCTION + prefixLength + suffixLength + ui16AbsGoRice ) << 15;
+    }
+    else
+    {
+      length = ui16AbsGoRice;
+      symbol = symbol - ( threshold << ui16AbsGoRice );
+      while( symbol >= ( 1 << length ) )
+      {
+        symbol -= ( 1 << ( length++ ) );
+      }
+      iRate += ( threshold + length + 1 - ui16AbsGoRice + length ) << 15;
+    }
+    if( c1Idx < CXFLAG_NUMBER )
+    {
+      iRate += LEVEL_FRAC_BITS( ui16CtxNumOne, 1 );
+      iRate += LEVEL_FRAC_BITS( ui16CtxNumAbs, 1 );
+      iRate += LEVEL_FRAC_BITS( ui16CtxNumAbsThree, 1 );
+      iRate += LEVEL_FRAC_BITS( ui16CtxNumAbsThree, 1 );
+    }
+  }
+  else
+  {
+    if( uiAbsLevel == 1 )
+    {
+      iRate += LEVEL_FRAC_BITS( ui16CtxNumOne, 0 );
+    }
+    else if( uiAbsLevel == 2 )
+    {
+      iRate += LEVEL_FRAC_BITS( ui16CtxNumOne, 1 );
+      iRate += LEVEL_FRAC_BITS( ui16CtxNumAbs, 0 );
+    }
+    else if( uiAbsLevel == 3 )
+    {
+      iRate += LEVEL_FRAC_BITS( ui16CtxNumOne, 1 );
+      iRate += LEVEL_FRAC_BITS( ui16CtxNumAbs, 1 );
+      iRate += LEVEL_FRAC_BITS( ui16CtxNumAbsThree, 0 );
+    }
+    else if( uiAbsLevel == 4 )
+    {
+      iRate += LEVEL_FRAC_BITS( ui16CtxNumOne, 1 );
+      iRate += LEVEL_FRAC_BITS( ui16CtxNumAbs, 1 );
+      iRate += LEVEL_FRAC_BITS( ui16CtxNumAbsThree, 1 );
+      iRate += LEVEL_FRAC_BITS( ui16CtxNumAbsThree, 0 );
+    }
+    else
+    {
+      assert( 0 );
+    }
+  }
+  return xiGetICost( iRate );
+}
+
+
 /** Calculates the cost for specific absolute transform level
 * \param uiAbsLevel scaled quantized level
 * \param ui16CtxNumOne current ctxInc for coeff_abs_level_greater1 (1st bin of coeff_abs_level_minus1 in AVC)
@@ -327,7 +464,7 @@ inline Int64 QuantRDOQ2::xiGetICRateCost( const UInt uiAbsLevel,
                                           const Bool useLimitedPrefixLength,
                                           const Int  maxLog2TrDynamicRange,
                                           const FracBitsAccess& fracBits
-                                          ) const
+                                        ) const
 {
   Int iRate = xGetIEPRate();
   UInt baseLevel = ( c1Idx < C1FLAG_NUMBER ) ? ( 2 + ( c2Idx < C2FLAG_NUMBER ) ) : 1;
@@ -336,12 +473,7 @@ inline Int64 QuantRDOQ2::xiGetICRateCost( const UInt uiAbsLevel,
     Int symbol = uiAbsLevel - baseLevel;
     UInt length;
 
-    int threshold;
-    if( altResiCompId )
-      threshold = g_auiGoRiceRange[ui16AbsGoRice];
-    else
-      threshold = COEF_REMAIN_BIN_REDUCTION;
-
+    const int threshold = altResiCompId ? g_auiGoRiceRange[ui16AbsGoRice] : COEF_REMAIN_BIN_REDUCTION;
     if( symbol < ( threshold << ui16AbsGoRice ) )
     {
       length = symbol >> ui16AbsGoRice;
@@ -404,8 +536,9 @@ inline Int64 QuantRDOQ2::xiGetCostSigCoeffGroup( const UInt uiSignificanceCoeffG
 
 Void QuantRDOQ2::xInitLastPosBitsTab( const CoeffCodingContext& cctx, const UInt uiWidth, const UInt uiHeight, const ChannelType chType, const FracBitsAccess& fracBits )
 {
-  int dim1 = ( cctx.scanType() == SCAN_VER ? uiHeight : uiWidth );
-  int dim2 = ( cctx.scanType() == SCAN_VER ? uiWidth : uiHeight );
+  int dim1 = ((cctx.scanType() == SCAN_VER && uiHeight != 1 && uiWidth != 1) ? uiHeight : uiWidth);
+  int dim2 = ((cctx.scanType() == SCAN_VER && uiHeight != 1 && uiWidth != 1) ? uiWidth : uiHeight);
+
   int bitsX = 0;
   int bitsY = 0;
   int ctxId;
@@ -468,6 +601,14 @@ inline Int64 QuantRDOQ2::xiGetCostSigCoef( const UInt uiSignificance, const UInt
   return xiGetICost( fracBits.getFracBitsArray( ui16CtxNumSig ).intBits[uiSignificance] );
 }
 
+//#if USE_NON_POWER_OF_2_TRANSFORMS
+static inline Int64 _quant_err_cost( Int64 iErr, Int64 iErrScale, Int64 iErrScaleShift )
+{
+  Int64 iSqrtErrCost = ( iErr*iErrScale ) >> iErrScaleShift;
+  Int64 iDist = iSqrtErrCost*iSqrtErrCost;
+  return iDist;
+}
+//#endif
 
 
 template< Bool bSBH, Bool bUseScalingList, UInt altResiCompId >
@@ -484,7 +625,6 @@ Int QuantRDOQ2::xRateDistOptQuantFast( TransformUnit &tu, const ComponentID &com
   const ChannelType chType                  = toChannelType( compID );
   const UInt log2CGSize                     = cctx.log2CGSize();
   const UInt uiMaxNumCoeff                  = rect.area();
-  const UInt uiLog2TrSize                   = ( uiLog2BlockWidth + uiLog2BlockHeight ) >> 1;
 
   const Bool extendedPrecision                 = sps.getSpsRangeExtension().getExtendedPrecisionProcessingFlag();
   const Bool bUseGolombRiceParameterAdaptation = sps.getSpsRangeExtension().getPersistentRiceAdaptationEnabledFlag();
@@ -517,12 +657,13 @@ Int QuantRDOQ2::xRateDistOptQuantFast( TransformUnit &tu, const ComponentID &com
   Int iQOffset                = 1 << ( iQBits - 1 );
   Int scalingListType         = ( ePredMode == MODE_INTRA ? 0 : 3 ) + (Int)compID; assert( scalingListType < SCALING_LIST_NUM );
 
-  Int quantScale              = ( uiLog2BlockWidth + uiLog2BlockHeight ) & 0x01 ? ( g_quantScales[cQP.rem] * 181 ) >> 7 : g_quantScales[cQP.rem];
-  const Int iErrCoef0TrOffset = ( uiLog2BlockWidth + uiLog2BlockHeight ) & 0x01 ? 1: 0;
-        Int iErrScale         = m_quantErrScale.getErrScaleNoScalingList( gp_sizeIdxInfo->idxFrom( uiWidth ), gp_sizeIdxInfo->idxFrom( uiHeight ), scalingListType, cQP.rem );
-  const Int *piErrScale       = m_errScale[uiLog2BlockWidth - 2][uiLog2BlockHeight - 2][scalingListType][cQP.rem];
-  const Int *piQCoef          = getQuantCoeff( scalingListType, cQP.rem, uiLog2BlockWidth - 2, uiLog2BlockHeight - 2 );
+  // TODO: use TU::getBlockSizeTrafoScaleForQuant also for power of 2 blocks (QTBT)
+  Int quantScale              = ( TU::needsBlockSizeTrafoScale( rect ) ? ( ( ( g_quantScales[cQP.rem] * TU::getBlockSizeTrafoScaleForQuant( rect ) + ( 1 << ( ADJ_QUANT_SHIFT - 1 ) ) ) >> ADJ_QUANT_SHIFT ) ) : g_quantScales[cQP.rem] );
+  Int iErrScale               = m_quantErrScale.getErrScaleNoScalingList( gp_sizeIdxInfo->idxFrom( uiWidth ), gp_sizeIdxInfo->idxFrom( uiHeight ), scalingListType, cQP.rem );
   const Int iErrScaleShift    = COEFF_ERR_SCALE_PRECISION_BITS;
+
+  const Int *piErrScale       = m_errScale[uiLog2BlockWidth][uiLog2BlockHeight][scalingListType][cQP.rem];
+  const Int *piQCoef          = getQuantCoeff(scalingListType, cQP.rem, uiLog2BlockWidth, uiLog2BlockHeight);
 
 
   const TCoeff *plSrcCoeff = pSrc.buf;
@@ -552,6 +693,16 @@ Int QuantRDOQ2::xRateDistOptQuantFast( TransformUnit &tu, const ComponentID &com
   //  Loop other subblocks (coefficient groups)
   //////////////////////////////////////////////////////////////////////////
 
+#if HM_EMT_NSST_AS_IN_JEM
+  bool useEmt = ( tu.cu->cs->sps->getSpsNext().getUseIntraEMT() && tu.cu->predMode == MODE_INTRA ) || ( tu.cu->cs->sps->getSpsNext().getUseInterEMT() && tu.cu->predMode != MODE_INTRA );
+  useEmt = useEmt && isLuma( compID );
+
+  if( altResiCompId == 2 )
+  {
+    cctx.setIsEMT( useEmt && tu.cu->emtFlag && !tu.transformSkip[compID] );
+  }
+#endif
+
   uiAbsSum = 0;
 
   const Int iCGSize = 1 << log2CGSize;
@@ -570,7 +721,7 @@ Int QuantRDOQ2::xRateDistOptQuantFast( TransformUnit &tu, const ComponentID &com
   for( ; subSetId >= 0; subSetId-- )
   {
     cctx.initSubblock( subSetId );
-    
+
     Int   iNZbeforePos0  = 0;
     Int   uiAbsSumCG     = 0;
     Int64 iCodedCostCG   = 0;
@@ -631,8 +782,13 @@ Int QuantRDOQ2::xRateDistOptQuantFast( TransformUnit &tu, const ComponentID &com
 
       // Set context models
       UInt uiCtxSig, uiOneCtx, uiAbsCtx;
+      UInt uiAbsThreeCtx = 0;
+
       if( altResiCompId )
       {
+        if( altResiCompId == 2 )
+          cctx.getAltResiCompId2CtxSet( piDstCoeff, iScanPos, uiCtxSig, uiOneCtx, uiAbsCtx, uiAbsThreeCtx, uiGoRiceParam );
+        else
         {
           if( iScanPos == iLastScanPos )
           {
@@ -658,17 +814,28 @@ Int QuantRDOQ2::xRateDistOptQuantFast( TransformUnit &tu, const ComponentID &com
 #endif
 
       // Cost for zero coeff
-      piCostCoeff0[iScanPosinCG] = ( (Int64)plSrcCoeff[uiBlkPos] * plSrcCoeff[uiBlkPos] ) << ( 16 + iErrCoef0TrOffset + 2 * uiLog2TrSize );
+      piCostCoeff0[iScanPosinCG] = _quant_err_cost( iScaledLevel, iErrScale, iErrScaleShift );
+
       if( iAbsLevel == 0 )
       {
         piDstCoeff [uiBlkPos]     = 0;
         piCostSig  [iScanPosinCG] = xiGetCostSigCoef( 0, uiCtxSig, fracBits );
         piCostCoeff[iScanPosinCG] = piCostCoeff0[iScanPosinCG] + piCostSig[iScanPosinCG];
 
-        if( bSBH ){
+        if( bSBH )
+        {
           Int64 iErr1        = iScaledLevel - ( (Int64)1 << iQBits );
           Int64 iSqrtErrCost = ( iErr1*iErrScale ) >> iErrScaleShift;
-          Int64 iCost1       = iSqrtErrCost*iSqrtErrCost + xiGetCostSigCoef( 1, uiCtxSig, fracBits ) + xiGetICRateCost<altResiCompId>( 1, uiOneCtx, uiAbsCtx, uiGoRiceParam, c1Idx, c2Idx, extendedPrecision, maxLog2TrDynamicRange, fracBits );
+          Int64 iCost1       = iSqrtErrCost*iSqrtErrCost + xiGetCostSigCoef(1, uiCtxSig, fracBits);
+
+          if( altResiCompId == 2 )
+          {
+            iCost1 += xiGetICRateCost<altResiCompId>( 1, uiOneCtx, uiAbsCtx, uiAbsThreeCtx, uiGoRiceParam, c1Idx, c2Idx, extendedPrecision, maxLog2TrDynamicRange, fracBits );
+          }
+          else
+          {
+            iCost1 += xiGetICRateCost<altResiCompId>( 1, uiOneCtx, uiAbsCtx, uiGoRiceParam, c1Idx, c2Idx, extendedPrecision, maxLog2TrDynamicRange, fracBits );
+          }
 
           piCostDeltaSBH[iScanPosinCG] = iCost1 - piCostCoeff[iScanPosinCG];
           piAddSBH      [iScanPosinCG] = 1;
@@ -682,20 +849,40 @@ Int QuantRDOQ2::xRateDistOptQuantFast( TransformUnit &tu, const ComponentID &com
         Int iFloor = (Int)( iScaledLevel >> iQBits );
         Int iCeil  = iFloor + 1;
 
-        if( iScanPos == iLastScanPos )
+        if (iScanPos == iLastScanPos)
         {
-          piCostSig[iScanPosinCG] = 0;
-          Int64 iCurrCostF = piCostCoeff0[iScanPosinCG];
+          piCostSig[ iScanPosinCG ] = 0;
+          Int64 iCurrCostF = piCostCoeff0[ iScanPosinCG ];
 
-          if( iFloor ){
-            Int64 iErrF         = iScaledLevel - ( iFloor << iQBits );
-            Int64 iSqrtErrCostF = ( iErrF*iErrScale ) >> iErrScaleShift;
-            iCurrCostF          = iSqrtErrCostF*iSqrtErrCostF + xiGetICRateCost<altResiCompId>( iFloor, uiOneCtx, uiAbsCtx, uiGoRiceParam, c1Idx, c2Idx, extendedPrecision, maxLog2TrDynamicRange, fracBits );
+          if (iFloor)
+          {
+            Int64 iErrF         = iScaledLevel - (iFloor << iQBits);
+            Int64 iSqrtErrCostF = (iErrF*iErrScale) >> iErrScaleShift;
+            iCurrCostF          = iSqrtErrCostF*iSqrtErrCostF;
+
+            if( altResiCompId == 2 )
+            {
+              iCurrCostF += xiGetICRateCost<altResiCompId>( iFloor, uiOneCtx, uiAbsCtx, uiAbsThreeCtx, uiGoRiceParam, c1Idx, c2Idx, extendedPrecision, maxLog2TrDynamicRange, fracBits );
+            }
+            else
+            {
+              iCurrCostF += xiGetICRateCost<altResiCompId>( iFloor, uiOneCtx, uiAbsCtx, uiGoRiceParam, c1Idx, c2Idx, extendedPrecision, maxLog2TrDynamicRange, fracBits );
+            }
           }
 
-          Int64 iErrC         = iScaledLevel - ( iCeil << iQBits );
-          Int64 iSqrtErrCostC = ( iErrC*iErrScale ) >> iErrScaleShift;
-          Int64 iCurrCostC    = iSqrtErrCostC*iSqrtErrCostC + xiGetICRateCost<altResiCompId>( iCeil, uiOneCtx, uiAbsCtx, uiGoRiceParam, c1Idx, c2Idx, extendedPrecision, maxLog2TrDynamicRange, fracBits );
+          Int64 iErrC         = iScaledLevel - (iCeil << iQBits);
+          Int64 iSqrtErrCostC = (iErrC*iErrScale) >> iErrScaleShift;
+          Int64 iCurrCostC    = iSqrtErrCostC*iSqrtErrCostC;
+
+          if (altResiCompId == 2)
+          {
+              iCurrCostC += xiGetICRateCost<altResiCompId>(iCeil, uiOneCtx, uiAbsCtx, uiAbsThreeCtx, uiGoRiceParam, c1Idx, c2Idx, extendedPrecision, maxLog2TrDynamicRange, fracBits);
+          }
+          else
+          {
+              iCurrCostC += xiGetICRateCost<altResiCompId>(iCeil, uiOneCtx, uiAbsCtx, uiGoRiceParam, c1Idx, c2Idx, extendedPrecision, maxLog2TrDynamicRange, fracBits);
+          }
+
 
           if( iCurrCostC < iCurrCostF ){
             uiLevel                   = iCeil;
@@ -729,31 +916,47 @@ Int QuantRDOQ2::xRateDistOptQuantFast( TransformUnit &tu, const ComponentID &com
             }
           }
         }
-        else {
+        else
+        {
           Int64 iCostSig1 = xiGetCostSigCoef( 1, uiCtxSig, fracBits );
-          if( iCeil < 3 ){
+          if( iCeil < 3 )
+          {
             Int64 iCostSig0    = xiGetCostSigCoef( 0, uiCtxSig, fracBits );
             Int64 iBestCost    = piCostCoeff0[iScanPosinCG] + iCostSig0;
             Int64 iBestCostSig = iCostSig0;
             Int64 iCostF       = iBestCost;
 
             uiLevel = 0;
-            if( iFloor ){
+            if( iFloor )
+            {
               Int64 iErrF         = iScaledLevel - ( iFloor << iQBits );
               Int64 iSqrtErrCostF = ( iErrF*iErrScale ) >> iErrScaleShift;
-              iCostF              = iSqrtErrCostF*iSqrtErrCostF + iCostSig1 + xiGetICRateCost<altResiCompId>( iFloor, uiOneCtx, uiAbsCtx, uiGoRiceParam, c1Idx, c2Idx, extendedPrecision, maxLog2TrDynamicRange, fracBits );
+              iCostF              = iSqrtErrCostF*iSqrtErrCostF + iCostSig1;
 
-              if( iCostF < iBestCost ){
+              if( altResiCompId == 2 )
+              {
+                iCostF += xiGetICRateCost<altResiCompId>( iFloor, uiOneCtx, uiAbsCtx, uiAbsThreeCtx, uiGoRiceParam, c1Idx, c2Idx, extendedPrecision, maxLog2TrDynamicRange, fracBits );
+              }
+              else
+              {
+                iCostF += xiGetICRateCost<altResiCompId>( iFloor, uiOneCtx, uiAbsCtx, uiGoRiceParam, c1Idx, c2Idx, extendedPrecision, maxLog2TrDynamicRange, fracBits );
+              }
+
+              if( iCostF < iBestCost )
+              {
                 uiLevel      = iFloor;
                 iBestCost    = iCostF;
                 iBestCostSig = iCostSig1;
-                if( bSBH ){
+                if( bSBH )
+                {
                   piCostDeltaSBH[iScanPosinCG] = iBestCost - iCostF;
                   piAddSBH      [iScanPosinCG] = -1;
                 }
               }
-              else {
-                if( bSBH ){
+              else
+              {
+                if( bSBH )
+                {
                   piCostDeltaSBH[iScanPosinCG] = iCostF - iBestCost;
                   piAddSBH      [iScanPosinCG] = 1;
                 }
@@ -762,21 +965,34 @@ Int QuantRDOQ2::xRateDistOptQuantFast( TransformUnit &tu, const ComponentID &com
 
             Int64 iErrC         = iScaledLevel - ( iCeil << iQBits );
             Int64 iSqrtErrCostC = ( iErrC*iErrScale ) >> iErrScaleShift;
-            Int64 iCostC        = iSqrtErrCostC*iSqrtErrCostC + iCostSig1 + xiGetICRateCost<altResiCompId>( iCeil, uiOneCtx, uiAbsCtx, uiGoRiceParam, c1Idx, c2Idx, extendedPrecision, maxLog2TrDynamicRange, fracBits );
+            Int64 iCostC        = iSqrtErrCostC*iSqrtErrCostC + iCostSig1;
 
-            if( iCostC < iBestCost ){
+            if( altResiCompId == 2 )
+            {
+              iCostC += xiGetICRateCost<altResiCompId>( iCeil, uiOneCtx, uiAbsCtx, uiAbsThreeCtx, uiGoRiceParam, c1Idx, c2Idx, extendedPrecision, maxLog2TrDynamicRange, fracBits );
+            }
+            else
+            {
+              iCostC += xiGetICRateCost<altResiCompId>( iCeil, uiOneCtx, uiAbsCtx, uiGoRiceParam, c1Idx, c2Idx, extendedPrecision, maxLog2TrDynamicRange, fracBits );
+            }
+
+            if( iCostC < iBestCost )
+            {
               uiLevel                   = iCeil;
               piCostCoeff[iScanPosinCG] = iCostC;
               piCostSig[iScanPosinCG]   = iCostSig1;
-              if( bSBH ){
+              if( bSBH )
+              {
                 piCostDeltaSBH[iScanPosinCG] = iCostF - iCostC;
                 piAddSBH[iScanPosinCG]       = -1;
               }
             }
-            else {
+            else
+            {
               piCostCoeff[iScanPosinCG] = iBestCost;
               piCostSig[iScanPosinCG] = iBestCostSig;
-              if( bSBH ){
+              if( bSBH )
+              {
                 piCostDeltaSBH[iScanPosinCG] = iCostC - iCostF;
                 piAddSBH      [iScanPosinCG] = 1;
               }
@@ -784,28 +1000,50 @@ Int QuantRDOQ2::xRateDistOptQuantFast( TransformUnit &tu, const ComponentID &com
           }
           else
           {
-            Int64 iErrF             = iScaledLevel - ( iFloor << iQBits );
-            Int64 iSqrtErrCostF     = ( iErrF*iErrScale ) >> iErrScaleShift;
-            Int64 iCostF            = iSqrtErrCostF*iSqrtErrCostF + iCostSig1 + xiGetICRateCost<altResiCompId>( iFloor, uiOneCtx, uiAbsCtx, uiGoRiceParam, c1Idx, c2Idx, extendedPrecision, maxLog2TrDynamicRange, fracBits );
+              Int64 iErrF             = iScaledLevel - (iFloor << iQBits);
+              Int64 iSqrtErrCostF     = (iErrF*iErrScale) >> iErrScaleShift;
+              Int64 iCostF            = iSqrtErrCostF*iSqrtErrCostF + iCostSig1;
+
+              if( altResiCompId == 2 )
+              {
+                iCostF += xiGetICRateCost<altResiCompId>( iFloor, uiOneCtx, uiAbsCtx, uiAbsThreeCtx, uiGoRiceParam, c1Idx, c2Idx, extendedPrecision, maxLog2TrDynamicRange, fracBits );
+              }
+              else
+              {
+                iCostF += xiGetICRateCost<altResiCompId>( iFloor, uiOneCtx, uiAbsCtx, uiGoRiceParam, c1Idx, c2Idx, extendedPrecision, maxLog2TrDynamicRange, fracBits );
+              }
 
             Int64 iErrC             = iScaledLevel - ( iCeil << iQBits );
             Int64 iSqrtErrCostC     = ( iErrC*iErrScale ) >> iErrScaleShift;
-            Int64 iCostC            = iSqrtErrCostC*iSqrtErrCostC + iCostSig1 + xiGetICRateCost<altResiCompId>( iCeil, uiOneCtx, uiAbsCtx, uiGoRiceParam, c1Idx, c2Idx, extendedPrecision, maxLog2TrDynamicRange, fracBits );
+            Int64 iCostC            = iSqrtErrCostC*iSqrtErrCostC + iCostSig1;
+
+            if( altResiCompId == 2 )
+            {
+              iCostC += xiGetICRateCost<altResiCompId>( iCeil, uiOneCtx, uiAbsCtx, uiAbsThreeCtx, uiGoRiceParam, c1Idx, c2Idx, extendedPrecision, maxLog2TrDynamicRange, fracBits );
+            }
+            else
+            {
+              iCostC += xiGetICRateCost<altResiCompId>( iCeil, uiOneCtx, uiAbsCtx, uiGoRiceParam, c1Idx, c2Idx, extendedPrecision, maxLog2TrDynamicRange, fracBits );
+            }
 
             piCostSig[iScanPosinCG] = iCostSig1;
-            if( iCostC < iCostF ){
+            if( iCostC < iCostF )
+            {
               uiLevel = iCeil;
               piCostCoeff[iScanPosinCG] = iCostC;
-              if( bSBH ){
+              if( bSBH )
+              {
                 piCostDeltaSBH[iScanPosinCG] = iCostF - iCostC;
                 piAddSBH[iScanPosinCG]       = -1;
               }
             }
-            else {
+            else
+            {
               uiLevel = iFloor;
               piCostCoeff[iScanPosinCG] = iCostF;
 
-              if( bSBH ){
+              if( bSBH )
+              {
                 piCostDeltaSBH[iScanPosinCG] = iCostC - iCostF;
                 piAddSBH[iScanPosinCG] = 1;
               }
@@ -872,13 +1110,27 @@ Int QuantRDOQ2::xRateDistOptQuantFast( TransformUnit &tu, const ComponentID &com
         UInt iScanPosinCGTmp = iScanPosTmp%CG_SIZE;
         UInt uiBlkPos = cctx.blockPos( iScanPosTmp );
 
-        if( piDstCoeff[uiBlkPos] ) 
+        if( piDstCoeff[uiBlkPos] )
         {
-          UInt uiPosY = uiBlkPos >> uiLog2BlockWidth;
-          UInt uiPosX = uiBlkPos - ( uiPosY << uiLog2BlockWidth );
+          UInt uiPosX, uiPosY;
+          if( uiWidth == 1 )
+          {
+            uiPosX = 0;
+            uiPosY = uiBlkPos;
+          }
+          else if( uiHeight == 1 )
+          {
+            uiPosY = 0;
+            uiPosX = uiBlkPos;
+          }
+          else
+          {
+            uiPosY = uiBlkPos >> uiLog2BlockWidth;
+            uiPosX = uiBlkPos - (uiPosY << uiLog2BlockWidth);
+          }
 
-          const UInt  pos_major = eScanIdx == SCAN_VER ? uiPosY : uiPosX;
-          const UInt  pos_minor = eScanIdx == SCAN_VER ? uiPosX : uiPosY;
+          const UInt  pos_major = eScanIdx == SCAN_VER && uiWidth > 1 && uiHeight > 1 ? uiPosY : uiPosX;
+          const UInt  pos_minor = eScanIdx == SCAN_VER && uiWidth > 1 && uiHeight > 1 ? uiPosX : uiPosY;
           const Int64 iCostLast = xiGetCostLast( pos_major, pos_minor, chType );
           const Int64 totalCost = iCodedCostCG + iCostLast - piCostSig[iScanPosinCGTmp];
 
@@ -919,13 +1171,27 @@ Int QuantRDOQ2::xRateDistOptQuantFast( TransformUnit &tu, const ComponentID &com
           if( iScanPosTmp >= 0 && iScanPosTmp < iLastScanPos - 1 ){
             UInt iLastScanPosTmp = iLastScanPos%CG_SIZE;
             UInt uiBlkPos        = cctx.blockPos( iScanPosTmp );
-            UInt uiPosY          = uiBlkPos >> uiLog2BlockWidth;
-            UInt uiPosX          = uiBlkPos - ( uiPosY << uiLog2BlockWidth );
+            UInt uiPosX, uiPosY;
+            if( uiWidth == 1 )
+            {
+              uiPosX = 0;
+              uiPosY = uiBlkPos;
+            }
+            else if( uiHeight == 1 )
+            {
+              uiPosY = 0;
+              uiPosX = uiBlkPos;
+            }
+            else
+            {
+              uiPosY = uiBlkPos >> uiLog2BlockWidth;
+              uiPosX = uiBlkPos - (uiPosY << uiLog2BlockWidth);
+            }
 
             piCostDeltaSBH[iLastScanPosTmp] -= iBestCostLast;
 
-            const UInt pos_major = eScanIdx == SCAN_VER ? uiPosY : uiPosX;
-            const UInt pos_minor = eScanIdx == SCAN_VER ? uiPosX : uiPosY;
+            const UInt pos_major = eScanIdx == SCAN_VER && uiWidth > 1 && uiHeight > 1 ? uiPosY : uiPosX;
+            const UInt pos_minor = eScanIdx == SCAN_VER && uiWidth > 1 && uiHeight > 1 ? uiPosX : uiPosY;
             piCostDeltaSBH[iLastScanPosTmp] += xiGetCostLast( pos_major, pos_minor, chType );
 
           }
@@ -1056,6 +1322,7 @@ Int QuantRDOQ2::xRateDistOptQuantFast( TransformUnit &tu, const ComponentID &com
     DTRACE( g_trace_ctx, D_RDOQ_COST, "Coded  =%d\n", iCodedCostBlock >> 15 );
   } //end for (iCGScanPos)
 
+
   if( iLastScanPos < 0 )
     return 0;
 
@@ -1068,7 +1335,18 @@ Int QuantRDOQ2::xRateDistOptQuantFast( TransformUnit &tu, const ComponentID &com
   }
   else
   {
-    const BinFracBits fracBitsQtCbf = fracBits.getFracBitsArray( Ctx::QtCbf[chType]( DeriveCtx::CtxQtCbf( rect.compID, tu.depth ) ) );
+    bool previousCbf = false;
+    if( tu.cu->mode1dPartitions && canUse1dPartitions( compID ) )
+    {
+      previousCbf = TU::getPrevTuCbfAtDepth( tu, tu.depth, compID );
+    }
+    BinFracBits fracBitsQtCbf = fracBits.getFracBitsArray( Ctx::QtCbf[chType << ( altResiCompId == 2 ? 1 : 0 )]( DeriveCtx::CtxQtCbf( rect.compID, tu.depth, tu.cu->mode1dPartitions, previousCbf ) ) );
+
+    if( altResiCompId == 2 && rect.compID == COMPONENT_Cr )
+    {
+      fracBitsQtCbf = fracBits.getFracBitsArray( Ctx::QtCbf[2]( tu.cbf[COMPONENT_Cb] ? 3 : 2 ) );
+    }
+
     iUncodedCostBlock += xiGetICost( fracBitsQtCbf.intBits[0] );
     iCodedCostBlock   += xiGetICost( fracBitsQtCbf.intBits[1] );
   }
@@ -1123,9 +1401,21 @@ Int QuantRDOQ2::xRateDistOptQuant( TransformUnit &tu, const ComponentID &compID,
       else                  return xRateDistOptQuantFast<false, false, 1>( tu, compID, pSrc, uiAbsSum, cQP, ctx );
     }
   }
+  else if( m_altResiCompId == 2 )
+  {
+    if( m_bSBH )
+    {
+      if( bUseScalingList ) return xRateDistOptQuantFast<true, true,  2>( tu, compID, pSrc, uiAbsSum, cQP, ctx );
+      else                  return xRateDistOptQuantFast<true, false, 2>( tu, compID, pSrc, uiAbsSum, cQP, ctx );
+    }
+    else
+    {
+      if( bUseScalingList ) return xRateDistOptQuantFast<false, true,  2>( tu, compID, pSrc, uiAbsSum, cQP, ctx );
+      else                  return xRateDistOptQuantFast<false, false, 2>( tu, compID, pSrc, uiAbsSum, cQP, ctx );
+    }
+  }
   else
   {
     THROW( "Wrong AltResiCompId mode!" );
   }
-
 }

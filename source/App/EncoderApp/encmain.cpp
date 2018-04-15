@@ -37,6 +37,9 @@
 
 #include <time.h>
 #include <iostream>
+#include <chrono>
+#include <ctime>
+
 #include "EncApp.h"
 #include "Utilities/program_options_lite.h"
 
@@ -102,6 +105,19 @@ int main(int argc, char* argv[])
 #if ENABLE_TRACING
   fprintf( stdout, "[ENABLE_TRACING] " );
 #endif
+#if HHI_SPLIT_PARALLELISM
+  fprintf( stdout, "[SPLIT_PARALLEL (%d jobs)]", HHI_SPLIT_MAX_NUM_JOBS );
+#endif
+#if HHI_WPP_PARALLELISM
+  fprintf( stdout, "[WPP_PARALLEL]" );
+#endif
+#if HHI_WPP_PARALLELISM || HHI_SPLIT_PARALLELISM
+  const char* waitPolicy = getenv( "OMP_WAIT_POLICY" );
+  const char* maxThLim   = getenv( "OMP_THREAD_LIMIT" );
+  fprintf( stdout, waitPolicy ? "[OMP: WAIT_POLICY=%s," : "[OMP: WAIT_POLICY=,", waitPolicy );
+  fprintf( stdout, maxThLim   ? "THREAD_LIMIT=%s" : "THREAD_LIMIT=", maxThLim );
+  fprintf( stdout, "]" );
+#endif
   fprintf( stdout, "\n" );
 
   EncApp* pcEncApp = new EncApp;
@@ -128,8 +144,9 @@ int main(int argc, char* argv[])
 #endif
 
   // starting time
-  Double dResult;
-  clock_t lBefore = clock();
+  auto startTime  = std::chrono::high_resolution_clock::now();
+  std::time_t startTime2 = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
+  fprintf(stdout, " started @ %s", std::ctime(&startTime2) );
 
   // call encoding function
 #ifndef _DEBUG
@@ -151,12 +168,17 @@ int main(int argc, char* argv[])
   }
 #endif
   // ending time
-  dResult = (Double)(clock()-lBefore) / CLOCKS_PER_SEC;
-  printf("\n Total Time: %12.3f sec.\n", dResult);
+  auto endTime = std::chrono::high_resolution_clock::now();
+  std::time_t endTime2 = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
+  auto encTime = std::chrono::duration_cast<std::chrono::milliseconds>( endTime- startTime ).count();
   // destroy application encoder class
   pcEncApp->destroy();
 
   delete pcEncApp;
+
+  printf( "\n finished @ %s", std::ctime(&endTime2) );
+
+  printf(" Total Time: %12.3f sec.\n", encTime / 1000.0 );
 
   return 0;
 }

@@ -109,21 +109,19 @@ public:
   HLSWriter() {}
   virtual ~HLSWriter() {}
 
-  void  init( CABACEncoder& cabacEncoder ) { m_CABACEncoder = &cabacEncoder; }
-
+  void  init( CABACDataStore& cabacDataStore ) { m_CABACDataStore = &cabacDataStore; }
 private:
   Void xCodeShortTermRefPicSet  ( const ReferencePictureSet* pcRPS, Bool calledFromSliceHeader, Int idx );
   Bool xFindMatchingLTRP        ( Slice* pcSlice, UInt *ltrpsIndex, Int ltrpPOC, Bool usedFlag );
   Void xCodePredWeightTable     ( Slice* pcSlice );
   Void xCodeScalingList         ( const ScalingList* scalingList, UInt sizeId, UInt listId);
   void xCodeCABACWSizes         ( Slice* pcSlice );
-
 public:
   Void  setBitstream            ( OutputBitstream* p )  { m_pcBitIf = p;  }
   UInt  getNumberOfWrittenBits  ()                      { return m_pcBitIf->getNumberOfWrittenBits();  }
   Void  codeVPS                 ( const VPS* pcVPS );
   Void  codeVUI                 ( const VUI *pcVUI, const SPS* pcSPS );
-  Void  codeSPSNext             ( const SPSNext& spsNext );
+  Void  codeSPSNext             ( const SPSNext& spsNext, const bool usePCM );
   Void  codeSPS                 ( const SPS* pcSPS );
   Void  codePPS                 ( const PPS* pcPPS );
   Void  codeSliceHeader         ( Slice* pcSlice );
@@ -134,7 +132,7 @@ public:
   Void  codeScalingList         ( const ScalingList &scalingList );
 
 private:
-  CABACEncoder* m_CABACEncoder;
+  CABACDataStore* m_CABACDataStore;
 };
 
 //! \}
