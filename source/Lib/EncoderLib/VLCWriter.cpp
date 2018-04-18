@@ -684,12 +684,6 @@ Void HLSWriter::codeSPSNext( const SPSNext& spsNext, const bool usePCM )
     WRITE_FLAG( spsNext.getGALFEnabled(),                                                       "galf_enabled_flag" );
   }
 #endif
-#if JEM_TOOLS
-  if( spsNext.getCIPFMode() )
-  {
-    WRITE_FLAG( spsNext.getCIPFMode() - 1,                                                      "cipf_mode_minus1_flag" );
-  }
-#endif
   // ADD_NEW_TOOL : (sps extension writer) write tool enabling flags and associated parameters here
 }
 
