@@ -73,7 +73,7 @@ protected:
 
 public:
   DecAppCfg();
-  virtual ~DecAppCfg(); 
+  virtual ~DecAppCfg();
 
   Bool  parseCfg        ( Int argc, TChar* argv[] );   ///< initialize option class from configuration
 };

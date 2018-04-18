@@ -53,14 +53,13 @@ class Mv
 public:
   int   hor;     ///< horizontal component of motion vector
   int   ver;     ///< vertical component of motion vector
-  bool  highPrec;///< true if the vector is high precision
 
   // ------------------------------------------------------------------------------------------------------------------
   // constructors
   // ------------------------------------------------------------------------------------------------------------------
 
-  Mv(                                            ) : hor( 0    ), ver( 0    ), highPrec( false     ) {}
-  Mv( int iHor, int iVer, bool _highPrec = false ) : hor( iHor ), ver( iVer ), highPrec( _highPrec ) {}
+  Mv(                    ) : hor( 0    ), ver( 0    ) {}
+  Mv( int iHor, int iVer ) : hor( iHor ), ver( iVer ) {}
 
   // ------------------------------------------------------------------------------------------------------------------
   // set
@@ -86,17 +85,8 @@ public:
 
   const Mv& operator += (const Mv& _rcMv)
   {
-    if( highPrec == _rcMv.highPrec )
-    {
-      hor += _rcMv.hor;
-      ver += _rcMv.ver;
-    }
-    else
     {
       Mv rcMv = _rcMv;
-
-      if( highPrec && !rcMv.highPrec ) rcMv.setHighPrec();
-      if( !highPrec && rcMv.highPrec )      setHighPrec();
 
       hor += rcMv.hor;
       ver += rcMv.ver;
@@ -106,17 +96,8 @@ public:
 
   const Mv& operator-= (const Mv& _rcMv)
   {
-    if( highPrec == _rcMv.highPrec )
-    {
-      hor -= _rcMv.hor;
-      ver -= _rcMv.ver;
-    }
-    else
     {
       Mv rcMv = _rcMv;
-
-      if( highPrec && !rcMv.highPrec ) rcMv.setHighPrec();
-      if( !highPrec && rcMv.highPrec )      setHighPrec();
 
       hor -= rcMv.hor;
       ver -= rcMv.ver;
@@ -153,48 +134,17 @@ public:
 
   const Mv operator - ( const Mv& rcMv ) const
   {
-    if( rcMv.highPrec == highPrec )
-    {
-      return Mv( hor - rcMv.hor, ver - rcMv.ver, highPrec );
-    }
-    else
-    {
-      Mv self = *this; self.setHighPrec();
-      Mv other = rcMv; other.setHighPrec();
-
-      return self - other;
-    }
+    return Mv( hor - rcMv.hor, ver - rcMv.ver );
   }
 
   const Mv operator + ( const Mv& rcMv ) const
   {
-    if( rcMv.highPrec == highPrec )
-    {
-      return Mv( hor + rcMv.hor, ver + rcMv.ver, highPrec );
-    }
-    else
-    {
-      Mv self = *this; self.setHighPrec();
-      Mv other = rcMv; other.setHighPrec();
-
-      return self + other;
-    }
+    return Mv( hor + rcMv.hor, ver + rcMv.ver );
   }
 
   bool operator== ( const Mv& rcMv ) const
   {
-    if( rcMv.highPrec == highPrec )
-    {
-      return ( hor == rcMv.hor && ver == rcMv.ver );
-    }
-    else if( rcMv.highPrec )
-    {
-      return ( ( hor << VCEG_AZ07_MV_ADD_PRECISION_BIT_FOR_STORE ) == rcMv.hor && ( ver << VCEG_AZ07_MV_ADD_PRECISION_BIT_FOR_STORE ) == rcMv.ver );
-    }
-    else
-    {
-      return ( ( rcMv.hor << VCEG_AZ07_MV_ADD_PRECISION_BIT_FOR_STORE ) == hor && ( rcMv.ver << VCEG_AZ07_MV_ADD_PRECISION_BIT_FOR_STORE ) == ver );
-    }
+    return ( hor == rcMv.hor && ver == rcMv.ver );
   }
 
   bool operator!= ( const Mv& rcMv ) const
@@ -206,36 +156,11 @@ public:
   {
     const int mvx = Clip3( -32768, 32767, (iScale * getHor() + 127 + (iScale * getHor() < 0)) >> 8 );
     const int mvy = Clip3( -32768, 32767, (iScale * getVer() + 127 + (iScale * getVer() < 0)) >> 8 );
-    return Mv( mvx, mvy, highPrec );
+    return Mv( mvx, mvy );
   }
 
-  void roundMV2SignalPrecision()
-  {
-    const bool isHP = highPrec;
-    setLowPrec();
-    if( isHP ) setHighPrec();
-  }
-
-  void setLowPrec()
-  {
-    if( !highPrec ) return;
-    const int nShift  = VCEG_AZ07_MV_ADD_PRECISION_BIT_FOR_STORE;
-    const int nOffset = 1 << ( nShift - 1 );
-    hor = hor >= 0 ? ( hor + nOffset ) >> nShift : -( ( -hor + nOffset ) >> nShift );
-    ver = ver >= 0 ? ( ver + nOffset ) >> nShift : -( ( -ver + nOffset ) >> nShift );
-    highPrec = false;
-  }
-
-  void setHighPrec()
-  {
-    if( highPrec ) return;
-    hor = hor >= 0 ? ( hor ) << VCEG_AZ07_MV_ADD_PRECISION_BIT_FOR_STORE : -( ( -hor ) << VCEG_AZ07_MV_ADD_PRECISION_BIT_FOR_STORE );
-    ver = ver >= 0 ? ( ver ) << VCEG_AZ07_MV_ADD_PRECISION_BIT_FOR_STORE : -( ( -ver ) << VCEG_AZ07_MV_ADD_PRECISION_BIT_FOR_STORE );
-    highPrec = true;
-  }
 };// END CLASS DEFINITION MV
 
-void roundMV( Mv& rcMv, unsigned imvShift );
 void clipMv ( Mv& rcMv, const struct Position& pos, const class SPS& sps );
 
 //! \}

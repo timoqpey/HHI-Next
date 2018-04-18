@@ -42,7 +42,7 @@
 #include "Buffer.h"
 #include "InterpolationFilter.h"
 
-#if HHI_SIMD_OPT_BUFFER
+#if ENABLE_SIMD_OPT_BUFFER
 #ifdef TARGET_SIMD_X86
 
 #include "CommonDefX86.h"
@@ -66,7 +66,7 @@ void addAvgCore( const T* src1, int src1Stride, const T* src2, int src2Stride, T
 template<typename T>
 void reconstructCore( const T* src1, int src1Stride, const T* src2, int src2Stride, T* dest, int dstStride, int width, int height, const ClpRng& clpRng )
 {
-#define RECO_CORE_OP( ADDR ) dest[ADDR] = ClipPel( src1[ADDR] + src2[ADDR], clpRng ) 
+#define RECO_CORE_OP( ADDR ) dest[ADDR] = ClipPel( src1[ADDR] + src2[ADDR], clpRng )
 #define RECO_CORE_INC     \
   src1 += src1Stride;     \
   src2 += src2Stride;     \
@@ -125,12 +125,8 @@ Void AreaBuf<Pel>::addAvg( const AreaBuf<const Pel> &other1, const AreaBuf<const
   const int     shiftNum    = std::max<Int>(2, (IF_INTERNAL_PREC - clipbd)) + 1;
   const int     offset      = (1 << (shiftNum - 1)) + 2 * IF_INTERNAL_OFFS;
 
-  if( width == 1 )
-  {
-    THROW( "Blocks of width = 1 not supported" );
-  }
-#if HHI_SIMD_OPT_BUFFER && defined(TARGET_SIMD_X86)
-  else if( ( width & 7 ) == 0 )
+#if ENABLE_SIMD_OPT_BUFFER && defined(TARGET_SIMD_X86)
+  if( ( width & 7 ) == 0 )
   {
     g_pelBufOP.addAvg8( src0, src1Stride, src2, src2Stride, dest, destStride, width, height, shiftNum, offset, clpRng );
   }
@@ -159,11 +155,11 @@ Void AreaBuf<Pel>::toLast( const ClpRng& clpRng )
 {
         Pel* src       = buf;
   const UInt srcStride = stride;
-  
+
   const Int  clipbd    = clpRng.bd;
   const Int  shiftNum  = std::max<Int>(2, (IF_INTERNAL_PREC - clipbd));
   const Int  offset    = ( 1 << ( shiftNum - 1 ) ) + IF_INTERNAL_OFFS;
-  
+
   if (width == 1)
   {
     THROW( "Blocks of width = 1 not supported" );
@@ -237,12 +233,8 @@ void AreaBuf<Pel>::reconstruct( const AreaBuf<const Pel> &pred, const AreaBuf<co
   const unsigned src2Stride = resi.stride;
   const unsigned destStride =      stride;
 
-  if( width == 1 )
-  {
-    THROW( "Blocks of width = 1 not supported" );
-  }
-#if HHI_SIMD_OPT_BUFFER && defined(TARGET_SIMD_X86)
-  else if( ( width & 7 ) == 0 )
+#if ENABLE_SIMD_OPT_BUFFER && defined(TARGET_SIMD_X86)
+  if( ( width & 7 ) == 0 )
   {
     g_pelBufOP.reco8( src1, src1Stride, src2, src2Stride, dest, destStride, width, height, clpRng );
   }
@@ -250,8 +242,8 @@ void AreaBuf<Pel>::reconstruct( const AreaBuf<const Pel> &pred, const AreaBuf<co
   {
     g_pelBufOP.reco4( src1, src1Stride, src2, src2Stride, dest, destStride, width, height, clpRng );
   }
-#endif
   else
+#endif
   {
 #define RECO_OP( ADDR ) dest[ADDR] = ClipPel( src1[ADDR] + src2[ADDR], clpRng )
 #define RECO_INC        \
@@ -276,7 +268,7 @@ void AreaBuf<Pel>::linearTransform( const int scale, const int shift, const int 
   {
     THROW( "Blocks of width = 1 not supported" );
   }
-#if HHI_SIMD_OPT_BUFFER && defined(TARGET_SIMD_X86)
+#if ENABLE_SIMD_OPT_BUFFER && defined(TARGET_SIMD_X86)
   else if( ( width & 7 ) == 0 )
   {
     g_pelBufOP.linTf8( src, stride, dst, stride, width, height, scale, shift, offset, clpRng, bClip );
@@ -300,7 +292,7 @@ void AreaBuf<Pel>::linearTransform( const int scale, const int shift, const int 
   }
 }
 
-#if HHI_SIMD_OPT_BUFFER && defined(TARGET_SIMD_X86)
+#if ENABLE_SIMD_OPT_BUFFER && defined(TARGET_SIMD_X86)
 template<>
 void AreaBuf<Pel>::subtract( const Pel val )
 {
@@ -360,7 +352,7 @@ void PelStorage::create( const ChromaFormat &_chromaFormat, const Area& _area, c
 
     if( _alignment )
     {
-      // make sure buffer lines are align 
+      // make sure buffer lines are align
       CHECK( _alignment != MEMORY_ALIGN_DEF_SIZE, "Unsupported alignment" );
       totalWidth = ( ( totalWidth + _alignment - 1 ) / _alignment ) * _alignment;
     }
@@ -419,9 +411,22 @@ void PelStorage::destroy()
   bufs.clear();
 }
 
+PelBuf PelStorage::getBuf( const ComponentID CompID )
+{
+  return bufs[CompID];
+}
+
+const CPelBuf PelStorage::getBuf( const ComponentID CompID ) const
+{
+  return bufs[CompID];
+}
+
 PelBuf PelStorage::getBuf( const CompArea &blk )
 {
   const PelBuf& r = bufs[blk.compID];
+
+  CHECKD( rsAddr( blk.bottomRight(), r.stride ) >= ( ( r.height - 1 ) * r.stride + r.width ), "Trying to access a buf outside of bound!" );
+
   return PelBuf( r.buf + rsAddr( blk, r.stride ), r.stride, blk );
 }
 

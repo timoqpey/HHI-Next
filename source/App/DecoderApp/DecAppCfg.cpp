@@ -67,7 +67,7 @@ Bool DecAppCfg::parseCfg( Int argc, TChar* argv[] )
   string sTracingFile;
   bool   bTracingChannelsList = false;
 #endif
-#if HHI_SIMD_OPT
+#if ENABLE_SIMD_OPT
   std::string ignore;
 #endif
   po::Options opts;
@@ -77,10 +77,10 @@ Bool DecAppCfg::parseCfg( Int argc, TChar* argv[] )
   ("BitstreamFile,b",           m_bitstreamFileName,                   string(""), "bitstream input file name")
   ("ReconFile,o",               m_reconFileName,                       string(""), "reconstructed YUV output file name\n")
 
-#if HHI_SIMD_OPT
+#if ENABLE_SIMD_OPT
   ("SIMD",                      ignore,                                string(""), "SIMD extension to use (SCALAR, SSE41, SSE42, AVX, AVX2, AVX512), default: the highest supported extension\n")
 #endif
-      
+
   ("WarnUnknowParameter,w",     warnUnknowParameter,                   0,          "warn for unknown configuration parameters instead of failing")
   ("SkipFrames,s",              m_iSkipFrame,                          0,          "number of frames to skip before random access")
   ("OutputBitDepth,d",          m_outputBitDepth[CHANNEL_TYPE_LUMA],   0,          "bit depth of YUV output luma component (default: use 0 for native depth)")
@@ -224,11 +224,11 @@ DecAppCfg::DecAppCfg()
   }
 }
 
-DecAppCfg::~DecAppCfg() 
+DecAppCfg::~DecAppCfg()
 {
 #if ENABLE_TRACING
   tracing_uninit( g_trace_ctx );
-#endif 
+#endif
 }
 
 //! \}

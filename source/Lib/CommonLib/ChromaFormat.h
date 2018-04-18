@@ -101,7 +101,7 @@ static inline uint64_t getTotalFracBits(const UInt width, const UInt height, con
   return uint64_t( width * height * bitsPerSampleTimes2 ) << ( SCALE_BITS - 1 );
 }
 
-
+#if HEVC_TOOLS
 //------------------------------------------------
 
 // In HM, a CU only has one chroma intra prediction direction, that corresponds to the top left luma intra prediction
@@ -135,6 +135,8 @@ static inline UInt getMaxCUDepthOffset(const ChromaFormat chFmt, const UInt quad
 {
   return (chFmt==CHROMA_422 && quadtreeTULog2MinSize>2) ? 1 : 0;
 }
+
+#endif
 
 //======================================================================================================================
 //Intra prediction  ====================================================================================================

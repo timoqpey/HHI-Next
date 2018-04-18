@@ -1,4 +1,4 @@
- /* The copyright in this software is being made available under the BSD
+/* The copyright in this software is being made available under the BSD
  * License, included below. This software may be subject to other third party
  * and contributor rights, including patent rights, and no such rights are
  * granted under this license.
@@ -51,7 +51,7 @@
 // AreaBuf struct
 // ---------------------------------------------------------------------------
 
-#if HHI_SIMD_OPT_BUFFER
+#if ENABLE_SIMD_OPT_BUFFER
 #ifdef TARGET_SIMD_X86
 
 struct PelBufferOps
@@ -62,10 +62,10 @@ struct PelBufferOps
   template<X86_VEXT vext>
   void _initPelBufOpsX86();
 
-  void ( *addAvg4 )       ( const Pel* src0, int src0Stride, const Pel* src1, int src1Stride, Pel *dst, int dstStride, int width, int height, int shift, int offset, const ClpRng& clpRng );
-  void ( *addAvg8 )       ( const Pel* src0, int src0Stride, const Pel* src1, int src1Stride, Pel *dst, int dstStride, int width, int height, int shift, int offset, const ClpRng& clpRng );
-  void ( *reco4 )         ( const Pel* src0, int src0Stride, const Pel* src1, int src1Stride, Pel *dst, int dstStride, int width, int height, const ClpRng& clpRng );
-  void ( *reco8 )         ( const Pel* src0, int src0Stride, const Pel* src1, int src1Stride, Pel *dst, int dstStride, int width, int height, const ClpRng& clpRng );
+  void ( *addAvg4 )       ( const Pel* src0, int src0Stride, const Pel* src1, int src1Stride, Pel *dst, int dstStride, int width, int height,            int shift, int offset, const ClpRng& clpRng );
+  void ( *addAvg8 )       ( const Pel* src0, int src0Stride, const Pel* src1, int src1Stride, Pel *dst, int dstStride, int width, int height,            int shift, int offset, const ClpRng& clpRng );
+  void ( *reco4 )         ( const Pel* src0, int src0Stride, const Pel* src1, int src1Stride, Pel *dst, int dstStride, int width, int height,                                   const ClpRng& clpRng );
+  void ( *reco8 )         ( const Pel* src0, int src0Stride, const Pel* src1, int src1Stride, Pel *dst, int dstStride, int width, int height,                                   const ClpRng& clpRng );
   void ( *linTf4 )        ( const Pel* src0, int src0Stride,                                  Pel *dst, int dstStride, int width, int height, int scale, int shift, int offset, const ClpRng& clpRng, bool bClip );
   void ( *linTf8 )        ( const Pel* src0, int src0Stride,                                  Pel *dst, int dstStride, int width, int height, int scale, int shift, int offset, const ClpRng& clpRng, bool bClip );
 };
@@ -102,8 +102,7 @@ struct AreaBuf : public Size
   void subtract             ( const AreaBuf<const T> &other );
   void extendSingleBorderPel();
   void extendBorderPel      (  unsigned margin );
-
-  void addAvg               ( const AreaBuf<const T> &other1, const AreaBuf<const T> &other2, const ClpRng& clpRng);
+  void addAvg               ( const AreaBuf<const T> &other1, const AreaBuf<const T> &other2, const ClpRng& clpRng );
   void removeHighFreq       ( const AreaBuf<T>& other, const bool bClip, const ClpRng& clpRng);
   void updateHistogram      ( std::vector<int32_t>& hist ) const;
 
@@ -143,6 +142,7 @@ typedef AreaBuf<const TCoeff> CCoeffBuf;
 
 typedef AreaBuf<      MotionInfo>  MotionBuf;
 typedef AreaBuf<const MotionInfo> CMotionBuf;
+
 
 #define SIZE_AWARE_PER_EL_OP( OP, INC )                     \
 if( ( width & 7 ) == 0 )                                    \
@@ -212,7 +212,7 @@ void AreaBuf<T>::fill(const T &val)
   {
     if( width == stride )
     {
-      ::memset( buf, reinterpret_cast< const int& >( val ), width * height * sizeof( T ) );
+      ::memset( buf, reinterpret_cast< const signed char& >( val ), width * height * sizeof( T ) );
     }
     else
     {
@@ -221,7 +221,7 @@ void AreaBuf<T>::fill(const T &val)
 
       for( unsigned y = 0; y < height; y++ )
       {
-        ::memset( dest, reinterpret_cast< const int& >( val ), line );
+        ::memset( dest, reinterpret_cast< const signed char& >( val ), line );
 
         dest += stride;
       }
@@ -490,7 +490,7 @@ T AreaBuf<T>::meanDiff( const AreaBuf<const T> &other ) const
   return T( acc / area() );
 }
 
-#if HHI_SIMD_OPT_BUFFER && defined(TARGET_SIMD_X86)
+#if ENABLE_SIMD_OPT_BUFFER && defined(TARGET_SIMD_X86)
 template<> void AreaBuf<Pel>::subtract( const Pel val );
 #endif
 
@@ -742,6 +742,9 @@ struct PelStorage : public PelUnitBuf
 
          PelBuf getBuf( const CompArea &blk );
   const CPelBuf getBuf( const CompArea &blk ) const;
+
+         PelBuf getBuf( const ComponentID CompID );
+  const CPelBuf getBuf( const ComponentID CompID ) const;
 
          PelUnitBuf getBuf( const UnitArea &unit );
   const CPelUnitBuf getBuf( const UnitArea &unit ) const;

@@ -53,9 +53,6 @@ enum BPMType
 {
   BPM_Undefined = 0,
   BPM_Std,
-  BPM_JMP,
-  BPM_JAW,
-  BPM_JMPAW,
   BPM_NUM
 };
 
@@ -65,14 +62,12 @@ protected:
   static const uint8_t      m_NextState       [128][2];       // Std
   static const uint32_t     m_EstFracBits     [128];          // Std
   static const BinFracBits  m_BinFracBits_128 [128];          // Std
-  static const BinFracBits  m_BinFracBits_256 [256];          //             MP   MPI
   static const uint32_t     m_EstFracProb     [128];          // Std
   static const uint8_t      m_LPSTable_64_4   [ 64][4];       // Std
-  static const uint16_t     m_LPSTable_512_64 [512][64];      //       JMP
-  static const uint8_t      m_LPSTable_32_8   [ 32][8];       //             MP   MPI
   static const uint8_t      m_RenormTable_32  [ 32];          // Std         MP   MPI
-  static const uint8_t      m_RenormTable_128 [128];          //       JMP
-  static const uint16_t     m_InistateToCount [128];          //       JMP   MP   MPI
+#if HM_REPRODUCE_CONTEXT_IDX_CALCULATION
+  static const double       m_StateToProbLPS  [ 64];          // Std
+#endif
 };
 
 
@@ -113,6 +108,10 @@ public:
   uint16_t        getState          ()                            const { return    uint16_t(m_State); }
   void            setState          ( uint16_t pState )                 { m_State = uint8_t ( pState); }
 public:
+#if HM_REPRODUCE_CONTEXT_IDX_CALCULATION
+  double          getProb0          ()                            const { return ( mps() ? m_StateToProbLPS[state()] : 1.0-m_StateToProbLPS[state()] );  }
+  double          getProb1          ()                            const { return ( mps() ? 1.0-m_StateToProbLPS[state()] : m_StateToProbLPS[state()] );  }
+#endif
   uint64_t        estFracExcessBits ( const BinProbModel_Std& r ) const
   {
     return ( ((uint64_t)m_EstFracProb[m_State^0]) * m_EstFracBits[r.m_State^0]
@@ -120,155 +119,6 @@ public:
   }
 private:
   uint8_t   m_State;
-};
-
-
-
-// JEM multi parameter CABAC
-class BinProbModel_JMP : public BinProbModelBase
-{
-public:
-  BinProbModel_JMP  () : m_P0( 0 ), m_P1( 0 ) {}
-  ~BinProbModel_JMP ()                        {}
-public:
-  void  init( int qp, int initId );
-  void  update( unsigned bin )
-  {
-    if( bin )
-    {
-      m_P0 += ( ( 32768 - m_P0 ) >> m_Log2WindowSize0 );
-      m_P1 += ( ( 32768 - m_P1 ) >> m_Log2WindowSize1 );
-    }
-    else
-    {
-      m_P0 -= ( m_P0 >> m_Log2WindowSize0 );
-      m_P1 -= ( m_P1 >> m_Log2WindowSize1 );
-    }
-  }
-  static uint8_t  getDefaultWinSize ()                                  { return uint8_t(0); }
-  void            setLog2WindowSize ( uint8_t log2WindowSize )          {}
-  void            estFracBitsUpdate ( unsigned bin, uint64_t& b )       { b += estFracBits( bin ); update( bin ); }
-  uint32_t        estFracBits       ( unsigned bin )              const { return m_BinFracBits_256[ ( m_P0 + m_P1 ) >> 8 ].intBits[bin]; }
-  static uint32_t estFracBitsTrm    ( unsigned bin )                    { return m_BinFracBits_256[0].intBits[ bin ]; }
-  BinFracBits     getFracBitsArray  ()                            const { return m_BinFracBits_256[ ( m_P0 + m_P1 ) >> 8 ]; }
-public:
-  uint16_t        state             ()                            const { return ( (m_P0 + m_P1) >> 1 ); }
-  uint16_t        mps               ()                            const { return 1; }
-  uint16_t        getLPS            ( unsigned range )            const { return m_LPSTable_512_64[ state() >> 6 ][ (range>>2) - 64 ]; }
-  static uint16_t getRenormBitsLPS  ( unsigned LPS )                    { return m_RenormTable_128[ LPS   >> 2 ]; }
-  static uint8_t  getRenormBitsRange( unsigned range )                  { return m_RenormTable_128[ range >> 2 ]; }
-  uint16_t        getState          ()                            const { return state(); }
-  void            setState          ( uint16_t pState )                 { m_P1 = m_P0 = pState; }
-public:
-  uint64_t        estFracExcessBits ( const BinProbModel_JMP& r ) const
-  {
-    const  int32_t prob = (m_P0 + m_P1) >> 1;
-    return uint32_t( ( int64_t(32768 - prob) * r.estFracBits(0) + int64_t(prob) * r.estFracBits(1) + ( 1 << ( SCALE_BITS - 1 ) ) ) >> SCALE_BITS);
-  }
-private:
-  static const uint8_t m_Log2WindowSize0 = 4;
-  static const uint8_t m_Log2WindowSize1 = 8;
-protected:
-  uint16_t  m_P0;
-  uint16_t  m_P1;
-};
-
-
-// JEM adaptive window CABAC
-class BinProbModel_JAW : public BinProbModelBase
-{
-public:
-  BinProbModel_JAW  () : m_P0( 0 ), m_Log2WindowSize0( 4 ) {}
-  ~BinProbModel_JAW ()                                     {}
-public:
-  void  init( int qp, int initId );
-  void  update( unsigned bin )
-  {
-    if( bin )
-    {
-      m_P0 += ( ( 32768 - m_P0 ) >> m_Log2WindowSize0 );
-    }
-    else
-    {
-      m_P0 -= ( m_P0 >> m_Log2WindowSize0 );
-    }
-  }
-  static uint8_t  getDefaultWinSize ()                                  { return m_DefaultLog2WindowSize0; }
-  void            setLog2WindowSize ( uint8_t log2WindowSize )          { if( log2WindowSize ) { m_Log2WindowSize0 = log2WindowSize; } }
-  void            estFracBitsUpdate ( unsigned bin, uint64_t& b )       { b += estFracBits( bin ); update( bin ); }
-  uint32_t        estFracBits       ( unsigned bin )              const { return m_BinFracBits_256[ m_P0 >> 7 ].intBits[bin]; }
-  static uint32_t estFracBitsTrm    ( unsigned bin )                    { return m_BinFracBits_256[0].intBits[ bin ]; }
-  BinFracBits     getFracBitsArray  ()                            const { return m_BinFracBits_256[ m_P0 >> 7 ]; }
-public:
-  uint16_t        state             ()                            const { return m_P0; }
-  uint16_t        mps               ()                            const { return 1; }
-  uint16_t        getLPS            ( unsigned range )            const { return m_LPSTable_512_64[ state() >> 6 ][ (range>>2) - 64 ]; }
-  static uint16_t getRenormBitsLPS  ( unsigned LPS )                    { return m_RenormTable_128[ LPS   >> 2 ]; }
-  static uint8_t  getRenormBitsRange( unsigned range )                  { return m_RenormTable_128[ range >> 2 ]; }
-  uint16_t        getState          ()                            const { return state(); }
-  void            setState          ( uint16_t pState )                 { m_P0 = pState; }
-public:
-  uint64_t        estFracExcessBits ( const BinProbModel_JAW& r ) const
-  {
-    const  int32_t prob = m_P0;
-    return uint32_t( ( int64_t(32768 - prob) * r.estFracBits(0) + int64_t(prob) * r.estFracBits(1) + ( 1 << ( SCALE_BITS - 1 ) ) ) >> SCALE_BITS);
-  }
-private:
-  static const uint8_t m_DefaultLog2WindowSize0 = 6;
-protected:
-  uint16_t  m_P0;
-  uint8_t   m_Log2WindowSize0;
-};
-
-
-// JEM multi parameter adaptive window CABAC
-class BinProbModel_JMPAW : public BinProbModelBase
-{
-public:
-  BinProbModel_JMPAW  () : m_P0( 0 ), m_P1( 0 ), m_Log2WindowSize0( 4 ) {}
-  ~BinProbModel_JMPAW ()                                                {}
-public:
-  void  init( int qp, int initId );
-  void  update( unsigned bin )
-  {
-    if( bin )
-    {
-      m_P0 += ( ( 32768 - m_P0 ) >> m_Log2WindowSize0 );
-      m_P1 += ( ( 32768 - m_P1 ) >> m_Log2WindowSize1 );
-    }
-    else
-    {
-      m_P0 -= ( m_P0 >> m_Log2WindowSize0 );
-      m_P1 -= ( m_P1 >> m_Log2WindowSize1 );
-    }
-  }
-  static uint8_t  getDefaultWinSize ()                                  { return m_DefaultLog2WindowSize0; }
-  void            setLog2WindowSize ( uint8_t log2WindowSize )          { if( log2WindowSize ) { m_Log2WindowSize0 = log2WindowSize; } }
-  void            estFracBitsUpdate ( unsigned bin, uint64_t& b )       { b += estFracBits( bin ); update( bin ); }
-  uint32_t        estFracBits       ( unsigned bin )              const { return m_BinFracBits_256[ ( m_P0 + m_P1 ) >> 8 ].intBits[bin]; }
-  static uint32_t estFracBitsTrm    ( unsigned bin )                    { return m_BinFracBits_256[0].intBits[ bin ]; }
-  BinFracBits     getFracBitsArray  ()                            const { return m_BinFracBits_256[ ( m_P0 + m_P1 ) >> 8 ]; }
-public:
-  uint16_t        state             ()                            const { return ( (m_P0 + m_P1) >> 1 ); }
-  uint16_t        mps               ()                            const { return 1; }
-  uint16_t        getLPS            ( unsigned range )            const { return m_LPSTable_512_64[ state() >> 6 ][ (range>>2) - 64 ]; }
-  static uint16_t getRenormBitsLPS  ( unsigned LPS )                    { return m_RenormTable_128[ LPS   >> 2 ]; }
-  static uint8_t  getRenormBitsRange( unsigned range )                  { return m_RenormTable_128[ range >> 2 ]; }
-  uint16_t        getState          ()                            const { return state(); }
-  void            setState          ( uint16_t pState )                 { m_P0 = m_P1 = pState; }
-public:
-  uint64_t        estFracExcessBits ( const BinProbModel_JMPAW& r ) const
-  {
-    const  int32_t prob = (m_P0 + m_P1) >> 1;
-    return uint32_t( ( int64_t(32768 - prob) * r.estFracBits(0) + int64_t(prob) * r.estFracBits(1) + ( 1 << ( SCALE_BITS - 1 ) ) ) >> SCALE_BITS);
-  }
-private:
-  static const uint8_t m_DefaultLog2WindowSize0 = 4;
-  static const uint8_t m_Log2WindowSize1        = 8;
-protected:
-  uint16_t  m_P0;
-  uint16_t  m_P1;
-  uint8_t   m_Log2WindowSize0;
 };
 
 
@@ -323,7 +173,6 @@ public:
   static const CtxSet   DeltaQP;
   static const CtxSet   InterDir;
   static const CtxSet   RefPic;
-  static const CtxSet   AffineFlag;
   static const CtxSet   Mvd;
   static const CtxSet   TransSubdivFlag;
   static const CtxSet   QtRootCbf;
@@ -337,23 +186,13 @@ public:
   static const CtxSet   MVPIdx;
   static const CtxSet   SaoMergeFlag;
   static const CtxSet   SaoTypeIdx;
-  static const CtxSet   AlfCUCtrlFlags;
-  static const CtxSet   AlfUvlcSCModel;
   static const CtxSet   TransformSkipFlag;
   static const CtxSet   TransquantBypassFlag;
-  static const CtxSet   NSSTIdx;
   static const CtxSet   RdpcmFlag;
   static const CtxSet   RdpcmDir;
-  static const CtxSet   EMTTuIndex;
-  static const CtxSet   EMTCuFlag;
   static const CtxSet   CrossCompPred;
   static const CtxSet   ChromaQpAdjFlag;
   static const CtxSet   ChromaQpAdjIdc;
-  static const CtxSet   ImvFlag;
-  static const CtxSet   LICFlag;
-  static const CtxSet   ObmcFlag;
-  static const CtxSet   FrucFlag;
-  static const CtxSet   FrucMode;
   static const unsigned NumberOfContexts;
 
   // combined sets for less complex copying
@@ -429,48 +268,21 @@ class Ctx : public ContextSetCfg
 public:
   Ctx();
   Ctx( const BinProbModel_Std*    dummy );
-  Ctx( const BinProbModel_JMP*    dummy );
-  Ctx( const BinProbModel_JAW*    dummy );
-  Ctx( const BinProbModel_JMPAW*  dummy );
   Ctx( const Ctx&                 ctx   );
 
 public:
-  static uint8_t getDefaultWindowSize( unsigned cabacEngineId )
-  {
-    uint8_t defWinSize  = 0;
-    BPMType bpmType     = BPMType( cabacEngineId + BPM_Std );
-    switch( bpmType )
-    {
-    case BPM_JAW:   defWinSize = BinProbModel_JAW  ::getDefaultWinSize(); break;
-    case BPM_JMPAW: defWinSize = BinProbModel_JMPAW::getDefaultWinSize(); break;
-    default:        break;
-    }
-    return defWinSize;
-  }
-  uint8_t getDefaultWindowSize()
-  {
-    uint8_t defWinSize  = 0;
-    switch( m_BPMType )
-    {
-    case BPM_JAW:   defWinSize = BinProbModel_JAW  ::getDefaultWinSize(); break;
-    case BPM_JMPAW: defWinSize = BinProbModel_JMPAW::getDefaultWinSize(); break;
-    default:        break;
-    }
-    return defWinSize;
-  }
-
   const Ctx& operator= ( const Ctx& ctx )
   {
     m_BPMType = ctx.m_BPMType;
     switch( m_BPMType )
     {
     case BPM_Std:   m_CtxStore_Std  .copyFrom( ctx.m_CtxStore_Std   );  break;
-    case BPM_JMP:   m_CtxStore_JMP  .copyFrom( ctx.m_CtxStore_JMP   );  break;
-    case BPM_JAW:   m_CtxStore_JAW  .copyFrom( ctx.m_CtxStore_JAW   );  break;
-    case BPM_JMPAW: m_CtxStore_JMPAW.copyFrom( ctx.m_CtxStore_JMPAW );  break;
     default:        break;
     }
     ::memcpy( m_GRAdaptStats, ctx.m_GRAdaptStats, sizeof( unsigned ) * RExt__GOLOMB_RICE_ADAPTATION_STATISTICS_SETS );
+#if HM_STORE_FRAC_BITS_AND_USE_ROUNDED_BITS
+    m_FracBitsStore = ctx.m_FracBitsStore;
+#endif
     return *this;
   }
 
@@ -480,11 +292,11 @@ public:
     switch( m_BPMType )
     {
     case BPM_Std:   m_CtxStore_Std  .copyFrom( subCtx.m_Ctx.m_CtxStore_Std,   subCtx.m_CtxSet );  break;
-    case BPM_JMP:   m_CtxStore_JMP  .copyFrom( subCtx.m_Ctx.m_CtxStore_JMP,   subCtx.m_CtxSet );  break;
-    case BPM_JAW:   m_CtxStore_JAW  .copyFrom( subCtx.m_Ctx.m_CtxStore_JAW,   subCtx.m_CtxSet );  break;
-    case BPM_JMPAW: m_CtxStore_JMPAW.copyFrom( subCtx.m_Ctx.m_CtxStore_JMPAW, subCtx.m_CtxSet );  break;
     default:        break;
     }
+#if HM_STORE_FRAC_BITS_AND_USE_ROUNDED_BITS
+    m_FracBitsStore = subCtx.m_Ctx.m_FracBitsStore;
+#endif
     return std::move(subCtx);
   }
 
@@ -493,15 +305,15 @@ public:
     switch( m_BPMType )
     {
     case BPM_Std:   m_CtxStore_Std  .init( qp, initId );  break;
-    case BPM_JMP:   m_CtxStore_JMP  .init( qp, initId );  break;
-    case BPM_JAW:   m_CtxStore_JAW  .init( qp, initId );  break;
-    case BPM_JMPAW: m_CtxStore_JMPAW.init( qp, initId );  break;
     default:        break;
     }
     for( std::size_t k = 0; k < RExt__GOLOMB_RICE_ADAPTATION_STATISTICS_SETS; k++ )
     {
       m_GRAdaptStats[k] = 0;
     }
+#if HM_STORE_FRAC_BITS_AND_USE_ROUNDED_BITS
+    m_FracBitsStore = 0;
+#endif
   }
 
   void  loadPStates( const std::vector<uint16_t>& probStates )
@@ -509,9 +321,6 @@ public:
     switch( m_BPMType )
     {
     case BPM_Std:   m_CtxStore_Std  .loadPStates( probStates );  break;
-    case BPM_JMP:   m_CtxStore_JMP  .loadPStates( probStates );  break;
-    case BPM_JAW:   m_CtxStore_JAW  .loadPStates( probStates );  break;
-    case BPM_JMPAW: m_CtxStore_JMPAW.loadPStates( probStates );  break;
     default:        break;
     }
   }
@@ -521,23 +330,7 @@ public:
     switch( m_BPMType )
     {
     case BPM_Std:   m_CtxStore_Std  .savePStates( probStates );  break;
-    case BPM_JMP:   m_CtxStore_JMP  .savePStates( probStates );  break;
-    case BPM_JAW:   m_CtxStore_JAW  .savePStates( probStates );  break;
-    case BPM_JMPAW: m_CtxStore_JMPAW.savePStates( probStates );  break;
     default:        break;
-    }
-  }
-
-  void  setWinSizes( const std::vector<uint8_t>* log2WindowSizes )
-  {
-    if( log2WindowSizes )
-    {
-      switch( m_BPMType )
-      {
-      case BPM_JAW:   m_CtxStore_JAW  .setWinSizes( *log2WindowSizes );  break;
-      case BPM_JMPAW: m_CtxStore_JMPAW.setWinSizes( *log2WindowSizes );  break;
-      default:        break;
-      }
     }
   }
 
@@ -548,18 +341,6 @@ public:
     case BPM_Std:
       m_CtxStore_Std  [ctxId] = ctx.m_CtxStore_Std  [ctxId];
       m_CtxStore_Std  [ctxId] . setLog2WindowSize   (winSize);
-      break;
-    case BPM_JMP:
-      m_CtxStore_JMP  [ctxId] = ctx.m_CtxStore_JMP  [ctxId];
-      m_CtxStore_JMP  [ctxId] . setLog2WindowSize   (winSize);
-      break;
-    case BPM_JAW:
-      m_CtxStore_JAW  [ctxId] = ctx.m_CtxStore_JAW  [ctxId];
-      m_CtxStore_JAW  [ctxId] . setLog2WindowSize   (winSize);
-      break;
-    case BPM_JMPAW:
-      m_CtxStore_JMPAW[ctxId] = ctx.m_CtxStore_JMPAW[ctxId];
-      m_CtxStore_JMPAW[ctxId] .setLog2WindowSize    (winSize);
       break;
     default:
       break;
@@ -573,24 +354,19 @@ public:
   unsigned            getBPMType      ()                        const { return m_BPMType; }
   const Ctx&          getCtx          ()                        const { return *this; }
   Ctx&                getCtx          ()                              { return *this; }
+#if HM_STORE_FRAC_BITS_AND_USE_ROUNDED_BITS
+  const uint64_t&     getFracBits     ()                        const { return m_FracBitsStore; }
+  uint64_t&           getFracBits     ()                              { return m_FracBitsStore; }
+#endif
 
   explicit operator   const CtxStore<BinProbModel_Std>  &()     const { return m_CtxStore_Std; }
   explicit operator         CtxStore<BinProbModel_Std>  &()           { return m_CtxStore_Std; }
-  explicit operator   const CtxStore<BinProbModel_JMP>  &()     const { return m_CtxStore_JMP;  }
-  explicit operator         CtxStore<BinProbModel_JMP>  &()           { return m_CtxStore_JMP;  }
-  explicit operator   const CtxStore<BinProbModel_JAW>  &()     const { return m_CtxStore_JAW;  }
-  explicit operator         CtxStore<BinProbModel_JAW>  &()           { return m_CtxStore_JAW;  }
-  explicit operator   const CtxStore<BinProbModel_JMPAW>&()     const { return m_CtxStore_JMPAW;  }
-  explicit operator         CtxStore<BinProbModel_JMPAW>&()           { return m_CtxStore_JMPAW;  }
 
   const FracBitsAccess&   getFracBitsAcess()  const
   {
     switch( m_BPMType )
     {
     case BPM_Std:   return m_CtxStore_Std;
-    case BPM_JMP:   return m_CtxStore_JMP;
-    case BPM_JAW:   return m_CtxStore_JAW;
-    case BPM_JMPAW: return m_CtxStore_JMPAW;
     default:        THROW("BPMType out of range");
     }
   }
@@ -598,11 +374,17 @@ public:
 private:
   BPMType                       m_BPMType;
   CtxStore<BinProbModel_Std>    m_CtxStore_Std;
-  CtxStore<BinProbModel_JMP>    m_CtxStore_JMP;
-  CtxStore<BinProbModel_JAW>    m_CtxStore_JAW;
-  CtxStore<BinProbModel_JMPAW>  m_CtxStore_JMPAW;
 protected:
   unsigned                      m_GRAdaptStats[RExt__GOLOMB_RICE_ADAPTATION_STATISTICS_SETS];
+#if HM_STORE_FRAC_BITS_AND_USE_ROUNDED_BITS
+  uint64_t                      m_FracBitsStore;
+#endif
+#if ENABLE_SPLIT_PARALLELISM || ENABLE_WPP_PARALLELISM
+
+public:
+  int64_t cacheId;
+  bool    cacheUsed;
+#endif
 };
 
 
@@ -628,40 +410,34 @@ private:
 };
 
 
-class CtxStateStore
+
+class CtxStateBuf
 {
-  public:
-    CtxStateStore() : m_bufValid{ { false } } { static_assert( ( B_SLICE < NUMBER_OF_SLICE_TYPES - 1 ) && ( P_SLICE < NUMBER_OF_SLICE_TYPES - 1 ), "index out of bound" ); }
-    ~CtxStateStore()                          {}
-
-    void storeCtx( const Slice* slice, const Ctx& ctx )
-    {
-      SliceType t   = slice->getSliceType();
-      int       qp  = slice->getSliceQpBase();
-      if( t != I_SLICE )
-      {
-        ctx.savePStates( m_pStateBuffer[ t ][ qp ] );
-        m_bufValid [ t ][ qp ] = true;
-      }
-    }
-    void loadCtx ( const Slice* slice, Ctx& ctx ) const
-    {
-      SliceType t   = slice->getSliceType();
-      int       qp  = slice->getSliceQpBase();
-      if( t != I_SLICE && m_bufValid[t][qp] )
-      {
-        ctx.loadPStates( m_pStateBuffer[ t ][ qp ] );
-      }
-    }
-    void clearValid()
-    {
-      memset( m_bufValid, 0, sizeof( m_bufValid ) );
-    }
-
-  private:
-    std::vector<uint16_t> m_pStateBuffer[ NUMBER_OF_SLICE_TYPES - 1 ][ MAX_QP + 1 ];
-    bool                  m_bufValid    [ NUMBER_OF_SLICE_TYPES - 1 ][ MAX_QP + 1 ];
+public:
+  CtxStateBuf () : m_valid(false)                 {}
+  ~CtxStateBuf()                                  {}
+  __inline void reset       ()                    {   m_valid = false; }
+  __inline bool getIfValid  ( Ctx& ctx )  const   { if( m_valid ) { ctx.loadPStates( m_states ); return true; } return false; }
+  __inline void store ( const Ctx& ctx )          { ctx.savePStates( m_states ); m_valid = true; }
+private:
+  std::vector<uint16_t> m_states;
+  bool                  m_valid;
 };
+
+class CtxStateArray
+{
+public:
+  CtxStateArray () {}
+  ~CtxStateArray() {}
+  __inline void resetAll    ()                              { for( std::size_t k = 0; k < m_data.size(); k++ ) { m_data[k].reset(); } }
+  __inline void resize      ( std::size_t reqSize )         { if( m_data.size() < reqSize ) { m_data.resize(reqSize); } }
+  __inline bool getIfValid  ( Ctx& ctx, unsigned id ) const { if( id <  m_data.size() ) { return m_data[id].getIfValid(ctx); } return false; }
+  __inline void store ( const Ctx& ctx, unsigned id )       { if( id >= m_data.size() ) { resize(id+1); } m_data[id].store(ctx); }    
+private:
+  std::vector<CtxStateBuf> m_data;
+};
+
+
 
 
 class CtxWSizeSet
@@ -695,40 +471,6 @@ private:
   std::vector<uint8_t>  m_log2WinSizes;
 };
 
-class CtxWSizeStore
-{
-public:
-  CtxWSizeStore ();
-  ~CtxWSizeStore() {}
-
-  void                        checkInit             ( const SPS*   sps    );
-  void                        updateState           ( const Slice* slice,
-                                                      const bool   enc    );
-  std::vector<uint8_t>&       getReadBuffer         ()                                { return m_readWriteBuffer; }
-  const std::vector<uint8_t>& getWriteBuffer        ( const Slice* slice  )           { xSetReadWriteBuffer(slice); return m_readWriteBuffer; }
-  bool                        validWinSizes         ( const Slice* slice  )   const;
-  const std::vector<uint8_t>* getWinSizes           ( const Slice* slice  )   const;
-  CtxWSizeSet&                getWSizeSet           ( const Slice* slice  )           { return m_winSizes[slice->getSliceType()][slice->getSliceQpBase()]; }
-  std::streamsize             getNumCodeIds         ()                        const   { return m_readWriteBuffer.size(); }
-  int                         getCtxId              ( const std::size_t id)   const   { return m_codeId2ctxId[id]; }
-
-  void                        setSliceWinUpdateMode ( Slice*       slice  )   const
-  {
-    slice->setCabacWinUpdateMode( m_winSizes[ slice->getSliceType() ][ slice->getSliceQpBase() ].getMode() );
-  }
-
-private:
-  void                        xSetAllInvalid        ();
-  void                        xApplyReadWriteBuffer ( const Slice* slice );
-  void                        xSetReadWriteBuffer   ( const Slice* slice );
-  void                        xInitMappingTable     ( const SPS* sps );
-
-private:
-  bool                        m_isInitialized;
-  std::vector<uint8_t>        m_readWriteBuffer;
-  std::vector<int>            m_codeId2ctxId;
-  CtxWSizeSet                 m_winSizes[ NUMBER_OF_SLICE_TYPES ][ MAX_QP + 1 ];
-};
 
 
 #endif
