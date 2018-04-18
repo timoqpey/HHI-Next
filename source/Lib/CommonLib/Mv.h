@@ -51,16 +51,28 @@
 class Mv
 {
 public:
+#if JEM_COMP
+  short hor;     ///< horizontal component of motion vector
+  short ver;     ///< vertical component of motion vector
+#else
   int   hor;     ///< horizontal component of motion vector
   int   ver;     ///< vertical component of motion vector
+#endif
+#if JEM_TOOLS
   bool  highPrec;///< true if the vector is high precision
+#endif
 
   // ------------------------------------------------------------------------------------------------------------------
   // constructors
   // ------------------------------------------------------------------------------------------------------------------
 
+#if JEM_TOOLS
   Mv(                                            ) : hor( 0    ), ver( 0    ), highPrec( false     ) {}
   Mv( int iHor, int iVer, bool _highPrec = false ) : hor( iHor ), ver( iVer ), highPrec( _highPrec ) {}
+#else
+  Mv(                    ) : hor( 0    ), ver( 0    ) {}
+  Mv( int iHor, int iVer ) : hor( iHor ), ver( iVer ) {}
+#endif
 
   // ------------------------------------------------------------------------------------------------------------------
   // set
@@ -86,18 +98,21 @@ public:
 
   const Mv& operator += (const Mv& _rcMv)
   {
+#if JEM_TOOLS
     if( highPrec == _rcMv.highPrec )
     {
       hor += _rcMv.hor;
       ver += _rcMv.ver;
     }
     else
+#endif
     {
       Mv rcMv = _rcMv;
 
+#if JEM_TOOLS
       if( highPrec && !rcMv.highPrec ) rcMv.setHighPrec();
       if( !highPrec && rcMv.highPrec )      setHighPrec();
-
+#endif
       hor += rcMv.hor;
       ver += rcMv.ver;
     }
@@ -106,18 +121,21 @@ public:
 
   const Mv& operator-= (const Mv& _rcMv)
   {
+#if JEM_TOOLS
     if( highPrec == _rcMv.highPrec )
     {
       hor -= _rcMv.hor;
       ver -= _rcMv.ver;
     }
     else
+#endif
     {
       Mv rcMv = _rcMv;
 
+#if JEM_TOOLS
       if( highPrec && !rcMv.highPrec ) rcMv.setHighPrec();
       if( !highPrec && rcMv.highPrec )      setHighPrec();
-
+#endif
       hor -= rcMv.hor;
       ver -= rcMv.ver;
     }
@@ -153,6 +171,7 @@ public:
 
   const Mv operator - ( const Mv& rcMv ) const
   {
+#if JEM_TOOLS
     if( rcMv.highPrec == highPrec )
     {
       return Mv( hor - rcMv.hor, ver - rcMv.ver, highPrec );
@@ -164,10 +183,14 @@ public:
 
       return self - other;
     }
+#else
+    return Mv( hor - rcMv.hor, ver - rcMv.ver );
+#endif
   }
 
   const Mv operator + ( const Mv& rcMv ) const
   {
+#if JEM_TOOLS
     if( rcMv.highPrec == highPrec )
     {
       return Mv( hor + rcMv.hor, ver + rcMv.ver, highPrec );
@@ -179,10 +202,14 @@ public:
 
       return self + other;
     }
+#else
+    return Mv( hor + rcMv.hor, ver + rcMv.ver );
+#endif
   }
 
   bool operator== ( const Mv& rcMv ) const
   {
+#if JEM_TOOLS
     if( rcMv.highPrec == highPrec )
     {
       return ( hor == rcMv.hor && ver == rcMv.ver );
@@ -195,6 +222,9 @@ public:
     {
       return ( ( rcMv.hor << VCEG_AZ07_MV_ADD_PRECISION_BIT_FOR_STORE ) == hor && ( rcMv.ver << VCEG_AZ07_MV_ADD_PRECISION_BIT_FOR_STORE ) == ver );
     }
+#else
+    return ( hor == rcMv.hor && ver == rcMv.ver );
+#endif
   }
 
   bool operator!= ( const Mv& rcMv ) const
@@ -206,9 +236,14 @@ public:
   {
     const int mvx = Clip3( -32768, 32767, (iScale * getHor() + 127 + (iScale * getHor() < 0)) >> 8 );
     const int mvy = Clip3( -32768, 32767, (iScale * getVer() + 127 + (iScale * getVer() < 0)) >> 8 );
+#if JEM_TOOLS
     return Mv( mvx, mvy, highPrec );
+#else
+    return Mv( mvx, mvy );
+#endif
   }
 
+#if JEM_TOOLS
   void roundMV2SignalPrecision()
   {
     const bool isHP = highPrec;
@@ -233,9 +268,12 @@ public:
     ver = ver >= 0 ? ( ver ) << VCEG_AZ07_MV_ADD_PRECISION_BIT_FOR_STORE : -( ( -ver ) << VCEG_AZ07_MV_ADD_PRECISION_BIT_FOR_STORE );
     highPrec = true;
   }
+#endif
 };// END CLASS DEFINITION MV
 
+#if JEM_TOOLS
 void roundMV( Mv& rcMv, unsigned imvShift );
+#endif
 void clipMv ( Mv& rcMv, const struct Position& pos, const class SPS& sps );
 
 //! \}

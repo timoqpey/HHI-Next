@@ -56,7 +56,7 @@
 // Class definition
 // ====================================================================================================================
 
-#if HHI_HLM_USE_QPA
+#if ENABLE_QPA
  #define FRAME_WEIGHTING 0 // WPSNR temporal weighting according to hierarchical coding structure; only for GOP size 16
 #endif
 
@@ -69,7 +69,7 @@ private:
   UInt      m_uiNumPic;
   Double    m_dFrmRate; //--CFG_KDY
   Double    m_MSEyuvframe[MAX_NUM_COMPONENT]; // sum of MSEs
-#if HHI_HLM_USE_QPA && FRAME_WEIGHTING
+#if ENABLE_QPA && FRAME_WEIGHTING
   double    m_sumWSSD[MAX_NUM_COMPONENT];   // weighted SSDs
   double    m_sumW;
 #endif
@@ -89,7 +89,7 @@ public:
 
     m_uiNumPic++;
   }
-#if HHI_HLM_USE_QPA
+#if ENABLE_QPA
  #if FRAME_WEIGHTING
   Void    addWeightedSSD(const double dWeightedSSD, const ComponentID compID) { m_sumWSSD[compID] += dWeightedSSD; }
   Void    addWeight     (const double dWeight) { m_sumW += dWeight; }
@@ -111,11 +111,11 @@ public:
     {
       m_dPSNRSum[i] = 0;
       m_MSEyuvframe[i] = 0;
-#if HHI_HLM_USE_QPA && FRAME_WEIGHTING
+#if ENABLE_QPA && FRAME_WEIGHTING
       m_sumWSSD[i] = 0;
 #endif
     }
-#if HHI_HLM_USE_QPA && FRAME_WEIGHTING
+#if ENABLE_QPA && FRAME_WEIGHTING
     m_sumW = 0;
 #endif
     m_uiNumPic = 0;
@@ -136,7 +136,7 @@ public:
       }
     }
 
-#if HHI_HLM_USE_QPA
+#if ENABLE_QPA
     const UInt maxval                = /*useWPSNR ? (1 << maximumBitDepth) - 1 :*/ 255 << (maximumBitDepth - 8); // fix with WPSNR: 1023 (4095) instead of 1020 (4080) for bit depth 10 (12)
 #else
     const UInt maxval                = 255 << (maximumBitDepth - 8);
@@ -162,7 +162,7 @@ public:
   }
 
 
-#if HHI_HLM_USE_QPA
+#if ENABLE_QPA
   Void    printOut ( TChar cDelim, const ChromaFormat chFmt, const Bool printMSEBasedSNR, const Bool printSequenceMSE, const BitDepths &bitDepths, const bool useWPSNR = false )
 #else
   Void    printOut ( TChar cDelim, const ChromaFormat chFmt, const Bool printMSEBasedSNR, const Bool printSequenceMSE, const BitDepths &bitDepths )
@@ -186,7 +186,7 @@ public:
         }
         else
         {
-#if HHI_HLM_USE_QPA
+#if ENABLE_QPA
           const UInt maxval = /*useWPSNR ? (1 << bitDepths.recon[toChannelType(compID)]) - 1 :*/ 255 << (bitDepths.recon[toChannelType(compID)] - 8); // fix with WPSNR: 1023 (4095) instead of 1020 (4080) for bit depth 10 (12)
 #else
           //NOTE: this is not the true maximum value for any bitDepth other than 8. It comes from the original HM PSNR calculation
@@ -204,7 +204,7 @@ public:
       case CHROMA_400:
         if (printMSEBasedSNR)
         {
-#if HHI_HLM_USE_QPA
+#if ENABLE_QPA
           if (useWPSNR) {
             msg( e_msg_level, "         \tTotal Frames |   "   "Bitrate     "  "Y-WPSNR" );
           } else
@@ -224,7 +224,7 @@ public:
           msg( e_msg_level, "Average: \t %8d    %c "          "%12.4lf  "    "%8.4lf",
                  getNumPic(), cDelim,
                  getBits() * dScale,
-#if HHI_HLM_USE_QPA
+#if ENABLE_QPA
                  useWPSNR ? getWPSNR(COMPONENT_Y) :
 #endif
                  getPsnr(COMPONENT_Y) / (Double)getNumPic() );
@@ -245,7 +245,7 @@ public:
         }
         else
         {
-#if HHI_HLM_USE_QPA
+#if ENABLE_QPA
           if (useWPSNR) {
             msg( e_msg_level, "\tTotal Frames |   "   "Bitrate     "  "Y-WPSNR" );
           } else
@@ -265,7 +265,7 @@ public:
           msg( e_msg_level, "\t %8d    %c "          "%12.4lf  "    "%8.4lf",
                  getNumPic(), cDelim,
                  getBits() * dScale,
-#if HHI_HLM_USE_QPA
+#if ENABLE_QPA
                  useWPSNR ? getWPSNR(COMPONENT_Y) :
 #endif
                  getPsnr(COMPONENT_Y) / (Double)getNumPic() );
@@ -291,7 +291,7 @@ public:
 
           if (printMSEBasedSNR)
           {
-#if HHI_HLM_USE_QPA
+#if ENABLE_QPA
             if (useWPSNR) {
               msg( e_msg_level, "         \tTotal Frames |   "   "Bitrate     "  "Y-WPSNR   "  "U-WPSNR   "  "V-WPSNR   "  "YUV-WPSNR" );
             } else
@@ -311,15 +311,15 @@ public:
             msg( e_msg_level, "Average: \t %8d    %c "          "%12.4lf  "    "%8.4lf  "   "%8.4lf  "    "%8.4lf  "   "%8.4lf",
                    getNumPic(), cDelim,
                    getBits() * dScale,
-#if HHI_HLM_USE_QPA
+#if ENABLE_QPA
                    useWPSNR ? getWPSNR(COMPONENT_Y ) :
 #endif
                    getPsnr(COMPONENT_Y ) / (Double)getNumPic(),
-#if HHI_HLM_USE_QPA
+#if ENABLE_QPA
                    useWPSNR ? getWPSNR(COMPONENT_Cb) :
 #endif
                    getPsnr(COMPONENT_Cb) / (Double)getNumPic(),
-#if HHI_HLM_USE_QPA
+#if ENABLE_QPA
                    useWPSNR ? getWPSNR(COMPONENT_Cr) :
 #endif
                    getPsnr(COMPONENT_Cr) / (Double)getNumPic(),
@@ -348,7 +348,7 @@ public:
           }
           else
           {
-#if HHI_HLM_USE_QPA
+#if ENABLE_QPA
             if (useWPSNR) {
               msg( e_msg_level, "\tTotal Frames |   "   "Bitrate     "  "Y-WPSNR   "  "U-WPSNR   "  "V-WPSNR   "  "YUV-WPSNR" );
             } else
@@ -368,15 +368,15 @@ public:
             msg( e_msg_level, "\t %8d    %c "          "%12.4lf  "    "%8.4lf  "   "%8.4lf  "    "%8.4lf  "   "%8.4lf",
                    getNumPic(), cDelim,
                    getBits() * dScale,
-#if HHI_HLM_USE_QPA
+#if ENABLE_QPA
                    useWPSNR ? getWPSNR(COMPONENT_Y ) :
 #endif
                    getPsnr(COMPONENT_Y ) / (Double)getNumPic(),
-#if HHI_HLM_USE_QPA
+#if ENABLE_QPA
                    useWPSNR ? getWPSNR(COMPONENT_Cb) :
 #endif
                    getPsnr(COMPONENT_Cb) / (Double)getNumPic(),
-#if HHI_HLM_USE_QPA
+#if ENABLE_QPA
                    useWPSNR ? getWPSNR(COMPONENT_Cr) :
 #endif
                    getPsnr(COMPONENT_Cr) / (Double)getNumPic(),

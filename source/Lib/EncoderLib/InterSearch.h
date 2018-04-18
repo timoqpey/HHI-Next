@@ -49,24 +49,28 @@
 #include "CommonLib/Unit.h"
 #include "CommonLib/UnitPartitioner.h"
 #include "CommonLib/RdCost.h"
+#if JEM_TOOLS
+#include "CommonLib/BilateralFilter.h"
+#endif
 
 //! \ingroup EncoderLib
 //! \{
 
-class EncModeCtrl;
 // ====================================================================================================================
 // Class definition
 // ====================================================================================================================
 
-static const UInt MAX_NUM_REF_LIST_ADAPT_SR=2;
-static const UInt MAX_IDX_ADAPT_SR=33;
-static const UInt NUM_MV_PREDICTORS=3;
+static const UInt MAX_NUM_REF_LIST_ADAPT_SR = 2;
+static const UInt MAX_IDX_ADAPT_SR          = 33;
+static const UInt NUM_MV_PREDICTORS         = 3;
+
+class EncModeCtrl;
 
 /// encoder search class
 class InterSearch : public InterPrediction, CrossComponentPrediction
 {
 private:
-  EncModeCtrl    *m_modeCtrl;
+  EncModeCtrl     *m_modeCtrl;
 
   PelStorage      m_tmpPredStorage              [NUM_REF_PIC_LIST_01];
   PelStorage      m_tmpStorageLCU;
@@ -81,7 +85,9 @@ private:
 
   ClpRng          m_lumaClpRng;
 
+#if JEM_TOOLS
   PelStorage      m_obmcOrgMod;
+#endif
 
 protected:
   // interface to option
@@ -90,6 +96,11 @@ protected:
   // interface to classes
   TrQuant*        m_pcTrQuant;
 
+#if JEM_TOOLS
+  BilateralFilter*
+                  m_bilateralFilter;
+
+#endif
   // ME parameters
   Int             m_iSearchRange;
   Int             m_bipredSearchRange; // Search range for bi-prediction
@@ -111,15 +122,20 @@ protected:
 
   Bool            m_isInitialized;
 
-  MotionInfo      m_SubPuFrucBuf [( MAX_CU_SIZE * MAX_CU_SIZE ) >> ( MIN_CU_LOG2 << 1 )];
+#if JEM_TOOLS
+  MotionInfo      m_SubPuFrucBuf                [( MAX_CU_SIZE * MAX_CU_SIZE ) >> ( MIN_CU_LOG2 << 1 )];
+#endif
 
 public:
   InterSearch();
   virtual ~InterSearch();
 
-  Void init                         (
-                                      EncCfg*        pcEncCfg,
+  Void init                         ( EncCfg*        pcEncCfg,
                                       TrQuant*       pcTrQuant,
+#if JEM_TOOLS
+                                      BilateralFilter*
+                                                     bilateralFilter,
+#endif
                                       Int            iSearchRange,
                                       Int            bipredSearchRange,
                                       MESearchMethod motionEstimationSearchMethod,
@@ -134,6 +150,10 @@ public:
   Void destroy                      ();
 
   Void setTempBuffers               (CodingStructure ****pSlitCS, CodingStructure ****pFullCS, CodingStructure **pSaveCS );
+
+#if ENABLE_SPLIT_PARALLELISM
+  Void copyState                    ( const InterSearch& other );
+#endif
 
 protected:
 
@@ -161,7 +181,9 @@ protected:
     Distortion  uiBestSad;
     UChar       ucPointNr;
     Int         subShiftMode;
+#if JEM_TOOLS
     unsigned    imvShift;
+#endif
   } IntTZSearchStruct;
 
   // sub-functions for ME
@@ -209,9 +231,12 @@ protected:
                                     Int&        riMVPIdx,
                                     AMVPInfo&   amvpInfo,
                                     UInt&       ruiBits,
-                                    Distortion& ruiCost,
+                                    Distortion& ruiCost
+#if JEM_TOOLS
+                                    ,
                                     const UChar  imv
-    );
+#endif
+                                  );
 
   Distortion xGetTemplateCost     ( const PredictionUnit& pu,
                                     PelUnitBuf&           origBuf,
@@ -236,13 +261,14 @@ protected:
                                     MergeCtx &            mergeCtx
                                   );
 
+#if JEM_TOOLS
   Void xFRUCMrgEstimation         ( PredictionUnit&       pu,
                                     PelUnitBuf&           origBuf,
                                     Distortion&           ruiMinCost,
                                     UChar&                ruhFRUCMode,
                                     MergeCtx&             mrgCtx
                                   );
-
+#endif
 
 
   // -------------------------------------------------------------------------------------------------------------------
@@ -317,6 +343,7 @@ protected:
                                     Distortion&           ruiCost
                                   );
 
+#if JEM_TOOLS
   Void xPredAffineInterSearch     ( PredictionUnit&       pu,
                                     PelUnitBuf&           origBuf,
                                     Int                   puIdx,
@@ -350,7 +377,7 @@ protected:
 
   Void xCopyAffineAMVPInfo        ( AffineAMVPInfo& src, AffineAMVPInfo& dst );
   Void xCheckBestAffineMVP        ( PredictionUnit &pu, AffineAMVPInfo &affineAMVPInfo, RefPicList eRefPicList, Mv acMv[3], Mv acMvPred[3], Int& riMVPIdx, UInt& ruiBits, Distortion& ruiCost );
-
+#endif
   Void xExtDIFUpSamplingH         ( CPelBuf* pcPattern );
   Void xExtDIFUpSamplingQ         ( CPelBuf* pcPatternKey, Mv halfPelRef );
 
@@ -368,6 +395,11 @@ public:
   Void xEstimateInterResidualQT   (CodingStructure &cs, Partitioner &partitioner, Distortion *puiZeroDist = NULL);
   UInt64 xGetSymbolFracBitsInter  (CodingStructure &cs, Partitioner &partitioner);
 
+#if HM_REPRODUCE_4x4_BLOCK_ESTIMATION_ORDER
+private:
+
+  Void xChangeInterTUsFromSearchToCode( CodingStructure &cs, Partitioner &partitioner );
+#endif
 };// END CLASS DEFINITION EncSearch
 
 //! \}

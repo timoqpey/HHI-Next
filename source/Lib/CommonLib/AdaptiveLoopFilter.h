@@ -3,7 +3,7 @@
  * and contributor rights, including patent rights, and no such rights are
  * granted under this license.
  *
- * Copyright (c) 2010-2015, ITU/ISO/IEC
+ * Copyright (c) 2010-2017, ITU/ISO/IEC
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -39,6 +39,9 @@
 #define __ADAPTIVELOOPFILTER__
 
 #include "CommonDef.h"
+
+#if JEM_TOOLS
+
 #include "Picture.h"
 
 
@@ -192,6 +195,7 @@ protected:
 
 public:
 
+
   bool      m_galf;
   unsigned  m_storedAlfParaNum[E0104_ALF_MAX_TEMPLAYERID];
   ALFParam  m_acStoredAlfPara[E0104_ALF_MAX_TEMPLAYERID][C806_ALF_TEMPPRED_NUM];
@@ -202,7 +206,8 @@ protected:
 
   Void reconstructFilterCoeffs(ALFParam* pcAlfParam,int **pfilterCoeffSym );
   Void getCurrentFilter(int **filterCoeffSym,ALFParam* pcAlfParam);
-  Void xFilterFrame  (PelUnitBuf& recSrcExt, PelUnitBuf& recDst, AlfFilterType filtType);
+  Void xFilterFrame  (PelUnitBuf& recSrcExt, PelUnitBuf& recDst, AlfFilterType filtType
+    );
   Void xFilterBlkGalf(PelUnitBuf &recDst, const CPelUnitBuf& recSrcExt, const Area& blk, AlfFilterType filtType, const ComponentID compId);
   Void xFilterBlkAlf (PelBuf &recDst, const CPelBuf& recSrc, const Area& blk, AlfFilterType filtType);
 
@@ -235,7 +240,8 @@ protected:
   Void calcVar(Pel **imgY_var, Pel *imgY_pad, int pad_size, int fl, int img_height, int img_width, int img_stride, int start_width = 0 , int start_height = 0 );
   Void xCalcVar(Pel **imgY_var, Pel *imgY_pad, int pad_size, int fl, int img_height, int img_width, int img_stride, int start_width , int start_height );
 
-  Void xCUAdaptive( CodingStructure& cs, const PelUnitBuf &recExtBuf, PelUnitBuf &recBuf, ALFParam* pcAlfParam );
+  Void xCUAdaptive( CodingStructure& cs, const PelUnitBuf &recExtBuf, PelUnitBuf &recBuf, ALFParam* pcAlfParam
+    );
 
   /// ALF for chroma component
   Void xALFChroma   ( ALFParam* pcAlfParam,const PelUnitBuf& recExtBuf, PelUnitBuf& recUnitBuf );
@@ -250,7 +256,8 @@ public:
   Void create( const Int iPicWidth, Int iPicHeight, const ChromaFormat chromaFormatIDC, const Int uiMaxCUWidth, const UInt uiMaxCUHeight, const UInt uiMaxCUDepth, const Int nInputBitDepth, const Int nInternalBitDepth, const Int numberOfCTUs );
   Void destroy ();
 
-  Void ALFProcess     ( CodingStructure& cs, ALFParam* pcAlfParam); ///< interface function for ALF process
+  Void ALFProcess     ( CodingStructure& cs, ALFParam* pcAlfParam
+                      ); ///< interface function for ALF process
 
   // alloc & free & set functions //TODO move to ALFParam class
   Void allocALFParam  ( ALFParam* pAlfParam );
@@ -268,7 +275,7 @@ public:
   Void predictALFCoeffChroma  ( ALFParam* pAlfParam );                  ///< prediction of chroma ALF coefficients
   Void initVarForChroma(ALFParam* pcAlfParam, Bool bUpdatedDCCoef);
 
-  Bool refreshAlfTempPred(NalUnitType nalu, Int poc);
+  Void refreshAlfTempPred();
 
   static Int ALFTapHToTapV     ( Int tapH );
   static Int ALFTapHToNumCoeff ( Int tapH );
@@ -276,3 +283,4 @@ public:
 };
 #endif
 
+#endif

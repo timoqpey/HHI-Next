@@ -54,7 +54,7 @@
 // ====================================================================================================================
 
 /// encoder application class
-class EncApp : public EncAppCfg
+class EncApp : public EncAppCfg, public AUWriterIf
 {
 private:
   // class interface
@@ -64,16 +64,19 @@ private:
   Int               m_iFrameRcvd;                 ///< number of received frames
   UInt              m_essentialBytes;
   UInt              m_totalBytes;
+  fstream           m_bitstream;
 
 private:
   // initialization
-  Void xCreateLib  ( std::list<PelUnitBuf*>& recBuflist ); ///< create files & encoder class
+  Void xCreateLib  ( std::list<PelUnitBuf*>& recBufList
+                    );                           ///< create files & encoder class
   Void xInitLibCfg ();                           ///< initialize internal variables
   Void xInitLib    (Bool isFieldCoding);         ///< initialize encoder class
   Void xDestroyLib ();                           ///< destroy encoder class
 
   // file I/O
-  Void xWriteOutput     ( std::ostream& bitstreamFile, Int iNumEncoded, const std::list<AccessUnit>& accessUnits, std::list<PelUnitBuf*>& recBuflist ); ///< write bitstream to file
+  Void xWriteOutput     ( Int iNumEncoded, std::list<PelUnitBuf*>& recBufList
+                         );                      ///< write bitstream to file
   Void rateStatsAccum   ( const AccessUnit& au, const std::vector<UInt>& stats);
   Void printRateSummary ();
   Void printChromaFormat();
@@ -83,6 +86,8 @@ public:
   virtual ~EncApp();
 
   Void  encode();                               ///< main encoding function
+
+  void  outputAU( const AccessUnit& au );
 
 };// END CLASS DEFINITION EncApp
 

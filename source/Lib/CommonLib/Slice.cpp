@@ -66,12 +66,16 @@ Slice::Slice()
 , m_deblockingFilterBetaOffsetDiv2( 0 )
 , m_deblockingFilterTcOffsetDiv2  ( 0 )
 , m_pendingRasInit                ( false )
+#if JEM_TOOLS
 , m_bioLDBPossible                ( false )
 , m_UseLIC                        ( false )
+#endif
 , m_bCheckLDC                     ( false )
 , m_iSliceQpDelta                 ( 0 )
 , m_iDepth                        ( 0 )
+#if JEM_TOOLS
 , m_bScaleFactorValid             ( false )
+#endif
 , m_pcVPS                         ( NULL )
 , m_pcSPS                         ( NULL )
 , m_pcPPS                         ( NULL )
@@ -109,9 +113,9 @@ Slice::Slice()
 , m_LFCrossSliceBoundaryFlag      ( false )
 , m_enableTMVPFlag                ( true )
 , m_encCABACTableIdx              (I_SLICE)
-, m_iProcessingStartTime          (0)
-, m_dProcessingTime               (0)
-, m_uiMaxBTSize                   (0)
+, m_iProcessingStartTime          ( 0 )
+, m_dProcessingTime               ( 0 )
+, m_uiMaxBTSize                   ( 0 )
 {
   for(UInt i=0; i<NUM_REF_PIC_LIST_01; i++)
   {
@@ -148,6 +152,7 @@ Slice::Slice()
     m_saoEnabledFlag[ch] = false;
   }
 
+#if JEM_TOOLS
   m_bFrucRefIdxPairValid = false;
   if( m_bScaleFactorValid == false )
   {
@@ -164,6 +169,7 @@ Slice::Slice()
     }
     m_bScaleFactorValid = true;
   }
+#endif
 }
 
 Slice::~Slice()
@@ -789,7 +795,9 @@ Void Slice::copySliceInfo(Slice *pSrc, bool cpyAlmostAll)
   m_sliceSegmentCurEndCtuTsAddr   = pSrc->m_sliceSegmentCurEndCtuTsAddr;
   m_nextSlice                     = pSrc->m_nextSlice;
   m_nextSliceSegment              = pSrc->m_nextSliceSegment;
+#if JEM_TOOLS
   m_UseLIC                        = pSrc->m_UseLIC;
+#endif
   m_clpRngs                       = pSrc->m_clpRngs;
   m_pendingRasInit                = pSrc->m_pendingRasInit;
 
@@ -806,7 +814,9 @@ Void Slice::copySliceInfo(Slice *pSrc, bool cpyAlmostAll)
     m_saoEnabledFlag[ch] = pSrc->m_saoEnabledFlag[ch];
   }
 
+#if JEM_TOOLS
   m_bioLDBPossible                = pSrc->m_bioLDBPossible;
+#endif
   m_cabacInitFlag                 = pSrc->m_cabacInitFlag;
   m_cabacWinUpdateMode            = pSrc->m_cabacWinUpdateMode;
 
@@ -1492,6 +1502,7 @@ Void  Slice::initWpScaling(const SPS *sps)
   }
 }
 
+#if JEM_TOOLS
 void Slice::setUseLICOnPicLevel( bool fastMode )
 {
   m_UseLIC = ( getSPS()->getSpsNext().getLICMode() && !isIntra() );
@@ -1541,6 +1552,7 @@ void Slice::setUseLICOnPicLevel( bool fastMode )
     }
   }
 }
+#endif
 
 void Slice::startProcessingTimer()
 {
@@ -1553,6 +1565,7 @@ void Slice::stopProcessingTimer()
   m_iProcessingStartTime = 0;
 }
 
+#if JEM_TOOLS
 Int Slice::getRefIdx4MVPair( RefPicList eCurRefPicList , Int nCurRefIdx )
 {
   CHECK( !isInterB(), "Invalid frame type" );
@@ -1597,6 +1610,7 @@ Int Slice::getRefIdx4MVPair( RefPicList eCurRefPicList , Int nCurRefIdx )
 
   return( m_iFrucRefIdxPair[eCurRefPicList][nCurRefIdx] );
 }
+#endif
 
 unsigned Slice::getMinPictureDistance() const
 {
@@ -1670,58 +1684,99 @@ SPSRExt::SPSRExt()
 SPSNext::SPSNext( SPS& sps )
   : m_SPS                       ( sps )
   , m_NextEnabled               ( false )
+#if JEM_TOOLS
   , m_GALFEnabled               ( false )
+#endif
   // disable all tool enabling flags by default
   , m_QTBT                      ( false )
+#if JEM_TOOLS
   , m_NSST                      ( false )
   , m_Intra4Tap                 ( false )
   , m_Intra65Ang                ( false )
+#endif
   , m_LargeCTU                  ( false )
+#if JEM_TOOLS
   , m_IntraBoundaryFilter       ( false )
   , m_SubPuMvp                  ( false )
+#endif
+#if JEM_TOOLS
   , m_ModifiedCABACEngine       ( false )
+#endif
+#if JEM_TOOLS
   , m_IMV                       ( false )
+#endif
+#if JEM_TOOLS
   , m_altResiComp               ( false )
+#endif
+#if JEM_TOOLS
   , m_highPrecMv                ( false )
   , m_BIO                       ( false )
+#endif
   , m_DisableMotionCompression  ( false )
+#if JEM_TOOLS
   , m_LICEnabled                ( false )
   , m_IntraPDPC                 ( false )
   , m_ALFEnabled                ( false )
   , m_LMChroma                  ( false )
   , m_IntraEMT                  ( false )
   , m_InterEMT                  ( false )
+#endif
+#if JEM_TOOLS
   , m_OBMC                      ( false )
   , m_FRUC                      ( false )
   , m_Affine                    ( false )
   , m_AClip                     ( false )
-  , m_CIPF                      ( false )
+#endif
+#if JEM_TOOLS
+  , m_CIPFEnabled               ( false )
+#endif
+#if JEM_TOOLS
   , m_BIF                       ( false )
   , m_DMVR                      ( false )
   , m_MDMS                      ( false )
+#endif
+  , m_MTTEnabled                ( false )
+#if ENABLE_WPP_PARALLELISM
+  , m_NextDQP                   ( false )
+#endif
 
   // default values for additional parameters
   , m_CTUSize                   ( 0 )
   , m_minQT                     { 0, 0 }
-  , m_maxBTDepth                ( MAX_BT_DEPTH_INTER )
-  , m_maxBTDepthI               ( MAX_BT_DEPTH )
-  , m_maxBTDepthIChroma         ( MAX_BT_DEPTH_C )
-  , m_maxBTSize                 ( MAX_BT_SIZE_INTER )
-  , m_maxBTSizeI                ( MAX_BT_SIZE )
-  , m_maxBTSizeIChroma          ( MAX_BT_SIZE_C )
+  , m_maxBTDepth                { MAX_BT_DEPTH, MAX_BT_DEPTH_INTER, MAX_BT_DEPTH_C }
+  , m_maxBTSize                 { MAX_BT_SIZE,  MAX_BT_SIZE_INTER,  MAX_BT_SIZE_C }
+#if JEM_TOOLS
   , m_subPuLog2Size             ( 0 )
+#endif
+#if JEM_TOOLS
   , m_CABACEngineMode           ( 0 )
+#endif
+#if JEM_TOOLS
   , m_ImvMode                   ( IMV_OFF )
+#endif
+#if JEM_TOOLS
   , m_altResiCompId             ( 0 )
+#endif
+#if JEM_TOOLS
   , m_LICMode                   ( 0 )
+#endif
+  , m_MTTMode                   ( 0 )
+#if JEM_TOOLS
   , m_OBMCBlkSize               ( 4 )
   , m_FRUCRefineFilter          ( 1 )
   , m_FRUCRefineRange           ( 8 )
   , m_FRUCSmallBlkRefineDepth   ( 3 )
+#endif
+#if JEM_TOOLS
   , m_ELMMode                   ( 0 )
   , m_IntraPDPCMode             ( 0 )
+#endif
+#if JEM_TOOLS
+  , m_CIPFMode                  ( 0 )
+#endif
   // ADD_NEW_TOOL : (sps extension) add tool enabling flags here (with "false" as default values)
-{}
+{
+}
 
 
 SPS::SPS()
@@ -2491,7 +2546,15 @@ UInt PreCalcValues::getMaxBtSize( const Slice &slice, const ChannelType chType )
   return ( !slice.isIntra() || isLuma( chType ) || ISingleTree ) ? slice.getMaxBTSize() : MAX_BT_SIZE_C;
 }
 
+UInt PreCalcValues::getMinTtSize( const Slice &slice, const ChannelType chType ) const
+{
+  return minTtSize[getValIdx( slice, chType )];
+}
 
+UInt PreCalcValues::getMaxTtSize( const Slice &slice, const ChannelType chType ) const
+{
+  return maxTtSize[getValIdx( slice, chType )];
+}
 UInt PreCalcValues::getMinQtSize( const Slice &slice, const ChannelType chType ) const
 {
   return minQtSize[getValIdx( slice, chType )];

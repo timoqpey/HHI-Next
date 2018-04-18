@@ -164,7 +164,7 @@ protected:
 
   Bool      m_bUseAdaptiveQP;                                 ///< Flag for enabling QP adaptation based on a psycho-visual model
   Int       m_iQPAdaptationRange;                             ///< dQP range by QP adaptation
-#if HHI_HLM_USE_QPA
+#if ENABLE_QPA
   Bool      m_bUsePerceptQPA;                                 ///< Flag to enable perceptually motivated input-adaptive QP modification
   Bool      m_bUseWPSNR;                                      ///< Flag to output perceptually weighted peak SNR (WPSNR) instead of PSNR
 #endif
@@ -178,21 +178,36 @@ protected:
   unsigned  m_uiMaxBTDepthI;
   unsigned  m_uiMaxBTDepthIChroma;
   bool      m_dualTree;
+#if JEM_TOOLS
   bool      m_NSST;
   bool      m_Intra4Tap;
   bool      m_Intra65Ang;
-  bool      m_LargeCTU;
   bool      m_IntraBoundaryFilter;                            ///< Indicates whether intra boundary filter is used
+#endif
+  bool      m_LargeCTU;
+#if JEM_TOOLS
   bool      m_SubPuMvp;
   unsigned  m_SubPuMvpLog2Size;
+#endif
+#if JEM_TOOLS
   unsigned  m_CABACEngineMode;
   unsigned  m_altResiCompId;
+#endif
+#if JEM_TOOLS
   bool      m_highPrecisionMv;
   bool      m_Affine;
   bool      m_BIO;
+#endif
   bool      m_DisableMotionCompression;
+#if JEM_TOOLS
   unsigned  m_LICMode;
   bool      m_FastPicLevelLIC;
+#endif
+  unsigned  m_MTT;
+#if ENABLE_WPP_PARALLELISM
+  bool      m_AltDQPCoding;
+#endif
+#if JEM_TOOLS
   int       m_IntraPDPC;
   int       m_ALF;
   int       m_LMChroma;
@@ -204,12 +219,19 @@ protected:
   unsigned  m_FRUCRefineFilter;
   unsigned  m_FRUCRefineRange;
   unsigned  m_FRUCSmallBlkRefineDepth;
-  bool      m_CIPF;
+#endif
+#if JEM_TOOLS
+  unsigned  m_CIPF;
+#endif
+#if JEM_TOOLS
   bool      m_BIF;                                            ///< bilateral filter
   bool      m_AClip;                                          ///< adaptive clipping
   bool      m_AClipEnc;                                       ///< adaptive clipping sample smoothing
+#endif
+#if JEM_TOOLS
   bool      m_DMVR;
   bool      m_MDMS;
+#endif
   // ADD_NEW_TOOL : (encoder app) add tool enabling flags and associated parameters here
 
   unsigned  m_uiMaxCUWidth;                                   ///< max. CU width in pixel
@@ -227,6 +249,12 @@ protected:
   bool      m_e0023FastEnc;
   bool      m_contentBasedFastQtbt;
 
+
+  int       m_numSplitThreads;
+  bool      m_forceSplitSequential;
+  int       m_numWppThreads;
+  int       m_numWppExtraLines;
+  bool      m_ensureWppBitEqual;
 
   // transfom unit (TU) definition
   Int       m_quadtreeTULog2MaxSize;
@@ -282,7 +310,6 @@ protected:
 #if T0196_SELECTIVE_RDOQ
   Bool      m_useSelectiveRDOQ;                               ///< flag for using selective RDOQ
 #endif
-  UInt      m_RDOQfn;
   Int       m_rdPenalty;                                      ///< RD-penalty for 32x32 TU for intra in non-intra slices (0: no RD-penalty, 1: RD-penalty, 2: maximum RD-penalty)
   Bool      m_bDisableIntraPUsInInterSlices;                  ///< Flag for disabling intra predicted PUs in inter slices.
   MESearchMethod m_motionEstimationSearchMethod;
@@ -454,10 +481,11 @@ protected:
   Int       m_maxBitsPerMinCuDenom;                           ///< Indicates an upper bound for the number of bits of coding_unit() data
   Int       m_log2MaxMvLengthHorizontal;                      ///< Indicate the maximum absolute value of a decoded horizontal MV component in quarter-pel luma units
   Int       m_log2MaxMvLengthVertical;                        ///< Indicate the maximum absolute value of a decoded vertical MV component in quarter-pel luma units
+#if JEM_TOOLS
   Int       m_ImvMode;                                        ///< imv mode
   Int       m_Imv4PelFast;                                    ///< imv 4-Pel fast mode
   Int       m_ImvMaxCand;                                     ///< imv max num cand for test (QTBT off only)
-
+#endif
   std::string m_colourRemapSEIFileRoot;
 
   std::string m_summaryOutFilename;                           ///< filename to use for producing summary output file.
@@ -471,6 +499,12 @@ protected:
   int         m_switchDQP;                                    ///< switch DQP.
   int         m_fastForwardToPOC;                             ///< get to encoding the specified POC as soon as possible by skipping temporal layers irrelevant for the specified POC
   bool        m_stopAfterFFtoPOC;
+  bool        m_bs2ModPOCAndType;
+  bool        m_forceDecodeBitstream1;
+#if JEM_COMP
+
+  bool        m_generateJEM;
+#endif
 
 
   // internal member functions

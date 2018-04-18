@@ -195,6 +195,7 @@ static void fullPelCopyAVX2( const ClpRng& clpRng, const void*_src, int srcStrid
 template<X86_VEXT vext, Bool isFirst, Bool isLast>
 static Void simdFilterCopy( const ClpRng& clpRng, const Pel* src, Int srcStride, Short* dst, Int dstStride, Int width, Int height )
 {
+#if !JEM_COMP
   if( vext >= AVX2 && ( width % 16 ) == 0 )
   {
     fullPelCopyAVX2<Pel, 16, isFirst, isLast >( clpRng, src, srcStride, dst, dstStride, width, height );
@@ -208,6 +209,7 @@ static Void simdFilterCopy( const ClpRng& clpRng, const Pel* src, Int srcStride,
     fullPelCopySSE<Pel, 8, isFirst, isLast>( clpRng, src, srcStride, dst, dstStride, width, height );
   }
   else
+#endif
   { //Scalar
     InterpolationFilter::filterCopy<isFirst, isLast>( clpRng, src, srcStride, dst, dstStride, width, height );
   }

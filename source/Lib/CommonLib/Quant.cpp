@@ -96,7 +96,7 @@ QpParam::QpParam(const Int           qpy,
   rem=baseQp%6;
 }
 
-QpParam::QpParam(const TransformUnit& tu, const ComponentID &compIDX)
+QpParam::QpParam(const TransformUnit& tu, const ComponentID &compIDX, const int QP /*= -MAX_INT*/)
 {
   Int chromaQpOffset = 0;
   ComponentID compID = MAP_CHROMA(compIDX);
@@ -108,9 +108,13 @@ QpParam::QpParam(const TransformUnit& tu, const ComponentID &compIDX)
     chromaQpOffset += tu.cs->pps->getPpsRangeExtension().getChromaQpOffsetListEntry( tu.cu->chromaQpAdj ).u.offset[Int( compID ) - 1];
   }
 
+#if HM_QTBT_AS_IN_JEM_QUANT
   int dqp = 0;
+#else
+  int dqp = ( TU::needsQP3Offset(tu, compID) ? -3 : 0 );
+#endif
 
-  *this = QpParam(tu.cu->qp, toChannelType(compID), tu.cs->sps->getQpBDOffset(toChannelType(compID)), chromaQpOffset, tu.chromaFormat, dqp);
+  *this = QpParam(QP <= -MAX_INT ? tu.cu->qp : QP, toChannelType(compID), tu.cs->sps->getQpBDOffset(toChannelType(compID)), chromaQpOffset, tu.chromaFormat, dqp);
 }
 
 
@@ -118,9 +122,9 @@ QpParam::QpParam(const TransformUnit& tu, const ComponentID &compIDX)
 // Quant class member functions
 // ====================================================================================================================
 
-Quant::Quant()
+Quant::Quant( const Quant* other )
 {
-  xInitScalingList();
+  xInitScalingList( other );
 }
 
 Quant::~Quant()
@@ -294,10 +298,13 @@ Void Quant::dequant(const TransformUnit &tu,
   const Int QP_per = cQP.per;
   const Int QP_rem = cQP.rem;
 
-  const Bool needsScalingCorrection = needsBlockSizeQuantScale( tu.block( compID ) );
-  const Bool needsSqrt2 = TU::needsSqrt2Scale( tu.blocks[compID] );
-  const Int  NEScale    = ( needsSqrt2 ? 181 : 1 );
+#if HM_QTBT_AS_IN_JEM_QUANT
+  const Bool needsScalingCorrection = TU::needsBlockSizeTrafoScale( tu.block( compID ) );
+  const Int  NEScale    = TU::needsSqrt2Scale( tu.blocks[compID] ) ? 181 : 1;
   const Int  rightShift = (needsScalingCorrection ?   8 : 0 ) + (IQUANT_SHIFT - (iTransformShift + QP_per)) + (enableScalingLists ? LOG2_SCALING_LIST_NEUTRAL_VALUE : 0);
+#else
+  const Int  rightShift = (IQUANT_SHIFT - (iTransformShift + QP_per)) + (enableScalingLists ? LOG2_SCALING_LIST_NEUTRAL_VALUE : 0);
+#endif
 
   if(enableScalingLists)
   {
@@ -312,7 +319,7 @@ Void Quant::dequant(const TransformUnit &tu,
 
     const UInt uiLog2TrWidth  = g_aucLog2[uiWidth];
     const UInt uiLog2TrHeight = g_aucLog2[uiHeight];
-    Int *piDequantCoef = getDequantCoeff(scalingListType, QP_rem, uiLog2TrWidth - 1, uiLog2TrHeight - 1);
+    Int *piDequantCoef        = getDequantCoeff(scalingListType, QP_rem, uiLog2TrWidth - 1, uiLog2TrHeight - 1);
 
     if(rightShift > 0)
     {
@@ -321,7 +328,11 @@ Void Quant::dequant(const TransformUnit &tu,
       for( Int n = 0; n < numSamplesInBlock; n++ )
       {
         const TCoeff           clipQCoef = TCoeff(Clip3<Intermediate_Int>(inputMinimum, inputMaximum, piQCoef[n]));
+#if HM_QTBT_AS_IN_JEM_QUANT
         const Intermediate_Int iCoeffQ   = ((Intermediate_Int(clipQCoef) * piDequantCoef[n] * NEScale) + iAdd ) >> rightShift;
+#else
+        const Intermediate_Int iCoeffQ   = ((Intermediate_Int(clipQCoef) * piDequantCoef[n]) + iAdd ) >> rightShift;
+#endif
 
         piCoef[n] = TCoeff(Clip3<Intermediate_Int>(transformMinimum,transformMaximum,iCoeffQ));
       }
@@ -333,7 +344,11 @@ Void Quant::dequant(const TransformUnit &tu,
       for( Int n = 0; n < numSamplesInBlock; n++ )
       {
         const TCoeff           clipQCoef = TCoeff(Clip3<Intermediate_Int>(inputMinimum, inputMaximum, piQCoef[n]));
+#if HM_QTBT_AS_IN_JEM_QUANT
         const Intermediate_Int iCoeffQ   = (Intermediate_Int(clipQCoef) * piDequantCoef[n] * NEScale) << leftShift;
+#else
+        const Intermediate_Int iCoeffQ   = (Intermediate_Int(clipQCoef) * piDequantCoef[n]) << leftShift;
+#endif
 
         piCoef[n] = TCoeff(Clip3<Intermediate_Int>(transformMinimum,transformMaximum,iCoeffQ));
       }
@@ -341,7 +356,11 @@ Void Quant::dequant(const TransformUnit &tu,
   }
   else
   {
+#if HM_QTBT_AS_IN_JEM_QUANT
     const Int scale     = g_invQuantScales[QP_rem] * NEScale;
+#else
+    const Int scale     = g_invQuantScales[QP_rem];
+#endif
     const Int scaleBits = ( IQUANT_SHIFT + 1 );
 
     //from the dequantisation equation:
@@ -381,7 +400,9 @@ Void Quant::dequant(const TransformUnit &tu,
 Void Quant::init( UInt uiMaxTrSize,
                   Bool bUseRDOQ,
                   Bool bUseRDOQTS,
+#if JEM_TOOLS
                   UInt uiAltResiComp,
+#endif
 #if T0196_SELECTIVE_RDOQ
                   Bool useSelectiveRDOQ
 #endif
@@ -397,9 +418,18 @@ Void Quant::init( UInt uiMaxTrSize,
 #if T0196_SELECTIVE_RDOQ
   m_useSelectiveRDOQ     = useSelectiveRDOQ;
 #endif
+#if JEM_TOOLS
   m_altResiCompId = uiAltResiComp;
+#endif
 }
 
+#if ENABLE_SPLIT_PARALLELISM
+void Quant::copyState( const Quant& other )
+{
+  m_dLambda = other.m_dLambda;
+  memcpy( m_lambdas, other.m_lambdas, sizeof( m_lambdas ) );
+}
+#endif
 
 /** set quantized matrix coefficient for encode
  * \param scalingList            quantized matrix address
@@ -600,8 +630,10 @@ Void Quant::processScalingListDec( const Int *coeff, Int *dequantcoeff, Int invQ
 
 /** initialization process of scaling list array
  */
-Void Quant::xInitScalingList()
+Void Quant::xInitScalingList( const Quant* other )
 {
+  m_isScalingListOwner = other == nullptr;
+
   for(UInt sizeIdX = 0; sizeIdX < SCALING_LIST_SIZE_NUM; sizeIdX++)
   {
     for(UInt sizeIdY = 0; sizeIdY < SCALING_LIST_SIZE_NUM; sizeIdY++)
@@ -610,8 +642,16 @@ Void Quant::xInitScalingList()
       {
         for(UInt listId = 0; listId < SCALING_LIST_NUM; listId++)
         {
-          m_quantCoef   [sizeIdX][sizeIdY][listId][qp] = new Int    [g_scalingListSizeX[sizeIdX]*g_scalingListSizeX[sizeIdY]];
-          m_dequantCoef [sizeIdX][sizeIdY][listId][qp] = new Int    [g_scalingListSizeX[sizeIdX]*g_scalingListSizeX[sizeIdY]];
+          if( m_isScalingListOwner )
+          {
+            m_quantCoef   [sizeIdX][sizeIdY][listId][qp] = new Int    [g_scalingListSizeX[sizeIdX]*g_scalingListSizeX[sizeIdY]];
+            m_dequantCoef [sizeIdX][sizeIdY][listId][qp] = new Int    [g_scalingListSizeX[sizeIdX]*g_scalingListSizeX[sizeIdY]];
+          }
+          else
+          {
+            m_quantCoef   [sizeIdX][sizeIdY][listId][qp] = other->m_quantCoef   [sizeIdX][sizeIdY][listId][qp];
+            m_dequantCoef [sizeIdX][sizeIdY][listId][qp] = other->m_dequantCoef [sizeIdX][sizeIdY][listId][qp];
+          }
         } // listID loop
       }
     }
@@ -622,6 +662,8 @@ Void Quant::xInitScalingList()
  */
 Void Quant::xDestroyScalingList()
 {
+  if( !m_isScalingListOwner ) return;
+
   for(UInt sizeIdX = 0; sizeIdX < SCALING_LIST_SIZE_NUM; sizeIdX++)
   {
     for(UInt sizeIdY = 0; sizeIdY < SCALING_LIST_SIZE_NUM; sizeIdY++)
@@ -690,11 +732,13 @@ Void Quant::quant(TransformUnit &tu, const ComponentID &compID, const CCoeffBuf 
     }
 
     Int iWHScale = 1;
-    if( needsBlockSizeQuantScale( rect ) )
+#if HM_QTBT_AS_IN_JEM_QUANT
+    if( TU::needsBlockSizeTrafoScale( rect ) )
     {
       iTransformShift += ADJ_QUANT_SHIFT;
       iWHScale = 181;
     }
+#endif
 
     const Int iQBits = QUANT_SHIFT + cQP.per + iTransformShift;
     // QBits will be OK for any internal bit depth as the reduction in transform shift is balanced by an increase in Qp_per due to QpBDOffset
@@ -747,7 +791,7 @@ Bool Quant::xNeedRDOQ(TransformUnit &tu, const ComponentID &compID, const CCoeff
 
   const UInt uiLog2TrWidth  = g_aucLog2[uiWidth];
   const UInt uiLog2TrHeight = g_aucLog2[uiHeight];
-  Int *piQuantCoeff = getQuantCoeff(scalingListType, cQP.rem, uiLog2TrWidth-1, uiLog2TrHeight-1);
+  Int *piQuantCoeff         = getQuantCoeff(scalingListType, cQP.rem, uiLog2TrWidth-1, uiLog2TrHeight-1);
 
   const Bool enableScalingLists             = getUseScalingList(uiWidth, uiHeight, (useTransformSkip != 0));
   const Int  defaultQuantisationCoefficient = g_quantScales[cQP.rem];
@@ -767,11 +811,13 @@ Bool Quant::xNeedRDOQ(TransformUnit &tu, const ComponentID &compID, const CCoeff
   }
 
   Int iWHScale = 1;
-  if( needsBlockSizeQuantScale( rect ) )
+#if HM_QTBT_AS_IN_JEM_QUANT
+  if( TU::needsBlockSizeTrafoScale( rect ) )
   {
     iTransformShift += ADJ_QUANT_SHIFT;
     iWHScale = 181;
   }
+#endif
 
   const Int iQBits = QUANT_SHIFT + cQP.per + iTransformShift;
   // QBits will be OK for any internal bit depth as the reduction in transform shift is balanced by an increase in Qp_per due to QpBDOffset
@@ -809,8 +855,8 @@ Void Quant::transformSkipQuantOneSample(TransformUnit &tu, const ComponentID &co
 
   CHECK( scalingListType >= SCALING_LIST_NUM, "Invalid scaling list" );
 
-  const UInt uiLog2TrWidth  = g_aucLog2[uiWidth];
-  const UInt uiLog2TrHeight = g_aucLog2[uiHeight];
+  const UInt uiLog2TrWidth      = g_aucLog2[uiWidth];
+  const UInt uiLog2TrHeight     = g_aucLog2[uiHeight];
   const Int *const piQuantCoeff = getQuantCoeff(scalingListType, cQP.rem, uiLog2TrWidth-1, uiLog2TrHeight-1);
 
   /* for 422 chroma blocks, the effective scaling applied during transformation is not a power of 2, hence it cannot be
@@ -887,7 +933,7 @@ Void Quant::invTrSkipDeQuantOneSample(TransformUnit &tu, const ComponentID &comp
 
     const UInt uiLog2TrWidth  = g_aucLog2[uiWidth];
     const UInt uiLog2TrHeight = g_aucLog2[uiHeight];
-    Int *piDequantCoef = getDequantCoeff(scalingListType,QP_rem,uiLog2TrWidth-1, uiLog2TrHeight-1);
+    Int *piDequantCoef        = getDequantCoeff(scalingListType,QP_rem,uiLog2TrWidth-1, uiLog2TrHeight-1);
 
     if (rightShift > 0)
     {

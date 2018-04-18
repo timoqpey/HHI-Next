@@ -43,6 +43,7 @@
 #include "CodingStructure.h"
 #include "CrossCompPrediction.h"
 
+
 #include "dtrace_buffer.h"
 
 #include <stdlib.h>
@@ -50,7 +51,6 @@
 #include <memory.h>
 
 #include "QuantRDOQ.h"
-#include "QuantRDOQ2.h"
 
 
 struct coeffGroupRDStats
@@ -62,6 +62,7 @@ struct coeffGroupRDStats
   Double d64SigCost_0;
 };
 
+#if JEM_TOOLS
 FwdTrans *fastFwdTrans[5][7] =
 {
   { fastForwardDCT2_B2, fastForwardDCT2_B4, fastForwardDCT2_B8, fastForwardDCT2_B16, fastForwardDCT2_B32, fastForwardDCT2_B64, fastForwardDCT2_B128 },
@@ -79,6 +80,7 @@ InvTrans *fastInvTrans[5][7] =
   { NULL,               fastInverseDST1_B4, fastInverseDST1_B8, fastInverseDST1_B16, fastInverseDST1_B32, fastInverseDST1_B64, fastInverseDST1_B128 },
   { NULL,               fastInverseDST7_B4, fastInverseDST7_B8, fastInverseDST7_B16, fastInverseDST7_B32, fastInverseDST7_B64, fastInverseDST7_B128 },
 };
+#endif
 
 //! \ingroup CommonLib
 //! \{
@@ -94,7 +96,7 @@ void xITrMxN( const int bitDepth, const TCoeff *coeff, Pel *residual, size_t str
 TrQuant::TrQuant() : m_quant( nullptr ), m_fTr( xTrMxN ), m_fITr( xITrMxN )
 {
   // allocate temporary buffers
-  m_plTempCoeff = (TCoeff*) xMalloc( TCoeff, MAX_CU_SIZE * MAX_CU_SIZE );
+  m_plTempCoeff   = (TCoeff*) xMalloc( TCoeff, MAX_CU_SIZE * MAX_CU_SIZE );
 
 }
 
@@ -114,23 +116,35 @@ TrQuant::~TrQuant()
   }
 }
 
+#if ENABLE_SPLIT_PARALLELISM
 
-void xTrMxN_EMT( const Int bitDepth, const Pel *residual, size_t stride, TCoeff *coeff, Int iWidth, Int iHeight, Bool useDST, const Int maxLog2TrDynamicRange, UChar ucMode, UChar ucTrIdx, bool use65intraModes, bool useQTBT )
+void TrQuant::copyState( const TrQuant& other )
+{
+  m_quant->copyState( *other.m_quant );
+}
+#endif
+
+#if JEM_TOOLS
+void xTrMxN_EMT( const Int bitDepth, const Pel *residual, size_t stride, TCoeff *coeff, Int iWidth, Int iHeight, bool useDST, const int maxLog2TrDynamicRange,
+  const UChar ucMode, const UChar ucTrIdx, const bool use65intraModes
+  , const bool useQTBT
+  )
 {
   const Int TRANSFORM_MATRIX_SHIFT = g_transformMatrixShift[TRANSFORM_FORWARD];
-  const Int shift_1st              = ( ( g_aucLog2[iWidth ] - 2 + MIN_CU_LOG2 ) + bitDepth + TRANSFORM_MATRIX_SHIFT ) - maxLog2TrDynamicRange + COM16_C806_TRANS_PREC;
-  const Int shift_2nd              = (   g_aucLog2[iHeight] - 2 + MIN_CU_LOG2 )            + TRANSFORM_MATRIX_SHIFT                           + COM16_C806_TRANS_PREC;
-  const UInt nLog2WidthMinus1  = g_aucLog2[iWidth]  - 2 + MIN_CU_LOG2 - 1;  //nLog2WidthMinus1, since transform start from 2-point
-  const UInt nLog2HeightMinus1 = g_aucLog2[iHeight] - 2 + MIN_CU_LOG2 - 1;  //nLog2HeightMinus1, since transform start from 2-point
+  const Int shift_1st = ((g_aucLog2[iWidth ]) + bitDepth + TRANSFORM_MATRIX_SHIFT) - maxLog2TrDynamicRange + COM16_C806_TRANS_PREC;
+  const Int shift_2nd =  (g_aucLog2[iHeight])            + TRANSFORM_MATRIX_SHIFT                          + COM16_C806_TRANS_PREC;
+  const UInt transformWidthIndex  = g_aucLog2[iWidth ] - 1;  //nLog2WidthMinus1, since transform start from 2-point
+  const UInt transformHeightIndex = g_aucLog2[iHeight] - 1;  //nLog2HeightMinus1, since transform start from 2-point
+  const Int iZeroOutThresh = JVET_C0024_ZERO_OUT_TH;
 
   Int iSkipWidth = 0, iSkipHeight = 0;
-
   if( useQTBT )
   {
-    iSkipWidth  = ( iWidth  > JVET_C0024_ZERO_OUT_TH ? iWidth  - JVET_C0024_ZERO_OUT_TH : 0 );
-    iSkipHeight = ( iHeight > JVET_C0024_ZERO_OUT_TH ? iHeight - JVET_C0024_ZERO_OUT_TH : 0 );
+    iSkipWidth  = (iWidth  > iZeroOutThresh ? iWidth  - iZeroOutThresh : 0);
+    iSkipHeight = (iHeight > iZeroOutThresh ? iHeight - iZeroOutThresh : 0);
   }
-  else if( ( ( ucMode == INTER_MODE_IDX || iWidth == 64 ) && ucTrIdx != DCT2_EMT && iWidth >= JVET_C0024_ZERO_OUT_TH ) || ( ucTrIdx == DCT2_EMT && iWidth == 64 ) )
+  else 
+  if( ( ( ucMode == INTER_MODE_IDX || iWidth > iZeroOutThresh ) && ucTrIdx != DCT2_EMT && iWidth >= iZeroOutThresh ) || ( ucTrIdx == DCT2_EMT && iWidth > iZeroOutThresh ) )
   {
     iSkipWidth  = iWidth  >> 1;
     iSkipHeight = iHeight >> 1;
@@ -174,8 +188,8 @@ void xTrMxN_EMT( const Int bitDepth, const Pel *residual, size_t stride, TCoeff 
     nTrIdxVer = g_aiTrSubsetInter[ucTrIdx >> 1];
   }
 
-  fastFwdTrans[nTrIdxHor][nLog2WidthMinus1]( block, tmp,  shift_1st, iHeight,          0, iSkipWidth,  1 );
-  fastFwdTrans[nTrIdxVer][nLog2HeightMinus1]( tmp, coeff, shift_2nd, iWidth,  iSkipWidth, iSkipHeight, 1 );
+  fastFwdTrans[nTrIdxHor][transformWidthIndex](block, tmp, shift_1st, iHeight, 0, iSkipWidth, 1);
+  fastFwdTrans[nTrIdxVer][transformHeightIndex](tmp, coeff, shift_2nd, iWidth, iSkipWidth, iSkipHeight, 1);
 }
 
 /** MxN inverse transform (2D)
@@ -194,16 +208,15 @@ void xTrMxN_EMT( const Int bitDepth, const Pel *residual, size_t stride, TCoeff 
 *  \param use65intraModes       [in]
 */
 
-void xITrMxN_EMT(const Int bitDepth, const TCoeff *coeff, Pel *residual, size_t stride, Int iWidth, Int iHeight, UInt uiSkipWidth, UInt uiSkipHeight, Bool useDST, const Int maxLog2TrDynamicRange, UChar ucMode, UChar ucTrIdx, bool use65intraModes)
+void xITrMxN_EMT( const Int bitDepth, const TCoeff *coeff, Pel *residual, size_t stride, Int iWidth, Int iHeight, UInt uiSkipWidth, UInt uiSkipHeight, Bool useDST, const Int maxLog2TrDynamicRange, UChar ucMode, UChar ucTrIdx, bool use65intraModes )
 {
   const Int TRANSFORM_MATRIX_SHIFT = g_transformMatrixShift[TRANSFORM_INVERSE];
-  const Int shift_1st              =   TRANSFORM_MATRIX_SHIFT + 1 + COM16_C806_TRANS_PREC; //1 has been added to shift_1st at the expense of shift_2nd
-  const Int shift_2nd              = ( TRANSFORM_MATRIX_SHIFT + maxLog2TrDynamicRange - 1 ) - bitDepth + COM16_C806_TRANS_PREC;
   const TCoeff clipMinimum         = -( 1 << maxLog2TrDynamicRange );
   const TCoeff clipMaximum         =  ( 1 << maxLog2TrDynamicRange ) - 1;
-
-  const UInt nLog2WidthMinus1  = g_aucLog2[iWidth]  - 2 + MIN_CU_LOG2 - 1;  //nLog2WidthMinus1, since transform start from 2-point
-  const UInt nLog2HeightMinus1 = g_aucLog2[iHeight] - 2 + MIN_CU_LOG2 - 1;  //nLog2HeightMinus1, since transform start from 2-point
+  const Int shift_1st              =   TRANSFORM_MATRIX_SHIFT + 1 + COM16_C806_TRANS_PREC; //1 has been added to shift_1st at the expense of shift_2nd
+  const Int shift_2nd              = ( TRANSFORM_MATRIX_SHIFT + maxLog2TrDynamicRange - 1 ) - bitDepth + COM16_C806_TRANS_PREC;
+  const UInt transformWidthIndex  = g_aucLog2[iWidth ] - 1;  //nLog2WidthMinus1, since transform start from 2-point
+  const UInt transformHeightIndex = g_aucLog2[iHeight] - 1;  //nLog2HeightMinus1, since transform start from 2-point
 
   CHECK( shift_1st < 0, "Negative shift" );
   CHECK( shift_2nd < 0, "Negative shift" );
@@ -234,8 +247,8 @@ void xITrMxN_EMT(const Int bitDepth, const TCoeff *coeff, Pel *residual, size_t 
     nTrIdxVer = g_aiTrSubsetInter[ucTrIdx >> 1];
   }
 
-  fastInvTrans[nTrIdxVer][nLog2HeightMinus1]   ( coeff, tmp, shift_1st, iWidth, uiSkipWidth, uiSkipHeight, 1, clipMinimum, clipMaximum );
-  fastInvTrans[nTrIdxHor][nLog2WidthMinus1]    ( tmp, block, shift_2nd, iHeight,          0,  uiSkipWidth, 1, clipMinimum, clipMaximum );
+  fastInvTrans[nTrIdxVer][transformHeightIndex](coeff, tmp, shift_1st, iWidth, uiSkipWidth, uiSkipHeight, 1, clipMinimum, clipMaximum);
+  fastInvTrans[nTrIdxHor][transformWidthIndex](tmp, block, shift_2nd, iHeight, 0, uiSkipWidth, 1, clipMinimum, clipMaximum);
 
   for( Int y = 0; y < iHeight; y++ )
   {
@@ -245,6 +258,7 @@ void xITrMxN_EMT(const Int bitDepth, const TCoeff *coeff, Pel *residual, size_t 
     }
   }
 }
+#endif
 
 /** MxN forward transform (2D)
 *  \param bitDepth              [in]  bit depth
@@ -266,9 +280,10 @@ void xTrMxN( const int bitDepth, const Pel *residual, size_t stride, TCoeff *coe
 
   const Int shift_1st = (g_aucLog2[iWidth] +  bitDepth + TRANSFORM_MATRIX_SHIFT) - maxLog2TrDynamicRange;
   const Int shift_2nd = g_aucLog2[iHeight] + TRANSFORM_MATRIX_SHIFT;
+  const Int iZeroOutThresh = JVET_C0024_ZERO_OUT_TH;
 
-  UInt iSkipWidth  = ( iWidth  > JVET_C0024_ZERO_OUT_TH ? iWidth  - JVET_C0024_ZERO_OUT_TH : 0 );
-  UInt iSkipHeight = ( iHeight > JVET_C0024_ZERO_OUT_TH ? iHeight - JVET_C0024_ZERO_OUT_TH : 0 );
+  UInt iSkipWidth  = (iWidth  > iZeroOutThresh ? iWidth  - iZeroOutThresh : 0);
+  UInt iSkipHeight = (iHeight > iZeroOutThresh ? iHeight - iZeroOutThresh : 0);
 
   CHECK( shift_1st < 0, "Negative shift" );
   CHECK( shift_2nd < 0, "Negative shift" );
@@ -287,25 +302,25 @@ void xTrMxN( const int bitDepth, const Pel *residual, size_t stride, TCoeff *coe
   {
     switch (iWidth)
     {
-    case 2:     fastForwardDCT2_B2(block, tmp, shift_1st, iHeight, 0, iSkipWidth, 0);  break;
+    case 2:     fastForwardDCT2_B2( block, tmp, shift_1st, iHeight, 0, iSkipWidth, 0 );  break;
     case 4:
       {
         if ((iHeight == 4) && useDST)    // Check for DCT or DST
         {
-          fastForwardDST7_B4(block, tmp, shift_1st, iHeight, 0, iSkipWidth, 0);
+          fastForwardDST7_B4( block, tmp, shift_1st, iHeight, 0, iSkipWidth, 0 );
         }
         else
         {
-          fastForwardDCT2_B4(block, tmp, shift_1st, iHeight, 0, iSkipWidth, 0);
+          fastForwardDCT2_B4( block, tmp, shift_1st, iHeight, 0, iSkipWidth, 0 );
         }
       }
       break;
 
-    case 8:     fastForwardDCT2_B8  (block, tmp, shift_1st, iHeight, 0, iSkipWidth, 0);  break;
-    case 16:    fastForwardDCT2_B16 (block, tmp, shift_1st, iHeight, 0, iSkipWidth, 0);  break;
-    case 32:    fastForwardDCT2_B32 (block, tmp, shift_1st, iHeight, 0, iSkipWidth, 0);  break;
-    case 64:    fastForwardDCT2_B64 (block, tmp, shift_1st+ COM16_C806_TRANS_PREC, iHeight, 0, iSkipWidth, 0);  break;
-    case 128:   fastForwardDCT2_B128(block, tmp, shift_1st+ COM16_C806_TRANS_PREC, iHeight, 0, iSkipWidth, 0);  break;
+    case 8:     fastForwardDCT2_B8  ( block, tmp, shift_1st, iHeight, 0, iSkipWidth, 0 );  break;
+    case 16:    fastForwardDCT2_B16 ( block, tmp, shift_1st, iHeight, 0, iSkipWidth, 0 );  break;
+    case 32:    fastForwardDCT2_B32 ( block, tmp, shift_1st, iHeight, 0, iSkipWidth, 0 );  break;
+    case 64:    fastForwardDCT2_B64 ( block, tmp, shift_1st + COM16_C806_TRANS_PREC, iHeight, 0, iSkipWidth, 0 );  break;
+    case 128:   fastForwardDCT2_B128( block, tmp, shift_1st + COM16_C806_TRANS_PREC, iHeight, 0, iSkipWidth, 0 );  break;
     default:
       THROW( "Unsupported transformation size" ); break;
     }
@@ -314,25 +329,25 @@ void xTrMxN( const int bitDepth, const Pel *residual, size_t stride, TCoeff *coe
   {
     switch (iHeight)
     {
-    case 2:     fastForwardDCT2_B2(tmp, coeff, shift_2nd, iWidth, iSkipWidth, iSkipHeight, 0);  break;
+    case 2:     fastForwardDCT2_B2( tmp, coeff, shift_2nd, iWidth, iSkipWidth, iSkipHeight, 0 );  break;
     case 4:
       {
         if ((iWidth == 4) && useDST)    // Check for DCT or DST
         {
-          fastForwardDST7_B4(tmp, coeff, shift_2nd, iWidth, iSkipWidth, iSkipHeight, 0);
+          fastForwardDST7_B4( tmp, coeff, shift_2nd, iWidth, iSkipWidth, iSkipHeight, 0 );
         }
         else
         {
-          fastForwardDCT2_B4(tmp, coeff, shift_2nd, iWidth, iSkipWidth, iSkipHeight, 0);
+          fastForwardDCT2_B4( tmp, coeff, shift_2nd, iWidth, iSkipWidth, iSkipHeight, 0 );
         }
       }
       break;
 
-    case 8:     fastForwardDCT2_B8  (tmp, coeff, shift_2nd, iWidth, iSkipWidth, iSkipHeight, 0);  break;
-    case 16:    fastForwardDCT2_B16 (tmp, coeff, shift_2nd, iWidth, iSkipWidth, iSkipHeight, 0);  break;
-    case 32:    fastForwardDCT2_B32 (tmp, coeff, shift_2nd, iWidth, iSkipWidth, iSkipHeight, 0);  break;
-    case 64:    fastForwardDCT2_B64 (tmp, coeff, shift_2nd+ COM16_C806_TRANS_PREC, iWidth, iSkipWidth, iSkipHeight, 0);  break;
-    case 128:   fastForwardDCT2_B128(tmp, coeff, shift_2nd+ COM16_C806_TRANS_PREC, iWidth, iSkipWidth, iSkipHeight, 0);  break;
+    case 8:     fastForwardDCT2_B8  ( tmp, coeff, shift_2nd, iWidth, iSkipWidth, iSkipHeight, 0 );  break;
+    case 16:    fastForwardDCT2_B16 ( tmp, coeff, shift_2nd, iWidth, iSkipWidth, iSkipHeight, 0 );  break;
+    case 32:    fastForwardDCT2_B32 ( tmp, coeff, shift_2nd, iWidth, iSkipWidth, iSkipHeight, 0 );  break;
+    case 64:    fastForwardDCT2_B64 ( tmp, coeff, shift_2nd + COM16_C806_TRANS_PREC, iWidth, iSkipWidth, iSkipHeight, 0 );  break;
+    case 128:   fastForwardDCT2_B128( tmp, coeff, shift_2nd + COM16_C806_TRANS_PREC, iWidth, iSkipWidth, iSkipHeight, 0 );  break;
     default:
       THROW( "Unsupported transformation size" ); break;
     }
@@ -374,25 +389,25 @@ void xITrMxN( const int bitDepth, const TCoeff *coeff, Pel *residual, size_t str
   {
     switch (iHeight)
     {
-    case 2: fastInverseDCT2_B2(coeff, tmp, shift_1st, iWidth, uiSkipWidth, uiSkipHeight, 0, clipMinimum, clipMaximum); break;
+    case 2: fastInverseDCT2_B2( coeff, tmp, shift_1st, iWidth, uiSkipWidth, uiSkipHeight, 0, clipMinimum, clipMaximum ); break;
     case 4:
       {
         if ((iWidth == 4) && useDST)    // Check for DCT or DST
         {
-          fastInverseDST7_B4(coeff, tmp, shift_1st, iWidth, uiSkipWidth, uiSkipHeight, 0, clipMinimum, clipMaximum);
+          fastInverseDST7_B4( coeff, tmp, shift_1st, iWidth, uiSkipWidth, uiSkipHeight, 0, clipMinimum, clipMaximum );
         }
         else
         {
-          fastInverseDCT2_B4(coeff, tmp, shift_1st, iWidth, uiSkipWidth, uiSkipHeight, 0, clipMinimum, clipMaximum);
+          fastInverseDCT2_B4( coeff, tmp, shift_1st, iWidth, uiSkipWidth, uiSkipHeight, 0, clipMinimum, clipMaximum );
         }
       }
       break;
 
-    case   8: fastInverseDCT2_B8  (coeff, tmp, shift_1st, iWidth, uiSkipWidth, uiSkipHeight, 0, clipMinimum, clipMaximum); break;
-    case  16: fastInverseDCT2_B16 (coeff, tmp, shift_1st, iWidth, uiSkipWidth, uiSkipHeight, 0, clipMinimum, clipMaximum); break;
-    case  32: fastInverseDCT2_B32 (coeff, tmp, shift_1st, iWidth, uiSkipWidth, uiSkipHeight, 0, clipMinimum, clipMaximum); break;
-    case  64: fastInverseDCT2_B64 (coeff, tmp, shift_1st + COM16_C806_TRANS_PREC, iWidth, uiSkipWidth, uiSkipHeight, 0, clipMinimum, clipMaximum); break;
-    case 128: fastInverseDCT2_B128(coeff, tmp, shift_1st + COM16_C806_TRANS_PREC, iWidth, uiSkipWidth, uiSkipHeight, 0, clipMinimum, clipMaximum); break;
+    case   8: fastInverseDCT2_B8  ( coeff, tmp, shift_1st, iWidth, uiSkipWidth, uiSkipHeight, 0, clipMinimum, clipMaximum ); break;
+    case  16: fastInverseDCT2_B16 ( coeff, tmp, shift_1st, iWidth, uiSkipWidth, uiSkipHeight, 0, clipMinimum, clipMaximum ); break;
+    case  32: fastInverseDCT2_B32 ( coeff, tmp, shift_1st, iWidth, uiSkipWidth, uiSkipHeight, 0, clipMinimum, clipMaximum ); break;
+    case  64: fastInverseDCT2_B64 ( coeff, tmp, shift_1st + COM16_C806_TRANS_PREC, iWidth, uiSkipWidth, uiSkipHeight, 0, clipMinimum, clipMaximum ); break;
+    case 128: fastInverseDCT2_B128( coeff, tmp, shift_1st + COM16_C806_TRANS_PREC, iWidth, uiSkipWidth, uiSkipHeight, 0, clipMinimum, clipMaximum ); break;
     default:
       THROW( "Unsupported transformation size" ); break;
     }
@@ -401,26 +416,26 @@ void xITrMxN( const int bitDepth, const TCoeff *coeff, Pel *residual, size_t str
   {
     switch (iWidth)
     {
-    case 2: fastInverseDCT2_B2(tmp, block, shift_2nd, iHeight,  0, uiSkipWidth, 0, std::numeric_limits<Pel>::min(), std::numeric_limits<Pel>::max()); break;
+    case 2: fastInverseDCT2_B2( tmp, block, shift_2nd, iHeight, 0, uiSkipWidth, 0, std::numeric_limits<Pel>::min(), std::numeric_limits<Pel>::max() ); break;
     // Clipping here is not in the standard, but is used to protect the "Pel" data type into which the inverse-transformed samples will be copied
     case 4:
       {
         if ((iHeight == 4) && useDST)    // Check for DCT or DST
         {
-          fastInverseDST7_B4(tmp, block, shift_2nd, iHeight, 0, uiSkipWidth, 0, std::numeric_limits<Pel>::min(), std::numeric_limits<Pel>::max());
+          fastInverseDST7_B4( tmp, block, shift_2nd, iHeight, 0, uiSkipWidth, 0, std::numeric_limits<Pel>::min(), std::numeric_limits<Pel>::max() );
         }
         else
         {
-          fastInverseDCT2_B4(tmp, block, shift_2nd, iHeight, 0, uiSkipWidth, 0, std::numeric_limits<Pel>::min(), std::numeric_limits<Pel>::max());
+          fastInverseDCT2_B4( tmp, block, shift_2nd, iHeight, 0, uiSkipWidth, 0, std::numeric_limits<Pel>::min(), std::numeric_limits<Pel>::max() );
         }
       }
       break;
 
-    case   8: fastInverseDCT2_B8  (tmp, block, shift_2nd, iHeight, 0, uiSkipWidth, 0, std::numeric_limits<Pel>::min(), std::numeric_limits<Pel>::max()); break;
-    case  16: fastInverseDCT2_B16 (tmp, block, shift_2nd, iHeight, 0, uiSkipWidth, 0, std::numeric_limits<Pel>::min(), std::numeric_limits<Pel>::max()); break;
-    case  32: fastInverseDCT2_B32 (tmp, block, shift_2nd, iHeight, 0, uiSkipWidth, 0, std::numeric_limits<Pel>::min(), std::numeric_limits<Pel>::max()); break;
-    case  64: fastInverseDCT2_B64 (tmp, block, shift_2nd + COM16_C806_TRANS_PREC, iHeight, 0, uiSkipWidth, 0, std::numeric_limits<Pel>::min(), std::numeric_limits<Pel>::max()); break;
-    case 128: fastInverseDCT2_B128(tmp, block, shift_2nd + COM16_C806_TRANS_PREC, iHeight, 0, uiSkipWidth, 0, std::numeric_limits<Pel>::min(), std::numeric_limits<Pel>::max()); break;
+    case   8: fastInverseDCT2_B8  ( tmp, block, shift_2nd, iHeight, 0, uiSkipWidth, 0, std::numeric_limits<Pel>::min(), std::numeric_limits<Pel>::max() ); break;
+    case  16: fastInverseDCT2_B16 ( tmp, block, shift_2nd, iHeight, 0, uiSkipWidth, 0, std::numeric_limits<Pel>::min(), std::numeric_limits<Pel>::max() ); break;
+    case  32: fastInverseDCT2_B32 ( tmp, block, shift_2nd, iHeight, 0, uiSkipWidth, 0, std::numeric_limits<Pel>::min(), std::numeric_limits<Pel>::max() ); break;
+    case  64: fastInverseDCT2_B64 ( tmp, block, shift_2nd + COM16_C806_TRANS_PREC, iHeight, 0, uiSkipWidth, 0, std::numeric_limits<Pel>::min(), std::numeric_limits<Pel>::max() ); break;
+    case 128: fastInverseDCT2_B128( tmp, block, shift_2nd + COM16_C806_TRANS_PREC, iHeight, 0, uiSkipWidth, 0, std::numeric_limits<Pel>::min(), std::numeric_limits<Pel>::max() ); break;
     default:
       THROW( "Unsupported transformation size" );
       break;
@@ -436,460 +451,7 @@ void xITrMxN( const int bitDepth, const TCoeff *coeff, Pel *residual, size_t str
   }
 }
 
-#if MATRIX_MULT
-/** NxN forward transform (2D) using brute force matrix multiplication (3 nested loops)
- *  \param bitDepth              [in]  bit depth
- *  \param residual              [in]  residual block
- *  \param stride                [in]  stride of the residual block
- *  \param coeff                 [out]  transform coefficients
- *  \param width                 [in]  width of transform
- *  \param height                [in]  height of transform
- */
-void xTr( const int bitDepth, const Pel *residual, size_t stride, TCoeff *coeff, size_t width, size_t height, bool useDST, const int maxLog2TrDynamicRange )
-{
-  const int iWidth  = ( int ) width;
-  const int iHeight = ( int ) height;
 
-  const int TRANSFORM_MATRIX_SHIFT = g_transformMatrixShift[TRANSFORM_FORWARD];
-
-  const int shift_1st = ( g_aucLog2[iWidth] + bitDepth + TRANSFORM_MATRIX_SHIFT ) - maxLog2TrDynamicRange;
-  const int shift_2nd =   g_aucLog2[iHeight] + TRANSFORM_MATRIX_SHIFT;
-
-  const int add_1st = ( shift_1st > 0 ) ? ( 1 << ( shift_1st - 1 ) ) : 0;
-  const int add_2nd = 1 << ( shift_2nd - 1 );
-
-  CHECK( shift_1st < 0, "Negative shift" );
-  CHECK( shift_2nd < 0, "Negative shift" );
-
-  TCoeff tmp[MAX_TU_SIZE * MAX_TU_SIZE];
-
-  unsigned i, j, k;
-  TCoeff iSum;
-  const TMatrixCoeff *iT;
-
-  /* Horizontal transform */
-  if( iWidth == 2 )
-  {
-    iT = g_aiT2[TRANSFORM_FORWARD][0];
-  }
-  else if( iWidth == 4 )
-  {
-    iT = ( useDST && iHeight == 4 ? g_as_DST_MAT_4[TRANSFORM_FORWARD][0] : g_aiT4[TRANSFORM_FORWARD][0] );
-  }
-  else if( iWidth == 8 )
-  {
-    iT = g_aiT8[TRANSFORM_FORWARD][0];
-  }
-  else if( iWidth == 16 )
-  {
-    iT = g_aiT16[TRANSFORM_FORWARD][0];
-  }
-  else if( iWidth == 32 )
-  {
-    iT = g_aiT32[TRANSFORM_FORWARD][0];
-  }
-  else if( iWidth == 64 )
-  {
-    iT = g_aiT64[TRANSFORM_FORWARD][0];
-  }
-  else if( iWidth == 128 )
-  {
-    iT = g_aiT128[TRANSFORM_FORWARD][0];
-  }
-  else
-  {
-    THROW( "Unsupported matrix size" );
-  }
-
-  for( i = 0; i < iWidth; i++ )
-  {
-    for( j = 0; j < iHeight; j++ )
-    {
-      iSum = 0;
-      for( k = 0; k < iWidth; k++ )
-      {
-        iSum += iT[i*iWidth + k] * residual[j*stride + k];
-      }
-      tmp[i*iHeight + j] = ( iSum + add_1st ) >> shift_1st;
-    }
-  }
-
-  /* Vertical transform */
-  if( iHeight == 2 )
-  {
-    iT = g_aiT2[TRANSFORM_FORWARD][0];
-  }
-  else if( iHeight == 4 )
-  {
-    iT = ( useDST && iWidth == 4 ? g_as_DST_MAT_4[TRANSFORM_FORWARD][0] : g_aiT4[TRANSFORM_FORWARD][0] );
-  }
-  else if( iHeight == 8 )
-  {
-    iT = g_aiT8[TRANSFORM_FORWARD][0];
-  }
-  else if( iHeight == 16 )
-  {
-    iT = g_aiT16[TRANSFORM_FORWARD][0];
-  }
-  else if( iHeight == 32 )
-  {
-    iT = g_aiT32[TRANSFORM_FORWARD][0];
-  }
-  else if( iHeight == 64 )
-  {
-    iT = g_aiT64[TRANSFORM_FORWARD][0];
-  }
-  else if( iHeight == 128 )
-  {
-    iT = g_aiT128[TRANSFORM_FORWARD][0];
-  }
-  else
-  {
-    THROW( "Unsupported matrix size" );
-  }
-
-  for( i = 0; i < iHeight; i++ )
-  {
-    for( j = 0; j < iWidth; j++ )
-    {
-      iSum = 0;
-      for( k = 0; k < iHeight; k++ )
-      {
-        iSum += iT[i*iHeight + k] * tmp[j*iHeight + k];
-      }
-      coeff[i*iWidth + j] = ( iSum + add_2nd ) >> shift_2nd;
-    }
-  }
-}
-
-/** NxN inverse transform (2D) using brute force matrix multiplication (3 nested loops)
- *  \param bitDepth              [in]  bit depth
- *  \param coeff                 [in]  transform coefficients
- *  \param residual              [out]  residual block
- *  \param stride                [in]  stride of the residual block
- *  \param width                 [in]  width of transform
- *  \param height                [in]  height of transform
- */
-void xITr( const int bitDepth, const TCoeff *coeff, Pel *residual, size_t stride, size_t width, size_t height, bool useDST, const int maxLog2TrDynamicRange )
-{
-  const Int TRANSFORM_MATRIX_SHIFT = g_transformMatrixShift[TRANSFORM_INVERSE];
-  const int iWidth  = (int)width;
-  const int iHeight = (int)height;
-
-  const int shift_1st = TRANSFORM_MATRIX_SHIFT + 1; //1 has been added to shift_1st at the expense of shift_2nd
-  const int shift_2nd = (TRANSFORM_MATRIX_SHIFT + maxLog2TrDynamicRange - 1) - bitDepth;
-
-  const TCoeff clipMinimum = -(1 << maxLog2TrDynamicRange);
-  const TCoeff clipMaximum =  (1 << maxLog2TrDynamicRange) - 1;
-
-  const int add_1st = 1 << ( shift_1st - 1 );
-  const int add_2nd = ( shift_2nd > 0 ) ? ( 1 << ( shift_2nd - 1 ) ) : 0;
-
-  CHECK( shift_1st < 0, "Negative shift" );
-  CHECK( shift_2nd < 0, "Negative shift" );
-
-  TCoeff tmp[MAX_TU_SIZE * MAX_TU_SIZE];
-
-  unsigned i, j, k;
-  TCoeff iSum = 0;
-  const TMatrixCoeff *iT = nullptr;
-
-  /* Horizontal transform */
-  if( iHeight == 2 )
-  {
-    iT = g_aiT2[TRANSFORM_INVERSE][0];
-  }
-  else if( iHeight == 4 )
-  {
-    iT = ( iWidth == 4 && useDST ? g_as_DST_MAT_4[TRANSFORM_INVERSE][0] : g_aiT4[TRANSFORM_INVERSE][0] );
-  }
-  else if( iHeight == 8 )
-  {
-    iT = g_aiT8[TRANSFORM_INVERSE][0];
-  }
-  else if( iHeight == 16 )
-  {
-    iT = g_aiT16[TRANSFORM_INVERSE][0];
-  }
-  else if( iHeight == 32 )
-  {
-    iT = g_aiT32[TRANSFORM_INVERSE][0];
-  }
-  else if( iHeight == 64 )
-  {
-    iT = g_aiT64[TRANSFORM_INVERSE][0];
-  }
-  else if( iHeight == 128 )
-  {
-    iT = g_aiT64[TRANSFORM_INVERSE][0];
-  }
-  else
-  {
-    THROW( "Unsupported matrix size" );
-  }
-
-  for( i = 0; i < iHeight; i++ )
-  {
-    for( j = 0; j < iWidth; j++ )
-    {
-      iSum = 0;
-      for( k = 0; k < iHeight; k++ )
-      {
-        iSum += iT[k*iHeight + i] * coeff[k*iWidth + j];
-      }
-
-      // Clipping here is not in the standard, but is used to protect the "Pel" data type into which the inverse-transformed samples will be copied
-
-      // TODO: Is it a bug? Its look like for a stride should be used iHeight and not iWidth
-      tmp[i*iWidth + j] = Clip3<TCoeff>( clipMinimum, clipMaximum, ( iSum + add_1st ) >> shift_1st );
-    }
-  }
-
-  /* Vertical transform */
-  if( iWidth == 2 )
-  {
-    iT = g_aiT2[TRANSFORM_INVERSE][0];
-  }
-  else if( iWidth == 4 )
-  {
-    iT = ( iHeight == 4 && useDST ? g_as_DST_MAT_4[TRANSFORM_INVERSE][0] : g_aiT4[TRANSFORM_INVERSE][0] );
-  }
-  else if( iWidth == 8 )
-  {
-    iT = g_aiT8[TRANSFORM_INVERSE][0];
-  }
-  else if( iWidth == 16 )
-  {
-    iT = g_aiT16[TRANSFORM_INVERSE][0];
-  }
-  else if( iWidth == 32 )
-  {
-    iT = g_aiT32[TRANSFORM_INVERSE][0];
-  }
-  else if( iWidth == 64 )
-  {
-    iT = g_aiT64[TRANSFORM_INVERSE][0];
-  }
-  else if( iWidth == 128 )
-  {
-    iT = g_aiT64[TRANSFORM_INVERSE][0];
-  }
-  else
-  {
-    THROW( "Unsupported matrix size" );
-  }
-
-  for( i = 0; i < iHeight; i++ )
-  {
-    for( j = 0; j < iWidth; j++ )
-    {
-      iSum = 0;
-      for( k = 0; k < iWidth; k++ )
-      {
-        iSum += iT[k*iWidth + j] * tmp[i*iWidth + k];
-      }
-
-      residual[i*stride + j] = Clip3<TCoeff>( std::numeric_limits<Pel>::min(), std::numeric_limits<Pel>::max(), ( iSum + add_2nd ) >> shift_2nd );
-    }
-  }
-}
-
-Void xTr_EMT(Int bitDepth, Pel *block, TCoeff *coeff, UInt uiStride, UInt uiTrSize, Bool useDST, const Int maxLog2TrDynamicRange, UChar ucMode, UChar ucTrIdx)
-{
-  UInt i, j, k;
-  TCoeff iSum;
-  TCoeff tmp[MAX_TU_SIZE * MAX_TU_SIZE];
-  const TMatrixCoeff *iTH, *iTV;
-  UInt uiLog2TrSize = g_aucConvertToBit[uiTrSize] + 2;
-
-  Int zo = ((ucMode == INTER_MODE_IDX && uiTrSize >= 32 && ucTrIdx != DCT2_EMT) || uiTrSize == 64) ? 1 : 0;
-
-  UInt  nTrIdxHor = DCT2, nTrIdxVer = DCT2;
-  if (ucMode != INTER_MODE_IDX && ucTrIdx != DCT2_EMT)
-  {
-    UInt  nTrSubsetHor = g_aucTrSetHorz[ucMode];
-    UInt  nTrSubsetVer = g_aucTrSetVert[ucMode];
-    nTrIdxHor = g_aiTrSubsetIntra[nTrSubsetHor][ucTrIdx & 1];
-    nTrIdxVer = g_aiTrSubsetIntra[nTrSubsetVer][ucTrIdx >> 1];
-  }
-  if (ucMode == INTER_MODE_IDX && ucTrIdx != DCT2_EMT)
-  {
-    nTrIdxHor = g_aiTrSubsetInter[ucTrIdx & 1];
-    nTrIdxVer = g_aiTrSubsetInter[ucTrIdx >> 1];
-  }
-
-  if (uiTrSize == 4)
-  {
-    iTH = g_aiTr4[nTrIdxHor][0];
-    iTV = g_aiTr4[nTrIdxVer][0];
-  }
-  else if (uiTrSize == 8)
-  {
-    iTH = g_aiTr8[nTrIdxHor][0];
-    iTV = g_aiTr8[nTrIdxVer][0];
-  }
-  else if (uiTrSize == 16)
-  {
-    iTH = g_aiTr16[nTrIdxHor][0];
-    iTV = g_aiTr16[nTrIdxVer][0];
-  }
-  else if (uiTrSize == 32)
-  {
-    iTH = g_aiTr32[nTrIdxHor][0];
-    iTV = g_aiTr32[nTrIdxVer][0];
-  }
-  else if (uiTrSize == 64)
-  {
-    assert(ucTrIdx == DCT2_EMT);
-    iTH = iTV = g_aiTr64[DCT2][0];
-  }
-  else
-  {
-    assert(0);
-  }
-
-  const Int TRANSFORM_MATRIX_SHIFT = g_transformMatrixShift[TRANSFORM_FORWARD];
-
-  Int shift_1st = (uiLog2TrSize + bitDepth + TRANSFORM_MATRIX_SHIFT) - maxLog2TrDynamicRange + COM16_C806_TRANS_PREC;
-  Int shift_2nd = uiLog2TrSize + TRANSFORM_MATRIX_SHIFT + COM16_C806_TRANS_PREC;
-  const Int add_1st = (shift_1st>0) ? (1 << (shift_1st - 1)) : 0;
-  const Int add_2nd = 1 << (shift_2nd - 1);
-
-  /* Horizontal transform */
-  for (i = 0; i<(uiTrSize >> zo); i++)
-  {
-    for (j = 0; j<uiTrSize; j++)
-    {
-      iSum = 0;
-      for (k = 0; k<uiTrSize; k++)
-      {
-        iSum += iTH[i*uiTrSize + k] * block[j*uiStride + k];
-      }
-      tmp[i*uiTrSize + j] = (iSum + add_1st) >> shift_1st;
-    }
-  }
-
-  /* Vertical transform */
-  for (i = 0; i<(uiTrSize >> zo); i++)
-  {
-    for (j = 0; j<(uiTrSize >> zo); j++)
-    {
-      iSum = 0;
-      for (k = 0; k<uiTrSize; k++)
-      {
-        iSum += iTV[i*uiTrSize + k] * tmp[j*uiTrSize + k];
-      }
-      coeff[i*uiTrSize + j] = (iSum + add_2nd) >> shift_2nd;
-    }
-  }
-  if (zo)
-  {
-    memset(coeff + uiTrSize*uiTrSize / 2, 0, sizeof(TCoeff)*uiTrSize*uiTrSize / 2);
-    coeff += uiTrSize / 2;
-    for (j = 0; j<uiTrSize / 2; j++)
-    {
-      memset(coeff, 0, sizeof(TCoeff)*uiTrSize / 2);
-      coeff += uiTrSize;
-    }
-  }
-}
-
-Void xITr_EMT(Int bitDepth, TCoeff *coeff, Pel *block, UInt uiStride, UInt uiTrSize, Bool useDST, const Int maxLog2TrDynamicRange, UChar ucMode, UChar ucTrIdx)
-{
-  UInt i, j, k;
-  TCoeff iSum;
-  TCoeff tmp[MAX_TU_SIZE * MAX_TU_SIZE];
-  const TMatrixCoeff *iTH, *iTV;
-
-  Int zo = ((ucMode == INTER_MODE_IDX && uiTrSize >= 32 && ucTrIdx != DCT2_EMT) || uiTrSize == 64) ? 1 : 0;
-
-  UInt  nTrIdxHor = DCT2, nTrIdxVer = DCT2;
-  if (ucMode != INTER_MODE_IDX && ucTrIdx != DCT2_EMT)
-  {
-    UInt  nTrSubsetHor = g_aucTrSetHorz[ucMode];
-    UInt  nTrSubsetVer = g_aucTrSetVert[ucMode];
-    nTrIdxHor = g_aiTrSubsetIntra[nTrSubsetHor][ucTrIdx & 1];
-    nTrIdxVer = g_aiTrSubsetIntra[nTrSubsetVer][ucTrIdx >> 1];
-  }
-  if (ucMode == INTER_MODE_IDX && ucTrIdx != DCT2_EMT)
-  {
-    nTrIdxHor = g_aiTrSubsetInter[ucTrIdx & 1];
-    nTrIdxVer = g_aiTrSubsetInter[ucTrIdx >> 1];
-  }
-
-  if (uiTrSize == 4)
-  {
-    iTH = g_aiTr4[nTrIdxHor][0];
-    iTV = g_aiTr4[nTrIdxVer][0];
-  }
-  else if (uiTrSize == 8)
-  {
-    iTH = g_aiTr8[nTrIdxHor][0];
-    iTV = g_aiTr8[nTrIdxVer][0];
-  }
-  else if (uiTrSize == 16)
-  {
-    iTH = g_aiTr16[nTrIdxHor][0];
-    iTV = g_aiTr16[nTrIdxVer][0];
-  }
-  else if (uiTrSize == 32)
-  {
-    iTH = g_aiTr32[nTrIdxHor][0];
-    iTV = g_aiTr32[nTrIdxVer][0];
-  }
-  else if (uiTrSize == 64)
-  {
-    assert(ucTrIdx == DCT2_EMT);
-    iTH = iTV = g_aiTr64[DCT2][0];
-  }
-  else
-  {
-    assert(0);
-  }
-
-  const Int TRANSFORM_MATRIX_SHIFT = g_transformMatrixShift[TRANSFORM_INVERSE];
-
-
-  Int shift_1st = TRANSFORM_MATRIX_SHIFT + 1 + COM16_C806_TRANS_PREC; //1 has been added to shift_1st at the expense of shift_2nd
-  Int shift_2nd = (TRANSFORM_MATRIX_SHIFT + maxLog2TrDynamicRange - 1) - bitDepth + COM16_C806_TRANS_PREC;
-  const TCoeff clipMinimum = -(1 << maxLog2TrDynamicRange);
-  const TCoeff clipMaximum = (1 << maxLog2TrDynamicRange) - 1;
-  assert(shift_2nd >= 0);
-  const Int add_1st = 1 << (shift_1st - 1);
-  const Int add_2nd = (shift_2nd>0) ? (1 << (shift_2nd - 1)) : 0;
-
-  /* Horizontal transform */
-  for (i = 0; i<uiTrSize; i++)
-  {
-    for (j = 0; j<uiTrSize >> zo; j++)
-    {
-      iSum = 0;
-      for (k = 0; k<uiTrSize >> zo; k++)
-      {
-        iSum += iTV[k*uiTrSize + i] * coeff[k*uiTrSize + j];
-      }
-
-      // Clipping here is not in the standard, but is used to protect the "Pel" data type into which the inverse-transformed samples will be copied
-      tmp[i*uiTrSize + j] = Clip3<TCoeff>(clipMinimum, clipMaximum, (iSum + add_1st) >> shift_1st);
-    }
-  }
-
-  /* Vertical transform */
-  for (i = 0; i<uiTrSize; i++)
-  {
-    for (j = 0; j<uiTrSize; j++)
-    {
-      iSum = 0;
-      for (k = 0; k<uiTrSize >> zo; k++)
-      {
-        iSum += iTH[k*uiTrSize + j] * tmp[i*uiTrSize + k];
-      }
-
-      block[i*uiStride + j] = Clip3<TCoeff>(std::numeric_limits<Pel>::min(), std::numeric_limits<Pel>::max(), (iSum + add_2nd) >> shift_2nd);
-    }
-  }
-}
-#endif //MATRIX_MULT
 
 Void TrQuant::xDeQuant(const TransformUnit &tu,
                              CoeffBuf      &dstCoeff,
@@ -899,29 +461,30 @@ Void TrQuant::xDeQuant(const TransformUnit &tu,
   m_quant->dequant( tu, dstCoeff, compID, cQP );
 }
 
-Void TrQuant::init(       UInt uiMaxTrSize,
-                          Bool bUseRDOQ,
-                          Bool bUseRDOQTS,
+Void TrQuant::init( const Quant* otherQuant,
+                    const UInt uiMaxTrSize,
+                    const bool bUseRDOQ,
+                    const bool bUseRDOQTS,
 #if T0196_SELECTIVE_RDOQ
-                          Bool useSelectiveRDOQ,
+                    const bool useSelectiveRDOQ,
 #endif
-                          UInt uiAltResiCompId,
-                          RDOQfn rdoqfn,
-                          Bool bEnc,
-                          Bool useTransformSkipFast,
-                          Bool use65IntraModes,
-                          Bool rectTUs
-                       )
+#if JEM_TOOLS
+                    const UInt uiAltResiCompId,
+#endif
+                    const bool bEnc,
+                    const bool useTransformSkipFast,
+#if JEM_TOOLS
+                    const bool use65IntraModes,
+#endif
+                    const bool rectTUs
+)
 {
-  m_uiMaxTrSize  = uiMaxTrSize;
-  m_bEnc         = bEnc;
-//   m_useRDOQ      = bUseRDOQ;
-//   m_useRDOQTS    = bUseRDOQTS;
-// #if T0196_SELECTIVE_RDOQ
-//   m_useSelectiveRDOQ     = useSelectiveRDOQ;
-// #endif
+  m_uiMaxTrSize          = uiMaxTrSize;
+  m_bEnc                 = bEnc;
   m_useTransformSkipFast = useTransformSkipFast;
+#if JEM_TOOLS
   m_use65IntraModes      = use65IntraModes;
+#endif
   m_rectTUs              = rectTUs;
 
 
@@ -930,20 +493,22 @@ Void TrQuant::init(       UInt uiMaxTrSize,
 
   if( bUseRDOQ )
   {
-    if( rdoqfn == RDOQfn::HHI  )
-      m_quant = new QuantRDOQ2();
-    else
-      m_quant = new QuantRDOQ();
+      m_quant = new QuantRDOQ( otherQuant );
   }
   else
-    m_quant = new Quant();
+    m_quant = new Quant( otherQuant );
 
   if( m_quant )
   {
+#if JEM_TOOLS
     m_quant->init( uiMaxTrSize, bUseRDOQ, bUseRDOQTS, uiAltResiCompId, useSelectiveRDOQ );
+#else
+    m_quant->init( uiMaxTrSize, bUseRDOQ, bUseRDOQTS, useSelectiveRDOQ );
+#endif
   }
 }
 
+#if JEM_TOOLS
 Void TrQuant::FwdNsstNxN( Int* src, const UInt uiMode, const UInt uiIndex, const UInt uiSize )
 {
   const int   rnd = uiSize >> 1;
@@ -1047,10 +612,10 @@ Void TrQuant::xInvNsst( const TransformUnit &tu, const ComponentID compID )
   const CompArea& area   = tu.blocks[compID];
   const UInt width       = area.width;
   const UInt height      = area.height;
+  const UInt uiNSSTIdx   = tu.cu->nsstIdx;
 
-  if( tu.cu->nsstIdx && !tu.transformSkip[compID] && width >= 4 && height >= 4 && ( width & 3 ) == 0 && ( height & 3 ) == 0 )
+  if( uiNSSTIdx && !tu.transformSkip[compID] && width >= 4 && height >= 4 && ( width & 3 ) == 0 && ( height & 3 ) == 0 )
   {
-    const UInt uiNSSTIdx    = tu.cu->nsstIdx;
     const UInt uiScanIdx    = TU::getCoefScanIdx( tu, compID );
     const bool whge3        = width >= 8 && height >= 8;
     const bool whgt3        = width >  8 && height >  8;
@@ -1061,7 +626,6 @@ Void TrQuant::xInvNsst( const TransformUnit &tu, const ComponentID compID )
     {
       uiIntraMode = PLANAR_IDX;
     }
-
 
     CHECK( uiIntraMode >= NUM_INTRA_MODE - 1, "Invalid intra mode" );
 
@@ -1127,29 +691,29 @@ Void TrQuant::xInvNsst( const TransformUnit &tu, const ComponentID compID )
   }
 }
 
-
 Void TrQuant::xFwdNsst( const TransformUnit &tu, const ComponentID compID )
 {
   const CompArea& area   = tu.blocks[compID];
   const UInt width       = area.width;
   const UInt height      = area.height;
+  const UInt uiNSSTIdx   = tu.cu->nsstIdx;
 
-  if( tu.cu->nsstIdx && !tu.transformSkip[compID] && width >= 4 && height >= 4 && ( width & 3 ) == 0 && ( height & 3 ) == 0 )
+  if( uiNSSTIdx && !tu.transformSkip[compID] && width >= 4 && height >= 4 && ( width & 3 ) == 0 && ( height & 3 ) == 0 )
   {
-    const UInt uiNSSTIdx    = tu.cu->nsstIdx;
     const UInt uiScanIdx    = TU::getCoefScanIdx( tu, compID );
     const bool whge3        = width >= 8 && height >= 8;
     const bool whgt3        = width >  8 && height >  8;
-    const UInt *scan        = ( ( tu.cs->pcv->rectCUs && whge3 ) || whgt3 ) ? g_auiCoefTopLeftDiagScan8x8[gp_sizeIdxInfo->idxFrom(width)] : g_scanOrder[SCAN_GROUPED_4x4][uiScanIdx][gp_sizeIdxInfo->idxFrom(width)][gp_sizeIdxInfo->idxFrom(height)];
+    const UInt *scan        = ( ( tu.cs->pcv->rectCUs && whge3 ) || whgt3 ) ? g_auiCoefTopLeftDiagScan8x8[gp_sizeIdxInfo->idxFrom( width )] : g_scanOrder[SCAN_GROUPED_4x4][uiScanIdx][gp_sizeIdxInfo->idxFrom( width )][gp_sizeIdxInfo->idxFrom( height )];
     UInt uiIntraMode        = PU::getFinalIntraMode( *tu.cs->getPU( area.pos(), toChannelType( compID ) ), toChannelType( compID ) );
 
+#if JEM_TOOLS
     if( PU::isLMCMode( tu.cs->getPU( area.pos(), toChannelType( compID ) )->intraDir[ toChannelType( compID ) ] ) )
     {
       uiIntraMode = PLANAR_IDX;
     }
 
-
-    CHECK( ( isLuma( compID ) || isChroma( tu.cs->chType ) ) && uiNSSTIdx == ( (uiIntraMode <= DC_IDX) && (tu.cu->partSize==SIZE_2Nx2N) ? 3 : 4 ), "nsst evaluated" );
+#endif
+    CHECK( ( isLuma( compID ) || isChroma( tu.chType ) ) && uiNSSTIdx == ( (uiIntraMode <= DC_IDX) && (tu.cu->partSize==SIZE_2Nx2N) ? 3 : 4 ), "nsst evaluated" );
     CHECK( uiIntraMode >= NUM_INTRA_MODE - 1, "Invalid intra mode" );
 
     if( uiNSSTIdx < ( uiIntraMode <= DC_IDX ? 3 : 4 ) )
@@ -1213,11 +777,10 @@ Void TrQuant::xFwdNsst( const TransformUnit &tu, const ComponentID compID )
     }
   }
 }
+#endif
 
-Void TrQuant::invTransformNxN(       TransformUnit &tu,
-                               const ComponentID   &compID,
-                                     PelBuf        &pResi,
-                               const QpParam       &cQP     )
+
+Void TrQuant::invTransformNxN( TransformUnit &tu, const ComponentID &compID, PelBuf &pResi, const QpParam &cQP )
 {
   const CompArea &area    = tu.blocks[compID];
   const UInt uiWidth      = area.width;
@@ -1239,24 +802,25 @@ Void TrQuant::invTransformNxN(       TransformUnit &tu,
   }
   else
   {
-    CoeffBuf tmpCoeff = CoeffBuf(m_plTempCoeff, tu.blocks[compID]);
-    xDeQuant(tu, tmpCoeff, compID, cQP);
+    CoeffBuf tempCoeff = CoeffBuf( m_plTempCoeff, area );
+    xDeQuant( tu, tempCoeff, compID, cQP );
 
-    DTRACE_COEFF_BUF( D_TCOEFF, tmpCoeff, tu, tu.cu->predMode, compID );
+    DTRACE_COEFF_BUF( D_TCOEFF, tempCoeff, tu, tu.cu->predMode, compID );
+
+#if JEM_TOOLS
     if( tu.cs->sps->getSpsNext().getUseNSST() )
     {
       xInvNsst( tu, compID );
     }
+#endif
 
     if( tu.transformSkip[compID] )
     {
-      xITransformSkip( tmpCoeff, pResi, tu, compID );
+      xITransformSkip( tempCoeff, pResi, tu, compID );
     }
     else
     {
-      const Int channelBitDepth = tu.cs->sps->getBitDepth( toChannelType( compID ) );
-
-      xIT( channelBitDepth, TU::useDST( tu, compID ), tmpCoeff, pResi, tu.cs->sps->getMaxLog2TrDynamicRange( toChannelType( compID ) ), getEmtMode( tu, compID ), getEmtTrIdx( tu, compID ) );
+      xIT( tu, compID, tempCoeff, pResi );
     }
   }
 
@@ -1327,54 +891,40 @@ Void TrQuant::invRdpcmNxN(TransformUnit& tu, const ComponentID &compID, PelBuf &
 // Logical transform
 // ------------------------------------------------------------------------------------------------
 
-/** Wrapper function between HM interface and core NxN forward transform (2D)
- */
-Void TrQuant::xT( const Int channelBitDepth, Bool useDST, const Pel* piBlkResi, UInt uiStride, TCoeff* psCoeff, Int iWidth, Int iHeight, const Int maxLog2TrDynamicRange, UChar ucMode, UChar ucTrIdx )
+void TrQuant::xT( const TransformUnit &tu, const ComponentID &compID, const CPelBuf &resi, CoeffBuf &dstCoeff, const int iWidth, const int iHeight )
 {
-#if MATRIX_MULT
+  const unsigned maxLog2TrDynamicRange = tu.cs->sps->getMaxLog2TrDynamicRange( toChannelType( compID ) );
+  const unsigned channelBitDepth = tu.cs->sps->getBitDepth( toChannelType( compID ) );
+  const bool     useDST          = TU::useDST( tu, compID );
+#if JEM_TOOLS
+  const unsigned ucMode          = getEmtMode ( tu, compID );
+  const unsigned ucTrIdx         = getEmtTrIdx( tu, compID );
+
   if( ucTrIdx != DCT2_HEVC )
   {
-    CHECK( iWidth != iHeight, "The matrix multiplication operation is only implemented for the case width = height when EMT is active!" );
-    xTr_EMT( channelBitDepth, piBlkResi, psCoeff, uiStride, ( UInt ) iWidth, useDST, maxLog2TrDynamicRange, ucMode, ucTrIdx );
+    xTrMxN_EMT( channelBitDepth, resi.buf, resi.stride, dstCoeff.buf, iWidth, iHeight, useDST, maxLog2TrDynamicRange, ucMode, ucTrIdx, m_use65IntraModes
+      , m_rectTUs 
+      );
   }
   else
-  {
-    xTr    ( channelBitDepth, piBlkResi, uiStride, psCoeff, iWidth, iHeight, useDST, maxLog2TrDynamicRange );
-  }
-#else
-  if( ucTrIdx != DCT2_HEVC )
-  {
-    xTrMxN_EMT( channelBitDepth, piBlkResi, uiStride, psCoeff, iWidth, iHeight, useDST, maxLog2TrDynamicRange, ucMode, ucTrIdx, m_use65IntraModes, m_rectTUs );
-  }
-  else
-  {
-    m_fTr     ( channelBitDepth, piBlkResi, uiStride, psCoeff, iWidth, iHeight, useDST, maxLog2TrDynamicRange );
-  }
 #endif
+  {
+    m_fTr     ( channelBitDepth, resi.buf, resi.stride, dstCoeff.buf, iWidth, iHeight, useDST, maxLog2TrDynamicRange );
+  }
 }
 
 /** Wrapper function between HM interface and core NxN inverse transform (2D)
  */
-Void TrQuant::xIT(const Int       &channelBitDepth,
-                  const Bool      &useDST,
-                  const CCoeffBuf &pCoeff,
-                        PelBuf    &pResidual,
-                  const Int       &maxLog2TrDynamicRange,
-                        UChar      ucMode,
-                        UChar      ucTrIdx
-)
+void TrQuant::xIT( const TransformUnit &tu, const ComponentID &compID, const CCoeffBuf &pCoeff, PelBuf &pResidual )
 {
-#if MATRIX_MULT
-  if (ucTrIdx != DCT2_HEVC)
-  {
-    CHECK( iWidth != iHeight, "The matrix multiplication operation is only implemented for the case width = height when EMT is active!" );
-    xITr_EMT( channelBitDepth, pCoeff.buf, pResidual.buf, pResidual.stride, pCoeff.width, pCoeff.height, useDST, maxLog2TrDynamicRange, ucMode, ucTrIdx );
-  }
-  else
-  {
-    xITr    ( channelBitDepth, pCoeff.buf, pResidual.buf, pResidual.stride, pCoeff.width, pCoeff.height, useDST, maxLog2TrDynamicRange );
-  }
-#else
+  const unsigned maxLog2TrDynamicRange = tu.cs->sps->getMaxLog2TrDynamicRange( toChannelType( compID ) );
+  const unsigned channelBitDepth = tu.cs->sps->getBitDepth( toChannelType( compID ) );
+  const bool     useDST          = TU::useDST( tu, compID );
+
+#if JEM_TOOLS
+  const unsigned ucMode          = getEmtMode ( tu, compID );
+  const unsigned ucTrIdx         = getEmtTrIdx( tu, compID );
+
   if( ucTrIdx != DCT2_HEVC )
   {
     Int iSkipWidth = 0, iSkipHeight = 0;
@@ -1393,10 +943,10 @@ Void TrQuant::xIT(const Int       &channelBitDepth,
     xITrMxN_EMT( channelBitDepth, pCoeff.buf, pResidual.buf, pResidual.stride, pCoeff.width, pCoeff.height, iSkipWidth, iSkipHeight, useDST, maxLog2TrDynamicRange, ucMode, ucTrIdx, m_use65IntraModes );
   }
   else
+#endif
   {
     m_fITr     ( channelBitDepth, pCoeff.buf, pResidual.buf, pResidual.stride, pCoeff.width, pCoeff.height,                          useDST, maxLog2TrDynamicRange );
   }
-#endif
 }
 
 /** Wrapper function between HM interface and core NxN transform skipping
@@ -1419,11 +969,13 @@ Void TrQuant::xITransformSkip(const CCoeffBuf     &pCoeff,
   }
 
   Int iWHScale = 1;
-  if( needsBlockSizeQuantScale( area ) )
+#if HM_QTBT_AS_IN_JEM_QUANT
+  if( TU::needsBlockSizeTrafoScale( area ) )
   {
     iTransformShift += ADJ_QUANT_SHIFT;
     iWHScale = 181;
   }
+#endif
 
   const Bool rotateResidual = TU::isNonTransformedResidualRotated( tu, compID );
 
@@ -1458,6 +1010,7 @@ Void TrQuant::xQuant(TransformUnit &tu, const ComponentID &compID, const CCoeffB
   m_quant->quant( tu, compID, pSrc, uiAbsSum, cQP, ctx );
 }
 
+#if JEM_TOOLS
 UChar TrQuant::getEmtTrIdx(TransformUnit tu, const ComponentID compID)
 {
   UChar ucTrIdx = DCT2_HEVC;
@@ -1499,7 +1052,11 @@ UChar TrQuant::getEmtMode( TransformUnit tu, const ComponentID compID )
       CodingStructure &cs      = *tu.cs;
       const PredictionUnit &pu = *cs.getPU( tu.blocks[compID].pos(), toChannelType( compID ) );
       const UInt uiChFinalMode = PU::getFinalIntraMode( pu, toChannelType( compID ) );
+#if JEM_TOOLS
       ucMode                   = m_use65IntraModes ? uiChFinalMode : g_intraMode65to33AngMapping[uiChFinalMode];
+#else
+      ucMode                   = g_intraMode65to33AngMapping[uiChFinalMode];
+#endif
     }
     else
     {
@@ -1509,7 +1066,7 @@ UChar TrQuant::getEmtMode( TransformUnit tu, const ComponentID compID )
 
   return ucMode;
 }
-
+#endif
 
 Void TrQuant::transformNxN(TransformUnit &tu, const ComponentID &compID, const QpParam &cQP, TCoeff &uiAbsSum, const Ctx &ctx)
 {
@@ -1567,16 +1124,15 @@ Void TrQuant::transformNxN(TransformUnit &tu, const ComponentID &compID, const Q
       }
       else
       {
-        const Int channelBitDepth = sps.getBitDepth( toChannelType( compID ) );
-
-        xT( channelBitDepth, TU::useDST( tu, compID ), resiBuf.buf, resiBuf.stride, m_plTempCoeff, uiWidth, uiHeight, sps.getMaxLog2TrDynamicRange( toChannelType( compID ) ), getEmtMode( tu, compID ), getEmtTrIdx( tu, compID ) );
+        xT( tu, compID, resiBuf, tempCoeff, uiWidth, uiHeight );
       }
 
-      if (sps.getSpsNext().getUseNSST())
+#if JEM_TOOLS
+      if( sps.getSpsNext().getUseNSST() )
       {
         xFwdNsst( tu, compID );
       }
-
+#endif
       DTRACE_COEFF_BUF( D_TCOEFF, tempCoeff, tu, tu.cu->predMode, compID );
 
       xQuant( tu, compID, tempCoeff, uiAbsSum, cQP, ctx );
@@ -1585,8 +1141,12 @@ Void TrQuant::transformNxN(TransformUnit &tu, const ComponentID &compID, const Q
     }
   }
 
+#if HEVC_TOOLS
   // set coded block flag (CBF)
   TU::setCbfAtDepth (tu, compID, tu.depth, uiAbsSum > 0);
+#else
+  TU::setCbf( tu, compID, uiAbsSum > 0 );
+#endif
 }
 
 Void TrQuant::applyForwardRDPCM(TransformUnit &tu, const ComponentID &compID, const QpParam &cQP, TCoeff &uiAbsSum, const RDPCMMode &mode)
@@ -1727,11 +1287,13 @@ Void TrQuant::xTransformSkip(const TransformUnit &tu, const ComponentID &compID,
   }
 
   Int iWHScale = 1;
-  if( needsBlockSizeQuantScale( rect ) )
+#if HM_QTBT_AS_IN_JEM_QUANT
+  if( TU::needsBlockSizeTrafoScale( rect ) )
   {
     iTransformShift -= ADJ_DEQUANT_SHIFT;
     iWHScale = 181;
   }
+#endif
 
   const Bool rotateResidual = TU::isNonTransformedResidualRotated( tu, compID );
   const UInt uiSizeMinus1 = ( width * height ) - 1;
@@ -1760,6 +1322,5 @@ Void TrQuant::xTransformSkip(const TransformUnit &tu, const ComponentID &compID,
     }
   }
 }
-
 
 //! \}

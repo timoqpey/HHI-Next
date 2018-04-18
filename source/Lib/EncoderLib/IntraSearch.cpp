@@ -37,20 +37,21 @@
 
 #include "IntraSearch.h"
 
+#include "EncModeCtrl.h"
+
 #include "CommonLib/CommonDef.h"
 #include "CommonLib/Rom.h"
 #include "CommonLib/Picture.h"
 #include "CommonLib/UnitTools.h"
+#if JEM_TOOLS
 #include "CommonLib/BilateralFilter.h"
+#endif
 
 #include "CommonLib/dtrace_next.h"
 #include "CommonLib/dtrace_buffer.h"
 
 #include <math.h>
 #include <limits>
-
-#include "EncModeCtrl.h"
-
 
  //! \ingroup EncoderLib
  //! \{
@@ -63,6 +64,9 @@ IntraSearch::IntraSearch()
   , m_pcEncCfg      (nullptr)
   , m_pcTrQuant     (nullptr)
   , m_pcRdCost      (nullptr)
+#if JEM_TOOLS
+  , m_bilateralFilter(nullptr)
+#endif
   , m_CABACEstimator(nullptr)
   , m_CtxCache      (nullptr)
   , m_isInitialized (false)
@@ -71,12 +75,13 @@ IntraSearch::IntraSearch()
   {
     m_pSharedPredTransformSkip[ch] = nullptr;
   }
-
+#if JEM_TOOLS
   m_pLMMFPredSaved = new Pel*[8];//4*(Cb+Cr)
   for (Int k = 0; k < 8; k++)
   {
     m_pLMMFPredSaved[k] = new Pel[MAX_CU_SIZE * MAX_CU_SIZE];
   }
+#endif
 }
 
 
@@ -88,9 +93,12 @@ Void IntraSearch::destroy()
   {
     bool BTnoRQT = m_pcEncCfg->getQTBT();
 
-    const UInt uiNumLayersAllocated = BTnoRQT ? 1 : m_pcEncCfg->getQuadtreeTULog2MaxSize() - m_pcEncCfg->getQuadtreeTULog2MinSize() + 1;
 
-    for( UInt layer = 0; layer <= uiNumLayersAllocated; layer++ )
+    const UInt uiNumLayersToAllocateSplit = BTnoRQT ? 1 : m_pcEncCfg->getQuadtreeTULog2MaxSize() - m_pcEncCfg->getQuadtreeTULog2MinSize() + 1;
+    const UInt uiNumLayersToAllocateFull  = BTnoRQT ? 1 : m_pcEncCfg->getQuadtreeTULog2MaxSize() - m_pcEncCfg->getQuadtreeTULog2MinSize() + 1;
+    const int uiNumSaveLayersToAllocate = 2;
+
+    for( UInt layer = 0; layer < uiNumSaveLayersToAllocate; layer++ )
     {
       m_pSaveCS[layer]->destroy();
       delete m_pSaveCS[layer];
@@ -105,13 +113,18 @@ Void IntraSearch::destroy()
       {
         if( ( BTnoRQT || width == height ) && gp_sizeIdxInfo->isCuSize( gp_sizeIdxInfo->sizeFrom( width ) ) && gp_sizeIdxInfo->isCuSize( gp_sizeIdxInfo->sizeFrom( height ) ) )
         {
-          for( UInt layer = 0; layer < uiNumLayersAllocated; layer++ )
+          for( UInt layer = 0; layer < uiNumLayersToAllocateSplit; layer++ )
           {
             m_pSplitCS[width][height][layer]->destroy();
-            m_pFullCS [width][height][layer]->destroy();
 
             delete m_pSplitCS[width][height][layer];
-            delete m_pFullCS [width][height][layer];
+          }
+
+          for( UInt layer = 0; layer < uiNumLayersToAllocateFull; layer++ )
+          {
+            m_pFullCS[width][height][layer]->destroy();
+
+            delete m_pFullCS[width][height][layer];
           }
 
           delete[] m_pSplitCS[width][height];
@@ -153,12 +166,14 @@ Void IntraSearch::destroy()
     m_pSharedPredTransformSkip[ch] = nullptr;
   }
 
+#if JEM_TOOLS
   for (Int k = 0; k < 8; k++)
   {
     delete[]m_pLMMFPredSaved[k];
   }
   delete[]m_pLMMFPredSaved;
 
+#endif
   m_isInitialized = false;
 }
 
@@ -173,6 +188,10 @@ IntraSearch::~IntraSearch()
 Void IntraSearch::init( EncCfg*        pcEncCfg,
                         TrQuant*       pcTrQuant,
                         RdCost*        pcRdCost,
+#if JEM_TOOLS
+                        BilateralFilter*
+                                       bilateralFilter,
+#endif
                         CABACWriter*   CABACEstimator,
                         CtxCache*      ctxCache,
                         const UInt     maxCUWidth,
@@ -184,6 +203,9 @@ Void IntraSearch::init( EncCfg*        pcEncCfg,
   m_pcEncCfg                     = pcEncCfg;
   m_pcTrQuant                    = pcTrQuant;
   m_pcRdCost                     = pcRdCost;
+#if JEM_TOOLS
+  m_bilateralFilter              = bilateralFilter;
+#endif
   m_CABACEstimator               = CABACEstimator;
   m_CtxCache                     = ctxCache;
 
@@ -201,7 +223,8 @@ Void IntraSearch::init( EncCfg*        pcEncCfg,
 
   bool BTnoRQT = m_pcEncCfg->getQTBT();
 
-  const UInt uiNumLayersToAllocate = BTnoRQT ? 1 : pcEncCfg->getQuadtreeTULog2MaxSize() - pcEncCfg->getQuadtreeTULog2MinSize() + 1;
+  const UInt uiNumLayersToAllocateSplit = BTnoRQT ? 1 : pcEncCfg->getQuadtreeTULog2MaxSize() - pcEncCfg->getQuadtreeTULog2MinSize() + 1;
+  const UInt uiNumLayersToAllocateFull  = BTnoRQT ? 1 : pcEncCfg->getQuadtreeTULog2MaxSize() - pcEncCfg->getQuadtreeTULog2MinSize() + 1;
 
   m_pBestCS = new CodingStructure**[numWidths];
   m_pTempCS = new CodingStructure**[numWidths];
@@ -224,19 +247,23 @@ Void IntraSearch::init( EncCfg*        pcEncCfg,
         m_pBestCS[width][height] = new CodingStructure( m_unitCache.cuCache, m_unitCache.puCache, m_unitCache.tuCache );
         m_pTempCS[width][height] = new CodingStructure( m_unitCache.cuCache, m_unitCache.puCache, m_unitCache.tuCache );
 
-        m_pBestCS[width][height]->create( m_pcEncCfg->getChromaFormatIdc(), Area( 0, 0, gp_sizeIdxInfo->sizeFrom( width ), gp_sizeIdxInfo->sizeFrom( height ) ) );
-        m_pTempCS[width][height]->create( m_pcEncCfg->getChromaFormatIdc(), Area( 0, 0, gp_sizeIdxInfo->sizeFrom( width ), gp_sizeIdxInfo->sizeFrom( height ) ) );
+        m_pBestCS[width][height]->create( m_pcEncCfg->getChromaFormatIdc(), Area( 0, 0, gp_sizeIdxInfo->sizeFrom( width ), gp_sizeIdxInfo->sizeFrom( height ) ), false );
+        m_pTempCS[width][height]->create( m_pcEncCfg->getChromaFormatIdc(), Area( 0, 0, gp_sizeIdxInfo->sizeFrom( width ), gp_sizeIdxInfo->sizeFrom( height ) ), false );
+        m_pFullCS [width][height] = new CodingStructure*[uiNumLayersToAllocateFull];
+        m_pSplitCS[width][height] = new CodingStructure*[uiNumLayersToAllocateSplit];
 
-        m_pFullCS [width][height] = new CodingStructure*[uiNumLayersToAllocate];
-        m_pSplitCS[width][height] = new CodingStructure*[uiNumLayersToAllocate];
-
-        for( UInt layer = 0; layer < uiNumLayersToAllocate; layer++ )
+        for( UInt layer = 0; layer < uiNumLayersToAllocateFull; layer++ )
         {
           m_pFullCS [width][height][layer] = new CodingStructure( m_unitCache.cuCache, m_unitCache.puCache, m_unitCache.tuCache );
+
+          m_pFullCS [width][height][layer]->create( m_pcEncCfg->getChromaFormatIdc(), Area( 0, 0, gp_sizeIdxInfo->sizeFrom( width ), gp_sizeIdxInfo->sizeFrom( height ) ), false );
+        }
+
+        for( UInt layer = 0; layer < uiNumLayersToAllocateSplit; layer++ )
+        {
           m_pSplitCS[width][height][layer] = new CodingStructure( m_unitCache.cuCache, m_unitCache.puCache, m_unitCache.tuCache );
 
-          m_pFullCS [width][height][layer]->create( m_pcEncCfg->getChromaFormatIdc(), Area( 0, 0, gp_sizeIdxInfo->sizeFrom( width ), gp_sizeIdxInfo->sizeFrom( height ) ) );
-          m_pSplitCS[width][height][layer]->create( m_pcEncCfg->getChromaFormatIdc(), Area( 0, 0, gp_sizeIdxInfo->sizeFrom( width ), gp_sizeIdxInfo->sizeFrom( height ) ) );
+          m_pSplitCS[width][height][layer]->create( m_pcEncCfg->getChromaFormatIdc(), Area( 0, 0, gp_sizeIdxInfo->sizeFrom( width ), gp_sizeIdxInfo->sizeFrom( height ) ), false );
         }
       }
       else
@@ -250,12 +277,14 @@ Void IntraSearch::init( EncCfg*        pcEncCfg,
     }
   }
 
-  m_pSaveCS = new CodingStructure*[uiNumLayersToAllocate + 1];
+  const int uiNumSaveLayersToAllocate = 2;
 
-  for( UInt depth = 0; depth <= uiNumLayersToAllocate; depth++ )
+  m_pSaveCS = new CodingStructure*[uiNumSaveLayersToAllocate];
+
+  for( UInt depth = 0; depth < uiNumSaveLayersToAllocate; depth++ )
   {
     m_pSaveCS[depth] = new CodingStructure( m_unitCache.cuCache, m_unitCache.puCache, m_unitCache.tuCache );
-    m_pSaveCS[depth]->create( UnitArea( cform, Area( 0, 0, maxCUWidth, maxCUHeight ) ) );
+    m_pSaveCS[depth]->create( UnitArea( cform, Area( 0, 0, maxCUWidth, maxCUHeight ) ), false );
   }
 
   m_isInitialized = true;
@@ -266,17 +295,18 @@ Void IntraSearch::init( EncCfg*        pcEncCfg,
 // INTRA PREDICTION
 //////////////////////////////////////////////////////////////////////////
 
-Void IntraSearch::estIntraPredLumaQT(CodingUnit &cu, Partitioner &partitioner)
+Void IntraSearch::estIntraPredLumaQT( CodingUnit &cu, Partitioner &partitioner )
 {
   CodingStructure       &cs            = *cu.cs;
   const SPS             &sps           = *cs.sps;
   const UInt             uiWidthBit    = cs.pcv->rectCUs ? g_aucLog2[partitioner.currArea().lwidth() ] : CU::getIntraSizeIdx(cu);
   const UInt             uiHeightBit   =                   g_aucLog2[partitioner.currArea().lheight()];
+#if HEVC_TOOLS
   const UInt             uiNumPU       = CU::getNumPUs( cu );
+#endif
+#if JEM_TOOLS
   auto                   slsCtrl       = dynamic_cast<SaveLoadEncInfoCtrl*>( m_modeCtrl );
-
-  static_vector< Double, FAST_UDI_MAX_RDMODE_NUM > CandCostList( FAST_UDI_MAX_RDMODE_NUM, MAX_DOUBLE );
-  static_vector< Double, FAST_UDI_MAX_RDMODE_NUM > CandHadList ( FAST_UDI_MAX_RDMODE_NUM, MAX_DOUBLE );
+#endif
 
   // Lambda calculation at equivalent Qp of 4 is recommended because at that Qp, the quantization divisor is 1.
   const double sqrtLambdaForFirstPass = m_pcRdCost->getMotionLambda(cu.transQuantBypass) / double(1 << SCALE_BITS);
@@ -285,27 +315,37 @@ Void IntraSearch::estIntraPredLumaQT(CodingUnit &cu, Partitioner &partitioner)
   //===== loop over partitions =====
 
   const TempCtx ctxStart          ( m_CtxCache, m_CABACEstimator->getCtx() );
-  const TempCtx ctxStartIntraMode ( m_CtxCache, SubCtx( Ctx::IPredMode[CHANNEL_TYPE_LUMA], m_CABACEstimator->getCtx() ) );
+  const TempCtx ctxStartIntraMode ( m_CtxCache, SubCtx( Ctx::IPredMode[CHANNEL_TYPE_LUMA],        m_CABACEstimator->getCtx() ) );
 
+#if HEVC_TOOLS
   if( uiNumPU > 1 ) partitioner.splitCurrArea( TU_QUAD_SPLIT, cs );
 
+#endif
   CHECK( !cu.firstPU, "CU has no PUs" );
+  const bool keepResi   = cs.pps->getPpsRangeExtension().getCrossComponentPredictionEnabledFlag() || KEEP_PRED_AND_RESI_SIGNALS;
 
-  Bool keepResi         = cu.cs->pps->getPpsRangeExtension().getCrossComponentPredictionEnabledFlag() || KEEP_PRED_AND_RESI_SIGNALS;
-
+#if JEM_TOOLS
   // variables for saving fast intra modes scan results across multiple NSST passes
-  Bool NSSTLoadFlag     = cu.nsstIdx != 0 && sps.getSpsNext().getUseNSST();
-  Bool NSSTSaveFlag     = cu.nsstIdx == 0 && sps.getSpsNext().getUseNSST() && !cu.pdpc;
-  NSSTSaveFlag         &= sps.getSpsNext().getUseIntraEMT() ? cu.emtFlag == 0 : true;
-  UInt extraModes       = sps.getSpsNext().getUseNSST() ? 2 : 0; // add two extra modes, which would be used after uiMode <= DC_IDX is removed for cu.nsstIdx == 3
+  bool NSSTLoadFlag = sps.getSpsNext().getUseNSST() && cu.nsstIdx != 0;
+  bool NSSTSaveFlag = sps.getSpsNext().getUseNSST() && cu.nsstIdx == 0 && !cu.pdpc;
 
+  NSSTSaveFlag &= sps.getSpsNext().getUseIntraEMT() ? cu.emtFlag == 0 : true;
+#endif
+
+#if JEM_TOOLS
+  UInt extraModes = sps.getSpsNext().getUseNSST() ? 2 : 0; // add two extra modes, which would be used after uiMode <= DC_IDX is removed for cu.nsstIdx == 3
+#else
+  UInt extraModes = 0; // add two extra modes, which would be used after uiMode <= DC_IDX is removed for cu.nsstIdx == 3
+#endif
+
+
+#if JEM_TOOLS
   const int width   = partitioner.currArea().lwidth();
   const int height  = partitioner.currArea().lheight();
-  //cost variables for the EMT algorithm and new modes list
-  static Double bestModeCostStore [4]; // RD cost of the best mode for each PU using DCT2
-  static Double modeCostStore     [4][NUM_LUMA_MODE]; // RD cost of each mode for each PU using DCT2
-  static UInt   savedRdModeList   [4][NUM_LUMA_MODE], savedNumRdModes[4];
+#endif
 
+
+#if JEM_TOOLS
   // Marking EMT usage for faster EMT
   // 0: EMT is either not applicable for current CU (cuWidth > EMT_INTRA_MAX_CU or cuHeight > EMT_INTRA_MAX_CU), not active in the config file or the fast decision algorithm is not used in this case
   // 1: EMT fast algorithm can be applied for the current CU, and the DCT2 is being checked
@@ -328,34 +368,40 @@ Void IntraSearch::estIntraPredLumaQT(CodingUnit &cu, Partitioner &partitioner)
     //not very sure about this command. It should be further checked when the EMT and the NSST are combined!!!
     NSSTSaveFlag |= m_pcEncCfg->getNSST() && m_pcEncCfg->getIntraEMT() && slsCtrl && m_pcEncCfg->getUseSaveLoadEncInfo() && LOAD_ENC_INFO == slsCtrl->getSaveLoadTag( cu );
   }
+#if HEVC_TOOLS
   else if( cu.partSize == SIZE_NxN && !isAllIntra )
   {
     emtUsageFlag = 0; //this forces the recalculation of the candidates list. Why is it necessary? (to be checked)
   }
+#endif
   NSSTLoadFlag &= !(m_pcEncCfg->getNSST() && m_pcEncCfg->getUseSaveLoadEncInfo() && (LOAD_ENC_INFO == slsCtrl->getSaveLoadTag(cu)));
-
+#endif
+#if HEVC_TOOLS
   UInt puIndex = 0;
+#endif
 
-  // TODO - remove static variables
-  static static_vector<UInt,   FAST_UDI_MAX_RDMODE_NUM> uiSavedRdModeListNSST ( FAST_UDI_MAX_RDMODE_NUM, 0u );
-  static UInt                                           uiSavedNumRdModesNSST = 0;
-  static static_vector<UInt,   FAST_UDI_MAX_RDMODE_NUM> uiSavedHadModeListNSST( FAST_UDI_MAX_RDMODE_NUM, 0u );
-  static static_vector<Double, FAST_UDI_MAX_RDMODE_NUM> dSavedModeCostNSST    ( FAST_UDI_MAX_RDMODE_NUM, MAX_DOUBLE );
-  static static_vector<Double, FAST_UDI_MAX_RDMODE_NUM> dSavedHadListNSST     ( FAST_UDI_MAX_RDMODE_NUM, MAX_DOUBLE );
-  // dummy variable, just needed to for the call to updateCandList
-  static static_vector<UInt,   FAST_UDI_MAX_RDMODE_NUM> uiHadModeList         ( FAST_UDI_MAX_RDMODE_NUM, 0u );
+  static_vector<UInt,   FAST_UDI_MAX_RDMODE_NUM> uiHadModeList;
+  static_vector<Double, FAST_UDI_MAX_RDMODE_NUM> CandCostList;
+  static_vector<Double, FAST_UDI_MAX_RDMODE_NUM> CandHadList;
 
-  uiHadModeList.clear();
-  uiHadModeList.resize( NUM_LUMA_MODE, 0u );
-
+#if HEVC_TOOLS
   for( auto &pu : CU::traversePUs( cu ) )
+#else
+  auto &pu = *cu.firstPU;
+#if JEM_TOOLS
+  int puIndex = 0;
+#endif
+#endif
   {
+    CandHadList.clear();
+    CandCostList.clear();
+    uiHadModeList.clear();
+
     CHECK(pu.cu != &cu, "PU is not contained in the CU");
 
-
     //===== determine set of modes to be tested (using prediction signal only) =====
-    const Int numModesAvailable = NUM_LUMA_MODE; // total number of Intra modes
-    static_vector< UInt, FAST_UDI_MAX_RDMODE_NUM > uiRdModeList( FAST_UDI_MAX_RDMODE_NUM, 0u );
+    Int numModesAvailable = NUM_LUMA_MODE; // total number of Intra modes
+    static_vector< UInt, FAST_UDI_MAX_RDMODE_NUM > uiRdModeList;
 
     Int numModesForFullRD = 3;
     if( cs.pcv->rectCUs )
@@ -365,18 +411,22 @@ Void IntraSearch::estIntraPredLumaQT(CodingUnit &cu, Partitioner &partitioner)
     else
     {
       numModesForFullRD = m_pcEncCfg->getFastUDIUseMPMEnabled() ? g_aucIntraModeNumFast_UseMPM[uiWidthBit] : g_aucIntraModeNumFast_NotUseMPM[uiWidthBit];
+#if JEM_TOOLS
       if( cs.sps->getSpsNext().getUseIntra65Ang() )
       {
         numModesForFullRD -= 1;
       }
+#endif
     }
 
 #if INTRA_FULL_SEARCH
     numModesForFullRD = numModesAvailable;
 #endif
 
-    UInt* rdModeListPointer = &uiRdModeList[0];
+
+#if JEM_TOOLS
     if( emtUsageFlag != 2 )
+#endif
     {
       // this should always be true
       CHECK( !pu.Y().valid(), "PU is not valid" );
@@ -387,11 +437,6 @@ Void IntraSearch::estIntraPredLumaQT(CodingUnit &cu, Partitioner &partitioner)
       if( numModesForFullRD != numModesAvailable )
       {
         CHECK( numModesForFullRD >= numModesAvailable, "Too many modes for full RD search" );
-
-        for (Int i = 0; i < numModesForFullRD + extraModes; i++)
-        {
-          CandCostList[ i ] = MAX_DOUBLE;
-        }
 
         const CompArea &area = pu.Y();
 
@@ -409,17 +454,20 @@ Void IntraSearch::estIntraPredLumaQT(CodingUnit &cu, Partitioner &partitioner)
         bool bSatdChecked[NUM_INTRA_MODE];
         memset( bSatdChecked, 0, sizeof( bSatdChecked ) );
 
+#if JEM_TOOLS
         if( !NSSTLoadFlag )
+#endif
         {
           for( Int modeIdx = 0; modeIdx < numModesAvailable; modeIdx++ )
           {
             UInt       uiMode = modeIdx;
             Distortion uiSad  = 0;
-
+#if JEM_TOOLS
             if( ( cu.partSize == SIZE_2Nx2N ) && cu.nsstIdx >= ( uiMode <= DC_IDX ? 3 : 4 ) )
             {
               continue;
             }
+#endif
 
             // Skip checking extended Angular modes in the first round of SATD
             if( uiMode > DC_IDX && ( uiMode & 1 ) )
@@ -431,46 +479,56 @@ Void IntraSearch::estIntraPredLumaQT(CodingUnit &cu, Partitioner &partitioner)
 
             pu.intraDir[0] = modeIdx;
 
-            const bool bUseFilter = IntraPrediction::useFilteredIntraRefSamples( COMPONENT_Y, pu, true, pu );
-
-            predIntraAng(COMPONENT_Y, piOrg, piPred, pu, bUseFilter, IntraSearch::useDPCMForFirstPassIntraEstimation(pu, uiMode));
-
+            if( useDPCMForFirstPassIntraEstimation( pu, uiMode ) )
+            {
+              encPredIntraDPCM( COMPONENT_Y, piOrg, piPred, uiMode );
+            }
+            else
+            {
+              predIntraAng( COMPONENT_Y, piPred, pu, IntraPrediction::useFilteredIntraRefSamples( COMPONENT_Y, pu, true, pu ) );
+            }
             // use Hadamard transform here
             uiSad += distParam.distFunc(distParam);
-
-            DTRACE( g_trace_ctx, D_INTRA_COST, "IntraHAD: %f (%d) \n", uiSad, uiMode );
 
             // NB xFracModeBitsIntra will not affect the mode for chroma that may have already been pre-estimated.
             m_CABACEstimator->getCtx() = SubCtx( Ctx::IPredMode[CHANNEL_TYPE_LUMA], ctxStartIntraMode );
 
             UInt64 fracModeBits = xFracModeBitsIntra(pu, uiMode, CHANNEL_TYPE_LUMA);
 
-            Double cost = (Double) uiSad + (Double) fracModeBits * sqrtLambdaForFirstPass;
+            Double cost = ( Double ) uiSad + ( Double ) fracModeBits * sqrtLambdaForFirstPass;
+
+            DTRACE( g_trace_ctx, D_INTRA_COST, "IntraHAD: %u, %llu, %f (%d)\n", uiSad, fracModeBits, cost, uiMode );
 
             updateCandList( uiMode, cost,  uiRdModeList, CandCostList, numModesForFullRD + extraModes );
             updateCandList( uiMode, uiSad, uiHadModeList, CandHadList, 3                 + extraModes );
           }
+#if JEM_TOOLS
           if( NSSTSaveFlag )
           {
             // save found best modes
-            uiSavedNumRdModesNSST  = numModesForFullRD;
-            uiSavedRdModeListNSST  = uiRdModeList;
-            dSavedModeCostNSST     = CandCostList;
+            m_uiSavedNumRdModesNSST  = numModesForFullRD;
+            m_uiSavedRdModeListNSST  = uiRdModeList;
+            m_dSavedModeCostNSST     = CandCostList;
             // PBINTRA fast
-            uiSavedHadModeListNSST = uiHadModeList;
-            dSavedHadListNSST      = CandHadList;
-            NSSTSaveFlag           = false;
+            m_uiSavedHadModeListNSST = uiHadModeList;
+            m_dSavedHadListNSST      = CandHadList;
+            NSSTSaveFlag             = false;
           }
+#endif
         } // NSSTFlag
+
+#if JEM_TOOLS
         else
         {
+
           // restore saved modes
-          numModesForFullRD = uiSavedNumRdModesNSST;
-          uiRdModeList      = uiSavedRdModeListNSST;
-          CandCostList      = dSavedModeCostNSST;
+          numModesForFullRD = m_uiSavedNumRdModesNSST;
+          uiRdModeList      = m_uiSavedRdModeListNSST;
+          CandCostList      = m_dSavedModeCostNSST;
           // PBINTRA fast
-          uiHadModeList     = uiSavedHadModeListNSST;
-          CandHadList       = dSavedHadListNSST;
+          uiHadModeList     = m_uiSavedHadModeListNSST;
+          CandHadList       = m_dSavedHadListNSST;
+
 
           if( cu.nsstIdx == 3 && cu.partSize == SIZE_2Nx2N )
           {
@@ -504,6 +562,7 @@ Void IntraSearch::estIntraPredLumaQT(CodingUnit &cu, Partitioner &partitioner)
                     uiHadModeList[j] = uiHadModeList[j + 1];
                     CandHadList[j]   = CandHadList  [j + 1];
                   }
+
                   cnt++;
                   i--;
                 }
@@ -512,7 +571,11 @@ Void IntraSearch::estIntraPredLumaQT(CodingUnit &cu, Partitioner &partitioner)
           }
           NSSTLoadFlag = false;
         } // !NSSTFlag
+#endif
+        // forget the extra modes
+        uiRdModeList.resize( numModesForFullRD );
 
+#if JEM_TOOLS
         if( cs.sps->getSpsNext().getUseIntra65Ang() )
         {
           static_vector<UInt, FAST_UDI_MAX_RDMODE_NUM> uiParentCandList( FAST_UDI_MAX_RDMODE_NUM );
@@ -537,10 +600,14 @@ Void IntraSearch::estIntraPredLumaQT(CodingUnit &cu, Partitioner &partitioner)
                 {
                   pu.intraDir[0] = uiMode;
 
-                  const bool bUseFilter = IntraPrediction::useFilteredIntraRefSamples( COMPONENT_Y, pu, true, pu );
-
-                  predIntraAng( COMPONENT_Y, piOrg, piPred, pu, bUseFilter, IntraSearch::useDPCMForFirstPassIntraEstimation( pu, uiMode ) );
-
+                  if( useDPCMForFirstPassIntraEstimation( pu, uiMode ) )
+                  {
+                    encPredIntraDPCM( COMPONENT_Y, piOrg, piPred, uiMode );
+                  }
+                  else
+                  {
+                    predIntraAng( COMPONENT_Y, piPred, pu, IntraPrediction::useFilteredIntraRefSamples( COMPONENT_Y, pu, true, pu ) );
+                  }
                   // use Hadamard transform here
                   Distortion uiSad = distParam.distFunc( distParam );
 
@@ -561,6 +628,7 @@ Void IntraSearch::estIntraPredLumaQT(CodingUnit &cu, Partitioner &partitioner)
           }
         }
 
+#endif
         if( m_pcEncCfg->getFastUDIUseMPMEnabled() )
         {
           unsigned  numMPMs = pu.cs->pcv->numMPMs;
@@ -571,20 +639,23 @@ Void IntraSearch::estIntraPredLumaQT(CodingUnit &cu, Partitioner &partitioner)
           for( Int j = 0; j < numCand; j++ )
           {
             Bool mostProbableModeIncluded = false;
-            Int mostProbableMode = uiPreds[j];
+            Int  mostProbableMode         = uiPreds[j];
 
+#if JEM_TOOLS
             if( cu.partSize == SIZE_2Nx2N && cu.nsstIdx >= ( mostProbableMode <= DC_IDX ? 3 : 4 ) )
             {
               continue;
             }
+#endif
 
-            for (Int i = 0; i < numModesForFullRD; i++)
+            for( Int i = 0; i < numModesForFullRD; i++ )
             {
-              mostProbableModeIncluded |= (mostProbableMode == uiRdModeList[i]);
+              mostProbableModeIncluded |= ( mostProbableMode == uiRdModeList[i] );
             }
-            if (!mostProbableModeIncluded)
+            if( !mostProbableModeIncluded )
             {
-              uiRdModeList[numModesForFullRD++] = mostProbableMode;
+              numModesForFullRD++;
+              uiRdModeList.push_back( mostProbableMode );
             }
           }
         }
@@ -593,16 +664,19 @@ Void IntraSearch::estIntraPredLumaQT(CodingUnit &cu, Partitioner &partitioner)
       {
         for( Int i = 0; i < numModesForFullRD; i++ )
         {
-          uiRdModeList[i] = i;
+          uiRdModeList.push_back( i );
         }
       }
+#if JEM_TOOLS
       if( emtUsageFlag == 1 )
       {
         // Store the modes to be checked with RD
-        savedNumRdModes[puIndex] = numModesForFullRD;
-        ::memcpy( savedRdModeList[puIndex], rdModeListPointer, numModesForFullRD * sizeof( UInt ) );
+        m_savedNumRdModes[puIndex] = numModesForFullRD;
+        std::copy_n( uiRdModeList.begin(), numModesForFullRD, m_savedRdModeList[puIndex] );
       }
+#endif
     }
+#if JEM_TOOLS
     else //emtUsage = 2 (here we potentially reduce the number of modes that will be full-RD checked)
     {
       if( isAllIntra && m_pcEncCfg->getFastIntraEMT() )
@@ -623,50 +697,63 @@ Void IntraSearch::estIntraPredLumaQT(CodingUnit &cu, Partitioner &partitioner)
           default: thresholdSkipMode = 1.06; break; // Skip checking 32x32 Intra modes using the R-D cost in the DCT2-pass
           }
         }
+
         numModesForFullRD = 0;
 
         // Skip checking the modes with much larger R-D cost than the best mode
-        for( Int i = 0; i < savedNumRdModes[puIndex]; i++ )
+        for( Int i = 0; i < m_savedNumRdModes[puIndex]; i++ )
         {
-          if( modeCostStore[puIndex][i] <= thresholdSkipMode * bestModeCostStore[puIndex] )
+          if( m_modeCostStore[puIndex][i] <= thresholdSkipMode * m_bestModeCostStore[puIndex] )
           {
-            rdModeListPointer[numModesForFullRD++] = savedRdModeList[puIndex][i];
+            uiRdModeList.push_back( m_savedRdModeList[puIndex][i] );
+            numModesForFullRD++;
           }
         }
       }
       else //this is necessary because we skip the candidates list calculation, since it was already obtained for the DCT-II. Now we load it
       {
         // Restore the modes to be checked with RD
-        numModesForFullRD = savedNumRdModes[puIndex];
-        ::memcpy( rdModeListPointer, savedRdModeList[puIndex], numModesForFullRD * sizeof( UInt ) );
+        numModesForFullRD = m_savedNumRdModes[puIndex];
+        uiRdModeList.resize( numModesForFullRD );
+        std::copy_n( m_savedRdModeList[puIndex], m_savedNumRdModes[puIndex], uiRdModeList.begin() );
       }
     }
+#endif
+
+
+    CHECK( numModesForFullRD != uiRdModeList.size(), "Inconsistent state!" );
+
+    // after this point, don't use numModesForFullRD
 
     // PBINTRA fast
-    if( m_pcEncCfg->getUsePbIntraFast() && !cs.slice->isIntra() && cu.partSize == SIZE_2Nx2N && numModesForFullRD < numModesAvailable && emtUsageFlag != 2 )
+#if JEM_TOOLS
+    if( m_pcEncCfg->getUsePbIntraFast() && !cs.slice->isIntra() && cu.partSize == SIZE_2Nx2N && uiRdModeList.size() < numModesAvailable && emtUsageFlag != 2 )
+#else
+    if( m_pcEncCfg->getUsePbIntraFast() && !cs.slice->isIntra() && cu.partSize == SIZE_2Nx2N && uiRdModeList.size() < numModesAvailable )
+#endif
     {
-      if( CandHadList[2] > cs.interHad * PBINTRA_RATIO )
+      if( CandHadList.size() < 3 || CandHadList[2] > cs.interHad * PBINTRA_RATIO )
       {
-        numModesForFullRD = 2;
+        uiRdModeList.resize( std::min<size_t>( uiRdModeList.size(), 2 ) );
       }
-      if( CandHadList[1] > cs.interHad * PBINTRA_RATIO )
+      if( CandHadList.size() < 2 || CandHadList[1] > cs.interHad * PBINTRA_RATIO )
       {
-        numModesForFullRD = 1;
+        uiRdModeList.resize( std::min<size_t>( uiRdModeList.size(), 1 ) );
       }
-      if( CandHadList[0] > cs.interHad * PBINTRA_RATIO )
+      if( CandHadList.size() < 1 || CandHadList[0] > cs.interHad * PBINTRA_RATIO )
       {
         cs.dist     = MAX_UINT;
         cs.interHad = 0;
 
         //===== reset context models =====
-        m_CABACEstimator->getCtx() = SubCtx( Ctx::IPredMode[CHANNEL_TYPE_LUMA], ctxStartIntraMode );
+        m_CABACEstimator->getCtx() = SubCtx( Ctx::IPredMode       [CHANNEL_TYPE_LUMA], ctxStartIntraMode );
 
         return;
       }
     }
 
     //===== check modes (using r-d costs) =====
-#if HHI_RQT_INTRA_SPEEDUP_MOD
+#if ENABLE_RQT_INTRA_SPEEDUP_MOD
     UInt   uiSecondBestMode  = MAX_UINT;
     Double dSecondBestPUCost = MAX_DOUBLE;
 #endif
@@ -680,6 +767,8 @@ Void IntraSearch::estIntraPredLumaQT(CodingUnit &cu, Partitioner &partitioner)
     csTemp->initStructData();
     csBest->initStructData();
 
+    // just to be sure
+    numModesForFullRD = ( int ) uiRdModeList.size();
     for (UInt uiMode = 0; uiMode < numModesForFullRD; uiMode++)
     {
       // set luma prediction mode
@@ -687,40 +776,53 @@ Void IntraSearch::estIntraPredLumaQT(CodingUnit &cu, Partitioner &partitioner)
 
       pu.intraDir[0] = uiOrgMode;
 
+
       // set context models
       m_CABACEstimator->getCtx() = ctxStart;
 
       // determine residual for partition
-      cs.initSubStructure( *csTemp, cs.area, true );
+      cs.initSubStructure( *csTemp, partitioner.chType, cs.area, true );
 
-#if HHI_RQT_INTRA_SPEEDUP
+#if ENABLE_RQT_INTRA_SPEEDUP
+#if JEM_TOOLS
+      xRecurIntraCodingLumaQT( *csTemp, partitioner, true, -1 );
+#else
       xRecurIntraCodingLumaQT( *csTemp, partitioner, true );
+#endif
 #else
       xRecurIntraCodingLumaQT( *csTemp, partitioner );
 #endif
 
+#if JEM_TOOLS 
       if( emtUsageFlag == 1 && m_pcEncCfg->getFastIntraEMT() )
       {
-        modeCostStore[puIndex][uiMode] = csTemp->cost; //cs.cost;
+        m_modeCostStore[puIndex][uiMode] = csTemp->cost; //cs.cost;
       }
+#endif
+
 
       DTRACE( g_trace_ctx, D_INTRA_COST, "IntraCost T %f (%d) \n", csTemp->cost, uiOrgMode );
+
       // check r-d cost
       if( csTemp->cost < csBest->cost )
       {
         std::swap( csTemp, csBest );
 
-#if HHI_RQT_INTRA_SPEEDUP_MOD
+
+#if ENABLE_RQT_INTRA_SPEEDUP_MOD
         uiSecondBestMode  = uiBestPUMode;
         dSecondBestPUCost = csTemp->cost;
 #endif
         uiBestPUMode  = uiOrgMode;
+
+#if JEM_TOOLS
         if( ( emtUsageFlag == 1 ) && m_pcEncCfg->getFastIntraEMT() )
         {
-          bestModeCostStore[puIndex] = csBest->cost; //cs.cost;
+          m_bestModeCostStore[puIndex] = csBest->cost; //cs.cost;
         }
+#endif
       }
-#if HHI_RQT_INTRA_SPEEDUP_MOD
+#if ENABLE_RQT_INTRA_SPEEDUP_MOD
       else if( csTemp->cost < dSecondBestPUCost )
       {
         uiSecondBestMode  = uiOrgMode;
@@ -730,17 +832,23 @@ Void IntraSearch::estIntraPredLumaQT(CodingUnit &cu, Partitioner &partitioner)
 
       csTemp->releaseIntermediateData();
     } // Mode loop
-
+#if HEVC_TOOLS
     // don't need to run full depth search - with QTBT there is only tr depth 0
     if( !cs.pcv->noRQT && pu.lwidth() > MIN_TU_SIZE )
     {
-#if HHI_RQT_INTRA_SPEEDUP
-#if HHI_RQT_INTRA_SPEEDUP_MOD
+#if ENABLE_RQT_INTRA_SPEEDUP
+#if ENABLE_RQT_INTRA_SPEEDUP_MOD
       for( UInt ui = 0; ui < 2; ++ui )
 #endif
       {
-#if HHI_RQT_INTRA_SPEEDUP_MOD
+#if ENABLE_RQT_INTRA_SPEEDUP_MOD
         UInt uiOrgMode = ui ? uiSecondBestMode : uiBestPUMode;
+        cu.diffFilterIdx = ui ? uiSecondBestDiffFilter : uiBestDiffFilter;
+        if( pu.cu->intra_NN )
+        {
+          pu.intraNN_Mode_True = m_modeListNN[uiOrgMode];
+        }
+
         if( uiOrgMode == MAX_UINT )
         {
           break;
@@ -755,12 +863,15 @@ Void IntraSearch::estIntraPredLumaQT(CodingUnit &cu, Partitioner &partitioner)
         m_CABACEstimator->getCtx() = ctxStart;
 
         // determine residual for partition
-        cs.initSubStructure( *csTemp, cs.area, true );
-
+        cs.initSubStructure( *csTemp, partitioner.chType, cs.area, true );
+#if JEM_TOOLS
         const UnitArea &currAreaAux = partitioner.currArea();
-        const CodingUnit &cuAux     = *csBest->getCU( currAreaAux.lumaPos() );
+        const CodingUnit &cuAux     = *csBest->getCU( currAreaAux.lumaPos(), partitioner.chType );
         int savedEmtIndex           = cuAux.firstTU->transformSkip[COMPONENT_Y] ? -2 : cuAux.firstTU->emtIdx; //the -2 indicates that the winner was transformSkip
         xRecurIntraCodingLumaQT( *csTemp, partitioner, false, savedEmtIndex );
+#else
+        xRecurIntraCodingLumaQT( *csTemp, partitioner, false );
+#endif
 
         DTRACE( g_trace_ctx, D_INTRA_COST, "IntraCost F %f (%d) \n", csTemp->cost, uiOrgMode );
         // check r-d cost
@@ -775,17 +886,20 @@ Void IntraSearch::estIntraPredLumaQT(CodingUnit &cu, Partitioner &partitioner)
       } // Mode loop
 #endif
     }
+#endif
 
-    cs.useSubStructure( *csBest, pu.singleChan( CHANNEL_TYPE_LUMA ), KEEP_PRED_AND_RESI_SIGNALS, true, keepResi, keepResi );
+    cs.useSubStructure( *csBest, partitioner.chType, pu.singleChan( CHANNEL_TYPE_LUMA ), KEEP_PRED_AND_RESI_SIGNALS, true, keepResi, keepResi );
 
     csBest->releaseIntermediateData();
-
     //=== update PU data ====
-    pu.intraDir[0] = uiBestPUMode;
+#if HEVC_TOOLS
     if( uiNumPU > 1 ) partitioner.nextPart( cs );
     puIndex = puIndex + 1;
+#endif
+    pu.intraDir[0] = uiBestPUMode;
   }
 
+#if HEVC_TOOLS
   if (uiNumPU > 1)
   {
     partitioner.exitCurrSplit();
@@ -803,6 +917,7 @@ Void IntraSearch::estIntraPredLumaQT(CodingUnit &cu, Partitioner &partitioner)
     }
   }
 
+#endif
   //===== reset context models =====
   m_CABACEstimator->getCtx() = ctxStart;
 }
@@ -810,23 +925,30 @@ Void IntraSearch::estIntraPredLumaQT(CodingUnit &cu, Partitioner &partitioner)
 Void IntraSearch::estIntraPredChromaQT(CodingUnit &cu, Partitioner &partitioner)
 {
   const ChromaFormat format   = cu.chromaFormat;
+#if HEVC_TOOLS
   const UInt    uiNumPU       = enable4ChromaPUsInIntraNxNCU( cu.chromaFormat ) ? CU::getNumPUs( cu ) : 1;
+#endif
   const UInt    numberValidComponents = getNumberValidComponents(format);
   CodingStructure &cs = *cu.cs;
-
   const TempCtx ctxStart  ( m_CtxCache, m_CABACEstimator->getCtx() );
 
   cs.setDecomp( cs.area.Cb(), false );
 
+#if HEVC_TOOLS
   if( uiNumPU > 1 ) partitioner.splitCurrArea( TU_QUAD_SPLIT, cs );
 
   for( auto &pu : CU::traversePUs( cu ) )
+#else
+  auto &pu = *cu.firstPU;
+
+#endif
   {
+#if HEVC_TOOLS
     if( !pu.blocks[1].valid() || !pu.blocks[2].valid() )
     {
       continue;
     }
-
+#endif
     UInt       uiBestMode = 0;
     Distortion uiBestDist = 0;
     Double     dBestCost = MAX_DOUBLE;
@@ -849,10 +971,11 @@ Void IntraSearch::estIntraPredChromaQT(CodingUnit &cu, Partitioner &partitioner)
 
       if( CS::isDualITree( cs ) )
       {
-        cs.addTU( CS::getArea( cs, partitioner.currArea() ) );
+        cs.addTU( CS::getArea( cs, partitioner.currArea(), partitioner.chType ), partitioner.chType );
       }
 
       std::vector<TransformUnit*> orgTUs;
+
 
       // create a store for the TUs
       for( const auto &ptu : cs.tus )
@@ -860,10 +983,11 @@ Void IntraSearch::estIntraPredChromaQT(CodingUnit &cu, Partitioner &partitioner)
         // for split TUs in HEVC, add the TUs without Chroma parts for correct setting of Cbfs
         if( pu.contains( *ptu, CHANNEL_TYPE_CHROMA ) || ( !cs.pcv->noRQT && !ptu->Cb().valid() && !ptu->Cr().valid() ) )
         {
-          saveCS.addTU( *ptu );
+          saveCS.addTU( *ptu, partitioner.chType );
           orgTUs.push_back( ptu );
         }
       }
+#if JEM_TOOLS
 
       UInt auiSATDModeList[LM_FILTER_NUM];
       if( pu.cs->pcv->noRQT && pu.cs->sps->getSpsNext().getUseLMChroma() && PU::isMFLMEnabled(pu))
@@ -926,27 +1050,33 @@ Void IntraSearch::estIntraPredChromaQT(CodingUnit &cu, Partitioner &partitioner)
           iCurLMMFIdx++;
         }
       }
+#endif
 
       // save the dist
       Distortion baseDist = cs.dist;
 
       for (UInt uiMode = uiMinMode; uiMode < uiMaxMode; uiMode++)
-    {
+      {
         const int chromaIntraMode = chromaCandModes[uiMode];
+#if JEM_TOOLS
 
         if( PU::isLMCMode( chromaIntraMode ) && ! PU::isLMCModeEnabled( pu, chromaIntraMode ) )
         {
           continue;
         }
-
+#endif
+#if JEM_TOOLS
         if( CS::isDualITree( cs ) && cu.nsstIdx == 3 )
         {
           int intraMode = chromaIntraMode;
+#if JEM_TOOLS
           if( PU::isLMCMode( chromaIntraMode ) )
           {
             intraMode = PLANAR_IDX;
           }
-          else if( intraMode == DM_CHROMA_IDX )
+          else
+#endif
+          if( intraMode == DM_CHROMA_IDX )
           {
             const PredictionUnit* lumaPu = cs.picture->cs->getPU( partitioner.currArea().lumaPos(), CHANNEL_TYPE_LUMA );
             intraMode = lumaPu->intraDir[0];
@@ -957,6 +1087,8 @@ Void IntraSearch::estIntraPredChromaQT(CodingUnit &cu, Partitioner &partitioner)
             continue;
           }
         }
+#endif
+#if JEM_TOOLS
         if( pu.cs->pcv->noRQT && pu.cs->sps->getSpsNext().isELMModeMFLM())
         {
           if( chromaIntraMode >= LM_CHROMA_F1_IDX &&  chromaIntraMode < LM_CHROMA_F1_IDX + LM_FILTER_NUM)
@@ -967,6 +1099,7 @@ Void IntraSearch::estIntraPredChromaQT(CodingUnit &cu, Partitioner &partitioner)
             }
           }
         }
+#endif
 
         cs.setDecomp( pu.Cb(), false );
         cs.dist = baseDist;
@@ -999,7 +1132,6 @@ Void IntraSearch::estIntraPredChromaQT(CodingUnit &cu, Partitioner &partitioner)
             saveCS.getPredBuf     ( area ).copyFrom( cs.getPredBuf   ( area ) );
             saveCS.getResiBuf     ( area ).copyFrom( cs.getResiBuf   ( area ) );
 #endif
-
             cs.picture->getRecoBuf( area ).copyFrom( cs.getRecoBuf( area ) );
 
             for( UInt j = 0; j < saveCS.tus.size(); j++ )
@@ -1029,7 +1161,6 @@ Void IntraSearch::estIntraPredChromaQT(CodingUnit &cu, Partitioner &partitioner)
         cs.getPredBuf         ( area ).copyFrom( saveCS.getPredBuf( area ) );
         cs.getResiBuf         ( area ).copyFrom( saveCS.getResiBuf( area ) );
 #endif
-
         cs.picture->getRecoBuf( area ).copyFrom( cs.    getRecoBuf( area ) );
 
         for( UInt j = 0; j < saveCS.tus.size(); j++ )
@@ -1047,9 +1178,12 @@ Void IntraSearch::estIntraPredChromaQT(CodingUnit &cu, Partitioner &partitioner)
 
     pu.intraDir[1] = uiBestMode;
     cs.dist        = uiBestDist;
+#if HEVC_TOOLS
     if( uiNumPU > 1 ) partitioner.nextPart( cs );
+#endif
   }
 
+#if HEVC_TOOLS
   if( uiNumPU > 1 )
   {
     partitioner.exitCurrSplit();
@@ -1069,17 +1203,18 @@ Void IntraSearch::estIntraPredChromaQT(CodingUnit &cu, Partitioner &partitioner)
     }
   }
 
+#endif
   //----- restore context models -----
   m_CABACEstimator->getCtx() = ctxStart;
 }
 
-Void IntraSearch::IPCMSearch(CodingStructure &cs)
+Void IntraSearch::IPCMSearch(CodingStructure &cs, Partitioner& partitioner)
 {
   for (UInt ch = 0; ch < getNumberValidTBlocks( *cs.pcv ); ch++)
   {
     const ComponentID compID = ComponentID(ch);
 
-    xEncPCM(cs, compID);
+    xEncPCM(cs, partitioner, compID);
   }
 
   cs.getPredBuf().fill(0);
@@ -1094,9 +1229,9 @@ Void IntraSearch::IPCMSearch(CodingStructure &cs)
   cs.picture->getRecoBuf(cs.area).copyFrom(cs.getRecoBuf());
 }
 
-Void IntraSearch::xEncPCM(CodingStructure &cs, const ComponentID &compID)
+Void IntraSearch::xEncPCM(CodingStructure &cs, Partitioner& partitioner, const ComponentID &compID)
 {
-  TransformUnit &tu = *cs.getTU();
+  TransformUnit &tu = *cs.getTU( partitioner.chType );
 
   const Int  channelBitDepth = cs.sps->getBitDepth(toChannelType(compID));
   const UInt uiPCMBitDepth = cs.sps->getPCMBitDepth(toChannelType(compID));
@@ -1128,8 +1263,10 @@ Void IntraSearch::xEncPCM(CodingStructure &cs, const ComponentID &compID)
 
 Void IntraSearch::xEncIntraHeader(CodingStructure &cs, Partitioner &partitioner, const Bool &bLuma, const Bool &bChroma)
 {
-  CodingUnit &cu = *cs.getCU();
+  CodingUnit &cu = *cs.getCU( partitioner.chType );
+#if HEVC_TOOLS
   UInt currDepth = partitioner.currTrDepth;
+#endif
 
   if (bLuma)
   {
@@ -1147,8 +1284,12 @@ Void IntraSearch::xEncIntraHeader(CodingStructure &cs, Partitioner &partitioner,
         m_CABACEstimator->cu_skip_flag( cu );
         m_CABACEstimator->pred_mode   ( cu );
       }
+#if JEM_TOOLS
       m_CABACEstimator->pdpc_flag ( cu );
+#endif
+#if HEVC_TOOLS
       m_CABACEstimator->part_mode ( cu );
+#endif
       if( CU::isIntra(cu) && cu.partSize == SIZE_2Nx2N )
       {
         m_CABACEstimator->pcm_data( cu );
@@ -1159,7 +1300,7 @@ Void IntraSearch::xEncIntraHeader(CodingStructure &cs, Partitioner &partitioner,
       }
     }
 
-    PredictionUnit &pu = *cs.getPU(partitioner.currArea().lumaPos());
+    PredictionUnit &pu = *cs.getPU(partitioner.currArea().lumaPos(), partitioner.chType);
 
     // luma prediction mode
     if (cu.partSize == SIZE_2Nx2N)
@@ -1169,6 +1310,7 @@ Void IntraSearch::xEncIntraHeader(CodingStructure &cs, Partitioner &partitioner,
         m_CABACEstimator->intra_luma_pred_mode( pu );
       }
     }
+#if HEVC_TOOLS
     else
     {
       if (currDepth > 0 && partitioner.currArea().lumaPos() == pu.lumaPos())
@@ -1176,23 +1318,31 @@ Void IntraSearch::xEncIntraHeader(CodingStructure &cs, Partitioner &partitioner,
         m_CABACEstimator->intra_luma_pred_mode( pu );
       }
     }
+#endif
   }
 
   if (bChroma)
   {
+#if HEVC_TOOLS
     const ChromaFormat format = cu.chromaFormat;
 
+#endif
     Bool isFirst = partitioner.currArea().Cb().valid() && partitioner.currArea().chromaPos() == cs.area.chromaPos();
 
-    PredictionUnit &pu = *cs.getPU(partitioner.currArea().chromaPos(), CHANNEL_TYPE_CHROMA);
+    PredictionUnit &pu = *cs.getPU( partitioner.currArea().chromaPos(), CHANNEL_TYPE_CHROMA );
 
-    if (cu.partSize == SIZE_2Nx2N || !enable4ChromaPUsInIntraNxNCU(format))
+#if HEVC_TOOLS
+    if( cu.partSize == SIZE_2Nx2N || !enable4ChromaPUsInIntraNxNCU( format ) )
+#else
+    if( cu.partSize == SIZE_2Nx2N )
+#endif
     {
-      if (isFirst)
+      if( isFirst )
       {
         m_CABACEstimator->intra_chroma_pred_mode( pu );
       }
     }
+#if HEVC_TOOLS
     else
     {
       CHECK(currDepth <= 0, "Depth is '0'");
@@ -1202,23 +1352,26 @@ Void IntraSearch::xEncIntraHeader(CodingStructure &cs, Partitioner &partitioner,
         m_CABACEstimator->intra_chroma_pred_mode( pu );
       }
     }
+#endif
   }
 }
 
 Void IntraSearch::xEncSubdivCbfQT(CodingStructure &cs, Partitioner &partitioner, const Bool &bLuma, const Bool &bChroma)
 {
   const UnitArea &currArea  = partitioner.currArea();
-  TransformUnit &currTU     = *cs.getTU( currArea.blocks[cs.chType] );
+  TransformUnit &currTU = *cs.getTU( currArea.blocks[partitioner.chType], partitioner.chType );
+#if HEVC_TOOLS
   CodingUnit    &currCU     = *currTU.cu;
   UInt      currDepth       = partitioner.currTrDepth;
 
   const Bool subdiv              = currTU.depth > currDepth;
   const UInt uiLog2LumaTrafoSize = g_aucLog2[currArea.lumaSize().width];
 
-  if (cs.pcv->noRQT)
+  if( cs.pcv->noRQT )
   {
     CHECK(subdiv, "No TU subdivision is allowed with QTBT");
   }
+
   else if (CU::isIntra(currCU) && currCU.partSize == SIZE_NxN && currDepth == 0)
   {
     CHECK(!subdiv, "Implicit subdivision ignored");
@@ -1250,6 +1403,7 @@ Void IntraSearch::xEncSubdivCbfQT(CodingStructure &cs, Partitioner &partitioner,
       }
     }
   }
+#endif
 
   if (bChroma)
   {
@@ -1262,25 +1416,33 @@ Void IntraSearch::xEncSubdivCbfQT(CodingStructure &cs, Partitioner &partitioner,
     {
       const ComponentID compID = ComponentID(ch);
 
+#if HEVC_TOOLS
       if (TU::isProcessingAllQuadrants(currArea) && (currDepth == 0 || TU::getCbfAtDepth(currTU, compID, currDepth - 1)))
       {
-        m_CABACEstimator->cbf_comp( TU::getCbfAtDepth(currTU, compID, currDepth), currArea.blocks[compID], currDepth );
+        m_CABACEstimator->cbf_comp( cs, TU::getCbfAtDepth( currTU, compID, currDepth ), currArea.blocks[compID], currDepth );
+
 #if ENABLE_CHROMA_422
         if( twoChromaCbfs )
         {
           const ComponentID compID2 = ComponentID(ch+SCND_TBLOCK_OFFSET);
-          m_CABACEstimator->cbf_comp( TU::getCbfAtDepth(currTU, compID2, currDepth), currArea.blocks[compID], currDepth );
+          m_CABACEstimator->cbf_comp( cs, TU::getCbfAtDepth(currTU, compID2, currDepth), currArea.blocks[compID], currDepth );
         }
 #endif
       }
+#else
+      m_CABACEstimator->cbf_comp( cs, TU::getCbf( currTU, compID ), currArea.blocks[compID] );
+#endif
     }
   }
 
+#if HEVC_TOOLS
   if (subdiv)
   {
+#if JEM_TOOLS
     if( currDepth == 0 ) m_CABACEstimator->emt_cu_flag( currCU );
+#endif
 
-    partitioner.splitCurrArea( TU_QUAD_SPLIT, cs );
+    partitioner.splitCurrArea(TU_QUAD_SPLIT, cs);
 
     do
     {
@@ -1290,19 +1452,37 @@ Void IntraSearch::xEncSubdivCbfQT(CodingStructure &cs, Partitioner &partitioner,
     partitioner.exitCurrSplit();
   }
   else
+#endif
   {
+#if HM_EMT_NSST_AS_IN_JEM || HEVC_TOOLS
+#if JEM_TOOLS
     if( cs.pcv->noRQT )
     {
+#if HM_EMT_NSST_AS_IN_JEM
+#if HEVC_TOOLS
+      if( bLuma && TU::getCbfAtDepth( currTU, COMPONENT_Y, 0 ) ) m_CABACEstimator->emt_cu_flag( currCU );
+#else
+      if( bLuma && TU::getCbf( currTU, COMPONENT_Y ) ) m_CABACEstimator->emt_cu_flag( *currTU.cu );
+#endif
+#endif
     }
+#if HEVC_TOOLS
     else
     {
       if( currDepth == 0 && TU::getCbfAtDepth( currTU, COMPONENT_Y, 0 ) ) m_CABACEstimator->emt_cu_flag( currCU );
     }
+#endif
+#endif
+#endif
 
     //===== Cbfs =====
     if (bLuma)
     {
-      m_CABACEstimator->cbf_comp( TU::getCbfAtDepth(currTU, COMPONENT_Y, currDepth), currTU.Y(), currTU.depth );
+#if HEVC_TOOLS
+      m_CABACEstimator->cbf_comp( cs, TU::getCbfAtDepth( currTU, COMPONENT_Y, currDepth ), currTU.Y(), currTU.depth );
+#else
+      m_CABACEstimator->cbf_comp( cs, TU::getCbf( currTU, COMPONENT_Y), currTU.Y() );
+#endif
     }
   }
 }
@@ -1310,9 +1490,11 @@ Void IntraSearch::xEncSubdivCbfQT(CodingStructure &cs, Partitioner &partitioner,
 Void IntraSearch::xEncCoeffQT(CodingStructure &cs, Partitioner &partitioner, const ComponentID &compID)
 {
   const UnitArea &currArea  = partitioner.currArea();
-  TransformUnit &currTU     = *cs.getTU( currArea.blocks[cs.chType] );
+  TransformUnit &currTU     = *cs.getTU( currArea.blocks[partitioner.chType], partitioner.chType );
+#if HEVC_TOOLS
   UInt      currDepth       = partitioner.currTrDepth;
-
+#endif
+#if HEVC_TOOLS
   const Bool subdiv         = currTU.depth > currDepth;
 
   if (subdiv)
@@ -1326,7 +1508,10 @@ Void IntraSearch::xEncCoeffQT(CodingStructure &cs, Partitioner &partitioner, con
 
     partitioner.exitCurrSplit();
   }
-  else if (currArea.blocks[compID].valid())
+  else
+#endif
+
+  if( currArea.blocks[compID].valid() )
   {
     if( TU::hasCrossCompPredInfo( currTU, compID ) )
     {
@@ -1366,12 +1551,16 @@ UInt64 IntraSearch::xGetIntraFracBitsQT( CodingStructure &cs, Partitioner &parti
     xEncCoeffQT( cs, partitioner, COMPONENT_Cr );
   }
 
+#if JEM_TOOLS
+#if !HM_EMT_NSST_AS_IN_JEM
   if( bLuma )
   {
-    const CodingUnit& cu = *cs.getCU( partitioner.currArea().lumaPos() );
+    const CodingUnit& cu = *cs.getCU( partitioner.currArea().lumaPos(), partitioner.chType );
 
     m_CABACEstimator->cu_emt_noqrt_idx( cu );
   }
+#endif
+#endif
 
   UInt64 fracBits = m_CABACEstimator->getEstFracBits();
   return fracBits;
@@ -1417,27 +1606,36 @@ Void IntraSearch::xIntraCodingTUBlock(TransformUnit &tu, const ComponentID &comp
   PelBuf         piReco                     = cs.getRecoBuf   (area);
 
   const PredictionUnit &pu                  = *cs.getPU(area.pos(), chType);
+#if JEM_TOOLS || ENABLE_TRACING
   const UInt           uiChFinalMode        = PU::getFinalIntraMode(pu, chType);
 
-  const Bool           bUseCrossCPrediction = pps.getPpsRangeExtension().getCrossComponentPredictionEnabledFlag() && isChroma(compID) && PU::isChromaIntraModeCrossCheckMode( pu ) && checkCrossCPrediction;
+#endif
+  const Bool           bUseCrossCPrediction = pps.getPpsRangeExtension().getCrossComponentPredictionEnabledFlag() && isChroma( compID ) && PU::isChromaIntraModeCrossCheckMode( pu ) && checkCrossCPrediction;
   const Bool           ccUseRecoResi        = m_pcEncCfg->getUseReconBasedCrossCPredictionEstimate();
 
+#if JEM_TOOLS
   const UChar          transformIndex       = tu.cu->emtFlag && compID == COMPONENT_Y ? tu.emtIdx : ( tu.cu->cs->sps->getSpsNext().getUseIntraEMT() ? DCT2_EMT : DCT2_HEVC );
+#else
+#endif
 
   //===== init availability pattern =====
   PelBuf sharedPredTS( m_pSharedPredTransformSkip[compID], area );
-  if( pu.cs->pcv->noRQT && pu.cs->sps->getSpsNext().isELMModeMFLM() && ((uiChFinalMode >= LM_CHROMA_F1_IDX) && (uiChFinalMode < LM_CHROMA_F1_IDX + LM_FILTER_NUM)))
+#if JEM_TOOLS
+  if( pu.cs->pcv->noRQT && pu.cs->sps->getSpsNext().isELMModeMFLM() && ( ( uiChFinalMode >= LM_CHROMA_F1_IDX ) && ( uiChFinalMode < LM_CHROMA_F1_IDX + LM_FILTER_NUM ) ) )
   {
     PelBuf savePred( m_pLMMFPredSaved[( uiChFinalMode - LM_CHROMA_F1_IDX ) * 2 + compID - COMPONENT_Cb], area.width, area );
     piPred.copyFrom( savePred );
   }
   else if( default0Save1Load2 != 2 )
+#else
+  if( default0Save1Load2 != 2 )
+#endif
   {
     const bool bUseFilteredPredictions = IntraPrediction::useFilteredIntraRefSamples( compID, pu, true, tu );
-
     initIntraPatternChType( *tu.cu, area, bUseFilteredPredictions );
 
     //===== get prediction signal =====
+#if JEM_TOOLS
     if( compID != COMPONENT_Y && PU::isLMCMode( uiChFinalMode ) )
     {
       if( !PU::isMFLMEnabled(pu) || !pu.cs->pcv->noRQT)
@@ -1447,14 +1645,18 @@ Void IntraSearch::xIntraCodingTUBlock(TransformUnit &tu, const ComponentID &comp
       predIntraChromaLM( compID, piPred, pu, area, uiChFinalMode );
     }
     else
+#endif
     {
-      predIntraAng( compID, piOrg, piPred, pu, bUseFilteredPredictions );
+      predIntraAng( compID, piPred, pu, bUseFilteredPredictions );
+#if JEM_TOOLS
       if( compID == COMPONENT_Cr && sps.getSpsNext().getUseLMChroma() )
       {
         const CPelBuf pResiCb = cs.getResiBuf( tu.Cb() );
         addCrossColorResi( compID, piPred, tu, pResiCb );
       }
+#endif
     }
+
 
     // save prediction
     if( default0Save1Load2 == 1 )
@@ -1467,6 +1669,7 @@ Void IntraSearch::xIntraCodingTUBlock(TransformUnit &tu, const ComponentID &comp
     // load prediction
     piPred.copyFrom( sharedPredTS );
   }
+
 
   DTRACE( g_trace_ctx, D_PRED, "@(%4d,%4d) [%2dx%2d] IMode=%d\n", tu.lx(), tu.ly(), tu.lwidth(), tu.lheight(), uiChFinalMode );
   //DTRACE_PEL_BUF( D_PRED, piPred, tu, tu.cu->predMode, COMPONENT_Y );
@@ -1499,6 +1702,7 @@ Void IntraSearch::xIntraCodingTUBlock(TransformUnit &tu, const ComponentID &comp
 #if RDOQ_CHROMA_LAMBDA
   m_pcTrQuant->selectLambda(compID);
 #endif
+#if JEM_TOOLS
 
   if( ! PU::isLMCMode(uiChFinalMode) && sps.getSpsNext().getUseLMChroma() )
   {
@@ -1511,14 +1715,18 @@ Void IntraSearch::xIntraCodingTUBlock(TransformUnit &tu, const ComponentID &comp
       m_pcTrQuant->setLambda( m_pcTrQuant->getLambda() * 16.0 / 15.0 );
     }
   }
+#endif
 
+#if JEM_TOOLS
   if( m_pcEncCfg->getUseAClipEnc() )
   {
-    smoothResidual( piResi, piOrg, cs.slice->clpRng( compID) );
+    piResi.smoothWithRef( piOrg, cs.slice->clpRng( compID ) );
   }
 
+#endif
   m_pcTrQuant->transformNxN(tu, compID, cQP, uiAbsSum, m_CABACEstimator->getCtx());
 
+#if JEM_TOOLS
   if( transformIndex != DCT2_EMT && transformIndex != DCT2_HEVC && ( !tu.transformSkip[COMPONENT_Y] ) ) //this can only be true if compID is luma
   {
     *numSig = 0;
@@ -1540,8 +1748,10 @@ Void IntraSearch::xIntraCodingTUBlock(TransformUnit &tu, const ComponentID &comp
       return;
     }
   }
+#endif
 
   DTRACE( g_trace_ctx, D_TU_ABS_SUM, "%d: comp=%d, abssum=%d\n", DTRACE_GET_COUNTER( g_trace_ctx, D_TU_ABS_SUM ), compID, uiAbsSum );
+
 
   //--- inverse transform ---
   if (uiAbsSum > 0)
@@ -1561,39 +1771,56 @@ Void IntraSearch::xIntraCodingTUBlock(TransformUnit &tu, const ComponentID &comp
 
   piReco.reconstruct(piPred, piResi, cs.slice->clpRng( compID ));
 
-  if( sps.getSpsNext().getUseBIF() && (uiAbsSum > 0) && isLuma(compID) && (tu.cu->qp > 17)/* && (16 > std::min(tu.lumaSize().width, tu.lumaSize().height) )*/ )
+#if JEM_TOOLS
+  if( sps.getSpsNext().getUseBIF() && ( uiAbsSum > 0 ) && isLuma( compID ) && ( tu.cu->qp > 17 ) )
   {
-    BilateralFilter::instance()->bilateralFilterIntra( piReco, tu.cu->qp );
-    DTRACE_CCRC( g_trace_ctx, D_TMP, &cs, piReco, COMPONENT_Y );
+    m_bilateralFilter->bilateralFilterIntra( piReco, tu.cu->qp );
   }
 
+#endif
   //===== update distortion =====
   ruiDist += m_pcRdCost->getDistPart(piOrg, piReco, bitDepth, compID);
 }
 
-#if HHI_RQT_INTRA_SPEEDUP
-Void IntraSearch::xRecurIntraCodingLumaQT(CodingStructure &cs, Partitioner &partitioner, const Bool &checkFirst, int savedEmtIndex )
+#if ENABLE_RQT_INTRA_SPEEDUP
+#if JEM_TOOLS
+Void IntraSearch::xRecurIntraCodingLumaQT( CodingStructure &cs, Partitioner &partitioner, const Bool &checkFirst, int savedEmtIndex )
 #else
-Void IntraSearch::xRecurIntraCodingLumaQT(CodingStructure &cs, Partitioner &partitioner)
+Void IntraSearch::xRecurIntraCodingLumaQT( CodingStructure &cs, Partitioner &partitioner, const Bool &checkFirst )
+#endif
+#else
+Void IntraSearch::xRecurIntraCodingLumaQT( CodingStructure &cs, Partitioner &partitioner )
 #endif
 {
   const UnitArea &currArea = partitioner.currArea();
-  const CodingUnit &cu     = *cs.getCU(currArea.lumaPos());
+  const CodingUnit &cu     = *cs.getCU(currArea.lumaPos(), partitioner.chType);
+#if HEVC_TOOLS
   UInt     currDepth       = partitioner.currTrDepth;
 
   const SPS &sps           = *cs.sps;
+#endif
   const PPS &pps           = *cs.pps;
+#if HEVC_TOOLS
   const UInt uiLog2TrSize  = g_aucLog2[currArea.lumaSize().width];
-  const Bool keepResi      = pps.getPpsRangeExtension().getCrossComponentPredictionEnabledFlag() || KEEP_PRED_AND_RESI_SIGNALS;
+#endif
+  const bool keepResi      = pps.getPpsRangeExtension().getCrossComponentPredictionEnabledFlag() || KEEP_PRED_AND_RESI_SIGNALS;
+#if HEVC_TOOLS
   Bool bCheckFull          = (uiLog2TrSize  <= sps.getQuadtreeTULog2MaxSize()) || cs.pcv->noRQT;
   Bool bCheckSplit         = (uiLog2TrSize  >  CU::getQuadtreeTULog2MinSizeInCU(cu)) && !cs.pcv->noRQT;
+#else
+  Bool bCheckFull          = true;
+  Bool bCheckSplit         = false;
+#endif
+#if JEM_TOOLS
   auto slsCtrl             = dynamic_cast<SaveLoadEncInfoCtrl*>( m_modeCtrl );
+#endif
 
   UInt    numSig           = 0;
 
   if( !cs.pcv->noRQT )
   {
-#if HHI_RQT_INTRA_SPEEDUP
+#if HEVC_TOOLS
+#if ENABLE_RQT_INTRA_SPEEDUP
     Int maxTuSize = sps.getQuadtreeTULog2MaxSize();
     Int isIntraSlice = ( cs.slice->getSliceType() == I_SLICE );
     // don't check split if TU size is less or equal to max TU size
@@ -1623,11 +1850,14 @@ Void IntraSearch::xRecurIntraCodingLumaQT(CodingStructure &cs, Partitioner &part
       bCheckFull = ( uiLog2TrSize <= std::min( maxTuSize, 4 ) );
     }
 #endif
+#endif
   }
 
-  UChar   savedEmtTransformIndex = 0;
   Bool    checkInitTrDepth = false, checkInitTrDepthTransformSkipWinner = false;
-#if HHI_RQT_INTRA_SPEEDUP //this should be checked to see that if was correctly implemented!!!!
+#if HEVC_TOOLS
+#if ENABLE_RQT_INTRA_SPEEDUP //this should be checked to see that if was correctly implemented!!!!
+#if JEM_TOOLS
+  UChar   savedEmtTransformIndex = 0;
   if( cs.sps->getSpsNext().getUseIntraEMT() )
   {
     // Re-use the selected transform indexes in the previous call of xRecurIntraCodingQT
@@ -1655,10 +1885,13 @@ Void IntraSearch::xRecurIntraCodingLumaQT(CodingStructure &cs, Partitioner &part
       checkInitTrDepth = true;
     }
   }
-  else if( !checkFirst )
+  else 
+#endif
+  if( !checkFirst )
   {
     bCheckFull &= currDepth != 0;
   }
+#endif
 #endif
 
   Double     dSingleCost                        = MAX_DOUBLE;
@@ -1666,11 +1899,16 @@ Void IntraSearch::xRecurIntraCodingLumaQT(CodingStructure &cs, Partitioner &part
   UInt64     singleFracBits                     = 0;
   Bool       checkTransformSkip                 = pps.getUseTransformSkip();
   Int        bestModeId[MAX_NUM_COMPONENT]      = {0, 0, 0};
-
+#if JEM_TOOLS
   UChar      nNumTransformCands                 = cu.emtFlag ? 4 : 1; //4 is the number of transforms of emt
+#else
+  UChar      nNumTransformCands                 = 1;
+#endif
+#if JEM_TOOLS
   Bool       isAllIntra                         = m_pcEncCfg->getIntraPeriod() == 1;
+#endif
 
-#if HHI_RQT_INTRA_SPEEDUP
+#if ENABLE_RQT_INTRA_SPEEDUP
   UChar      numTransformIndexCands             = checkInitTrDepth ? 1 : nNumTransformCands;
 #else
   UChar numTransformIndexCands                  = nNumTransformCands;
@@ -1679,22 +1917,28 @@ Void IntraSearch::xRecurIntraCodingLumaQT(CodingStructure &cs, Partitioner &part
   const TempCtx ctxStart  ( m_CtxCache, m_CABACEstimator->getCtx() );
   TempCtx       ctxBest   ( m_CtxCache );
 
+#if HEVC_TOOLS
   CodingStructure *csSplit = nullptr;
+#endif
   CodingStructure *csFull  = nullptr;
 
+#if HEVC_TOOLS
   if( bCheckFull && bCheckSplit )
   {
-    csSplit = m_pSplitCS[gp_sizeIdxInfo->idxFrom( cu.lwidth() )][gp_sizeIdxInfo->idxFrom( cu.lheight() )][currDepth];
-    csFull  = m_pFullCS [gp_sizeIdxInfo->idxFrom( cu.lwidth() )][gp_sizeIdxInfo->idxFrom( cu.lheight() )][currDepth];
+    int layerFull  = currDepth;
+    int layerSplit = currDepth;
+    csSplit = m_pSplitCS[gp_sizeIdxInfo->idxFrom( cu.lwidth() )][gp_sizeIdxInfo->idxFrom( cu.lheight() )][layerSplit];
+    csFull  = m_pFullCS [gp_sizeIdxInfo->idxFrom( cu.lwidth() )][gp_sizeIdxInfo->idxFrom( cu.lheight() )][layerFull];
 
-    cs.initSubStructure( *csSplit, cs.area, true );
-    cs.initSubStructure( *csFull,  cs.area, true );
+    cs.initSubStructure( *csSplit, partitioner.chType, cs.area, true );
+    cs.initSubStructure( *csFull,  partitioner.chType, cs.area, true );
   }
   else if( bCheckSplit )
   {
     csSplit = &cs;
   }
   else if( bCheckFull )
+#endif
   {
     csFull = &cs;
   }
@@ -1703,26 +1947,33 @@ Void IntraSearch::xRecurIntraCodingLumaQT(CodingStructure &cs, Partitioner &part
   {
     csFull->cost = 0.0;
 
-    TransformUnit &tu = csFull->addTU( CS::getArea( *csFull, currArea ) );
+    TransformUnit &tu = csFull->addTU( CS::getArea( *csFull, currArea, partitioner.chType ), partitioner.chType );
+#if HEVC_TOOLS
     tu.depth = currDepth;
+#endif
 
     checkTransformSkip &= TU::hasTransformSkipFlag( *tu.cs, tu.Y() );
     checkTransformSkip &= !cu.transQuantBypass;
+#if JEM_TOOLS
     checkTransformSkip &= !cu.emtFlag;
+#endif
 
     CHECK( !tu.Y().valid(), "Invalid TU" );
 
+#if HEVC_TOOLS
     if( m_pcEncCfg->getUseTransformSkipFast() && !cs.pcv->only2Nx2N )
     {
       checkTransformSkip &= ( cu.partSize == SIZE_NxN );
     }
 
+#endif
     //this prevents transformSkip from being checked because we already know it's not the best mode
     checkTransformSkip = ( checkInitTrDepth && !checkInitTrDepthTransformSkipWinner ) ? false : checkTransformSkip;
 
+
     CHECK( checkInitTrDepthTransformSkipWinner && !checkTransformSkip, "Transform Skip must be enabled if it was the winner in the previous call of xRecurIntraCodingLumaQT!" );
 
-    CodingStructure &saveCS = *m_pSaveCS[currDepth + 1];
+    CodingStructure &saveCS = *m_pSaveCS[0];
 
     TransformUnit *tmpTU = nullptr;
 
@@ -1741,9 +1992,12 @@ Void IntraSearch::xRecurIntraCodingLumaQT(CodingStructure &cs, Partitioner &part
       saveCS.picture = cs.picture;
       saveCS.area.repositionTo(cs.area);
       saveCS.clearTUs();
-      tmpTU = &saveCS.addTU(currArea);
+      tmpTU = &saveCS.addTU(currArea, partitioner.chType);
     }
+
+#if JEM_TOOLS
     bool cbfBestMode = false;
+#endif
 
 
     for( Int modeId = firstCheckId; modeId <= lastCheckId; modeId++ )
@@ -1757,7 +2011,12 @@ Void IntraSearch::xRecurIntraCodingLumaQT(CodingStructure &cs, Partitioner &part
         }
       }
 
+#if JEM_TOOLS
       UChar transformIndex = modeId;
+#endif
+
+
+#if JEM_TOOLS
       if( ( transformIndex < lastCheckId ) || ( ( transformIndex == lastCheckId ) && !checkTransformSkip ) ) //we avoid this if the mode is transformSkip
       {
         // Skip checking other transform candidates if zero CBF is encountered and it is the best transform so far
@@ -1766,11 +2025,12 @@ Void IntraSearch::xRecurIntraCodingLumaQT(CodingStructure &cs, Partitioner &part
           continue;
         }
         //SaveLoadTag check for EMT
-        if( sps.getSpsNext().getUseQTBT() && m_pcEncCfg->getUseSaveLoadEncInfo() && slsCtrl && m_pcEncCfg->getIntraEMT() && LOAD_ENC_INFO == slsCtrl->getSaveLoadTag( cu.cs->area ) && transformIndex && transformIndex != slsCtrl->getSaveLoadEmtTuIndex( cu.cs->area ) )
+        if( cs.sps->getSpsNext().getUseQTBT() && m_pcEncCfg->getUseSaveLoadEncInfo() && slsCtrl && m_pcEncCfg->getIntraEMT() && LOAD_ENC_INFO == slsCtrl->getSaveLoadTag( cu.cs->area ) && transformIndex && transformIndex != slsCtrl->getSaveLoadEmtTuIndex( cu.cs->area ) )
         {
           continue;
         }
       }
+#endif
 
       if ((modeId != firstCheckId) && isNotOnlyOneMode)
       {
@@ -1789,10 +2049,12 @@ Void IntraSearch::xRecurIntraCodingLumaQT(CodingStructure &cs, Partitioner &part
         default0Save1Load2 = 2;
       }
 
-#if HHI_RQT_INTRA_SPEEDUP
+#if JEM_TOOLS
+#if ENABLE_RQT_INTRA_SPEEDUP
       tu.emtIdx = checkInitTrDepth ? savedEmtTransformIndex : transformIndex;
 #else
       tu.emtIdx = transformIndex;
+#endif
 #endif
       if( !checkTransformSkip )
       {
@@ -1807,8 +2069,21 @@ Void IntraSearch::xRecurIntraCodingLumaQT(CodingStructure &cs, Partitioner &part
 
       //----- determine rate and r-d cost -----
       //the condition (transformIndex != DCT2_EMT) seems to be irrelevant, since DCT2_EMT=7 and the highest value of transformIndex is 4
+#if JEM_TOOLS
+#if HEVC_TOOLS
       if( ( modeId == lastCheckId && checkTransformSkip && !TU::getCbfAtDepth( tu, COMPONENT_Y, currDepth ) )
-       || ( tu.emtIdx > 0 && ( checkTransformSkip ? transformIndex != lastCheckId : true ) && tu.emtIdx != DCT2_EMT && numSig <= g_EmtSigNumThr ) )
+        || ( tu.emtIdx > 0 && ( checkTransformSkip ? transformIndex != lastCheckId : true ) && tu.emtIdx != DCT2_EMT && numSig <= g_EmtSigNumThr ) )
+#else
+      if( ( modeId == lastCheckId && checkTransformSkip && !TU::getCbf( tu, COMPONENT_Y ) )
+        || ( tu.emtIdx > 0 && ( checkTransformSkip ? transformIndex != lastCheckId : true ) && tu.emtIdx != DCT2_EMT && numSig <= g_EmtSigNumThr ) )
+#endif
+#else
+#if HEVC_TOOLS
+      if( ( modeId == lastCheckId && checkTransformSkip && !TU::getCbfAtDepth( tu, COMPONENT_Y, currDepth ) ) )
+#else
+      if( ( modeId == lastCheckId && checkTransformSkip && !TU::getCbf( tu, COMPONENT_Y ) ) )
+#endif
+#endif
       {
         //In order not to code TS flag when cbf is zero, the case for TS with cbf being zero is forbidden.
         singleCostTmp = MAX_DOUBLE;
@@ -1826,7 +2101,14 @@ Void IntraSearch::xRecurIntraCodingLumaQT(CodingStructure &cs, Partitioner &part
         singleFracBits    = singleTmpFracBits;
 
         bestModeId[COMPONENT_Y] = modeId;
+#if JEM_TOOLS
+#if HEVC_TOOLS
         cbfBestMode       = TU::getCbfAtDepth( tu, COMPONENT_Y, currDepth );
+#else
+        cbfBestMode       = TU::getCbf( tu, COMPONENT_Y );
+#endif
+#endif
+
 
         if( bestModeId[COMPONENT_Y] != lastCheckId )
         {
@@ -1878,6 +2160,7 @@ Void IntraSearch::xRecurIntraCodingLumaQT(CodingStructure &cs, Partitioner &part
     csFull->fracBits += singleFracBits;
   }
 
+#if HEVC_TOOLS
   if( bCheckSplit )
   {
     //----- store full entropy coding status, load original entropy coding status -----
@@ -1891,11 +2174,11 @@ Void IntraSearch::xRecurIntraCodingLumaQT(CodingStructure &cs, Partitioner &part
     Bool uiSplitCbfLuma  = false;
     Bool splitIsSelected = true;
 
-    partitioner.splitCurrArea( TU_QUAD_SPLIT, *csSplit );
+    partitioner.splitCurrArea(TU_QUAD_SPLIT, *csSplit);
 
     do
     {
-#if HHI_RQT_INTRA_SPEEDUP
+#if ENABLE_RQT_INTRA_SPEEDUP
       xRecurIntraCodingLumaQT( *csSplit, partitioner, checkFirst );
 #else
       xRecurIntraCodingLumaQT( *csSplit, partitioner );
@@ -1903,13 +2186,16 @@ Void IntraSearch::xRecurIntraCodingLumaQT(CodingStructure &cs, Partitioner &part
 
       csSplit->setDecomp( partitioner.currArea().Y() );
 
-      uiSplitCbfLuma |= TU::getCbfAtDepth( *csSplit->getTU( partitioner.currArea().lumaPos() ), COMPONENT_Y, partitioner.currTrDepth );
+      uiSplitCbfLuma |= TU::getCbfAtDepth( *csSplit->getTU( partitioner.currArea().lumaPos(), partitioner.chType ), COMPONENT_Y, partitioner.currTrDepth );
 
+#if JEM_TOOLS
       if( csSplit->cost > dSingleCost && m_pcEncCfg->getFastIntraEMT() )
       {
         splitIsSelected = false;
         break;
       }
+#endif
+
 
     } while( partitioner.nextPart( *csSplit ) );
 
@@ -1937,18 +2223,20 @@ Void IntraSearch::xRecurIntraCodingLumaQT(CodingStructure &cs, Partitioner &part
   }
 
   if( csFull || csSplit )
+#endif
   {
+#if HEVC_TOOLS
     if( csFull && csSplit )
     {
       DTRACE( g_trace_ctx, D_INTRA_COST, "IntraSplit split: %f full : %f \n", csSplit->cost, csFull->cost );
 
       if( csSplit->cost < csFull->cost )
       {
-        cs.useSubStructure( *csSplit, currArea.singleComp( COMPONENT_Y ), KEEP_PRED_AND_RESI_SIGNALS, true, keepResi, keepResi );
+        cs.useSubStructure( *csSplit, partitioner.chType, currArea.singleComp( COMPONENT_Y ), KEEP_PRED_AND_RESI_SIGNALS, true, keepResi, keepResi );
       }
       else
       {
-        cs.useSubStructure( *csFull,  currArea.singleComp( COMPONENT_Y ), KEEP_PRED_AND_RESI_SIGNALS, true, keepResi, keepResi );
+        cs.useSubStructure( *csFull,  partitioner.chType, currArea.singleComp( COMPONENT_Y ), KEEP_PRED_AND_RESI_SIGNALS, true, keepResi, keepResi );
 
         //----- set entropy coding status -----
         m_CABACEstimator->getCtx() = ctxBest;
@@ -1958,8 +2246,9 @@ Void IntraSearch::xRecurIntraCodingLumaQT(CodingStructure &cs, Partitioner &part
       csSplit->releaseIntermediateData();
     }
     else
+#endif
     {
-      // otherwise this would've happened in useSubStructur
+      // otherwise this would've happened in useSubStructure
       cs.picture->getRecoBuf( currArea.Y() ).copyFrom( cs.getRecoBuf( currArea.Y() ) );
     }
 
@@ -1970,18 +2259,27 @@ Void IntraSearch::xRecurIntraCodingLumaQT(CodingStructure &cs, Partitioner &part
 ChromaCbfs IntraSearch::xRecurIntraChromaCodingQT(CodingStructure &cs, Partitioner& partitioner)
 {
   UnitArea currArea                   = partitioner.currArea();
-
+#if JEM_TOOLS
+  const bool keepResi                 = cs.sps->getSpsNext().getUseLMChroma() || KEEP_PRED_AND_RESI_SIGNALS;
+#else
+  const bool keepResi                 = KEEP_PRED_AND_RESI_SIGNALS;
+#endif
   if( !currArea.Cb().valid() ) return ChromaCbfs( false );
+
 
   TransformUnit &currTU               = *cs.getTU( currArea.chromaPos(), CHANNEL_TYPE_CHROMA );
   const PredictionUnit &pu            = *cs.getPU( currArea.chromaPos(), CHANNEL_TYPE_CHROMA );
   const TransformUnit &currTULuma     = CS::isDualITree( cs ) ? *cs.picture->cs->getTU( currArea.lumaPos(), CHANNEL_TYPE_LUMA ) : currTU;
 
+#if HEVC_TOOLS
   UInt     currDepth                  = partitioner.currTrDepth;
+#endif
   const PPS &pps                      = *cs.pps;
   ChromaCbfs cbfs                     ( false );
 
+#if HEVC_TOOLS
   if (currDepth == currTU.depth)
+#endif
   {
     if (!currArea.Cb().valid() || !currArea.Cr().valid())
     {
@@ -1999,26 +2297,32 @@ ChromaCbfs IntraSearch::xRecurIntraChromaCodingQT(CodingStructure &cs, Partition
       {
         Int nbLumaSkip = currTULuma.transformSkip[0] ? 1 : 0;
 
+#if HEVC_TOOLS
         if( !TU::isProcessingAllQuadrants( currArea ) )
+#endif
         {
           // the chroma blocks are co-located with the last luma block, so backwards references are needed
-          nbLumaSkip += cs.getTU( currTULuma.Y().topLeft().offset( -1,  0 ) )->transformSkip[0] ? 1 : 0;
-          nbLumaSkip += cs.getTU( currTULuma.Y().topLeft().offset( -1, -1 ) )->transformSkip[0] ? 1 : 0;
-          nbLumaSkip += cs.getTU( currTULuma.Y().topLeft().offset(  0, -1 ) )->transformSkip[0] ? 1 : 0;
+          nbLumaSkip += cs.getTU( currTULuma.Y().topLeft().offset( -1,  0 ), partitioner.chType )->transformSkip[0] ? 1 : 0;
+          nbLumaSkip += cs.getTU( currTULuma.Y().topLeft().offset( -1, -1 ), partitioner.chType )->transformSkip[0] ? 1 : 0;
+          nbLumaSkip += cs.getTU( currTULuma.Y().topLeft().offset(  0, -1 ), partitioner.chType )->transformSkip[0] ? 1 : 0;
         }
 
         checkTransformSkip &= ( nbLumaSkip > 0 );
       }
     }
 
-    CodingStructure &saveCS = *m_pSaveCS[currDepth + 1];
+    CodingStructure &saveCS = *m_pSaveCS[1];
     saveCS.pcv      = cs.pcv;
     saveCS.picture  = cs.picture;
     saveCS.area.repositionTo(cs.area);
-    saveCS.clearTUs();
+    saveCS.initStructData();
 
-    TransformUnit &tmpTU = saveCS.addTU(currArea);
+    TransformUnit &tmpTU = saveCS.addTU(currArea, partitioner.chType);
 
+#if HM_REPRODUCE_422_CHROMA_CONTEXT_RESET_BUG
+    TempCtx ctxStart  ( m_CtxCache );
+    TempCtx ctxBest   ( m_CtxCache );
+#endif
 
     cs.setDecomp(currArea.Cb(), true); // set in advance (required for Cb2/Cr2 in 4:2:2 video)
 
@@ -2049,7 +2353,7 @@ ChromaCbfs IntraSearch::xRecurIntraChromaCodingQT(CodingStructure &cs, Partition
       Distortion singleDistCTmp = 0;
       Double     singleCostTmp  = 0;
 
-      const Bool checkCrossComponentPrediction = PU::isChromaIntraModeCrossCheckMode( pu ) && pps.getPpsRangeExtension().getCrossComponentPredictionEnabledFlag() && TU::getCbf(currTU, COMPONENT_Y);
+      const Bool checkCrossComponentPrediction = PU::isChromaIntraModeCrossCheckMode( pu ) && pps.getPpsRangeExtension().getCrossComponentPredictionEnabledFlag() && TU::getCbf( currTU, COMPONENT_Y );
 
       const Int  crossCPredictionModesToTest = checkCrossComponentPrediction ? 2 : 1;
       const Int  transformSkipModesToTest    = checkTransformSkip ? 2 : 1;
@@ -2059,6 +2363,12 @@ ChromaCbfs IntraSearch::xRecurIntraChromaCodingQT(CodingStructure &cs, Partition
       Int currModeId = 0;
       Int default0Save1Load2 = 0;
 
+#if HM_REPRODUCE_422_CHROMA_CONTEXT_RESET_BUG
+      if( compID == COMPONENT_Cb || compID == COMPONENT_Cr )
+      {
+        ctxStart = m_CABACEstimator->getCtx();
+      }
+#else
       TempCtx ctxStart  ( m_CtxCache );
       TempCtx ctxBest   ( m_CtxCache );
 
@@ -2066,6 +2376,7 @@ ChromaCbfs IntraSearch::xRecurIntraChromaCodingQT(CodingStructure &cs, Partition
       {
         ctxStart = m_CABACEstimator->getCtx();
       }
+#endif
 
       for (Int transformSkipModeId = 0; transformSkipModeId < transformSkipModesToTest; transformSkipModeId++)
       {
@@ -2076,7 +2387,10 @@ ChromaCbfs IntraSearch::xRecurIntraChromaCodingQT(CodingStructure &cs, Partition
 
           currModeId++;
 
+#if HM_REPRODUCE_422_CHROMA_CONTEXT_RESET_BUG
+#else
           const Bool isFirstMode = (currModeId == 1);
+#endif
           const Bool isLastMode  = (currModeId == totalModesToTest); // currModeId is indexed from 1
 
           if (isOneMode)
@@ -2092,10 +2406,13 @@ ChromaCbfs IntraSearch::xRecurIntraChromaCodingQT(CodingStructure &cs, Partition
             default0Save1Load2 = 2; //load it on subsequent modes
           }
 
+#if HM_REPRODUCE_422_CHROMA_CONTEXT_RESET_BUG
+#else
           if (!isFirstMode) // if not first mode to be tested
           {
             m_CABACEstimator->getCtx() = ctxStart;
           }
+#endif
 
           singleDistCTmp = 0;
 
@@ -2123,7 +2440,7 @@ ChromaCbfs IntraSearch::xRecurIntraChromaCodingQT(CodingStructure &cs, Partition
               saveCS.getPredBuf   (area).copyFrom(cs.getPredBuf   (area));
               saveCS.getOrgResiBuf(area).copyFrom(cs.getOrgResiBuf(area));
 #endif
-              if( cs.sps->getSpsNext().getUseLMChroma() || KEEP_PRED_AND_RESI_SIGNALS )
+              if( keepResi )
               {
                 saveCS.getResiBuf (area).copyFrom(cs.getResiBuf   (area));
               }
@@ -2134,6 +2451,12 @@ ChromaCbfs IntraSearch::xRecurIntraChromaCodingQT(CodingStructure &cs, Partition
               ctxBest = m_CABACEstimator->getCtx();
             }
           }
+#if HM_REPRODUCE_422_CHROMA_CONTEXT_RESET_BUG
+          if( !isLastMode )
+          {
+            m_CABACEstimator->getCtx() = ctxStart;
+          }
+#endif
         }
       }
 
@@ -2143,7 +2466,7 @@ ChromaCbfs IntraSearch::xRecurIntraChromaCodingQT(CodingStructure &cs, Partition
         cs.getPredBuf   (area).copyFrom(saveCS.getPredBuf   (area));
         cs.getOrgResiBuf(area).copyFrom(saveCS.getOrgResiBuf(area));
 #endif
-        if( cs.sps->getSpsNext().getUseLMChroma() || KEEP_PRED_AND_RESI_SIGNALS )
+        if( keepResi )
         {
           cs.getResiBuf (area).copyFrom(saveCS.getResiBuf   (area));
         }
@@ -2161,70 +2484,12 @@ ChromaCbfs IntraSearch::xRecurIntraChromaCodingQT(CodingStructure &cs, Partition
       cs.dist += singleDistC;
     }
   }
+#if HEVC_TOOLS
   else
   {
-    unsigned    numValidTBlocks   = ::getNumberValidTBlocks( *cs.pcv );
-    ChromaCbfs  SplitCbfs         ( false );
-#if ENABLE_CHROMA_422
-    const bool  is_NxN_422        = ( cs.pcv->multiBlock422 && currArea.lumaSize().width == 8 );
-#endif
-
-    partitioner.splitCurrArea( TU_QUAD_SPLIT, cs );
-
-    do
-    {
-      ChromaCbfs subCbfs = xRecurIntraChromaCodingQT( cs, partitioner );
-
-      for( UInt ch = COMPONENT_Cb; ch < numValidTBlocks; ch++ )
-      {
-        const ComponentID compID = ComponentID( ch );
-        SplitCbfs.cbf( compID ) |= subCbfs.cbf( compID );
-      }
-    } while( partitioner.nextPart( cs ) );
-
-    partitioner.exitCurrSplit();
-
-#if ENABLE_CHROMA_422
-    if( is_NxN_422 ) // very special case
-    {
-      cbfs.Cb |= ( SplitCbfs.Cb || SplitCbfs.Cb2 );
-      cbfs.Cr |= ( SplitCbfs.Cr || SplitCbfs.Cr2 );
-
-      for (auto &ptu : cs.tus)
-      {
-        if (currArea.Cb().contains(ptu->Cb()) || (!ptu->Cb().valid() && currArea.Y().contains(ptu->Y())))
-        {
-          TU::setCbfAtDepth(*ptu, COMPONENT_Cb,  currDepth, SplitCbfs.Cb  );
-          TU::setCbfAtDepth(*ptu, COMPONENT_Cr,  currDepth, SplitCbfs.Cr  );
-          TU::setCbfAtDepth(*ptu, COMPONENT_Cb2, currDepth, SplitCbfs.Cb2 );
-          TU::setCbfAtDepth(*ptu, COMPONENT_Cr2, currDepth, SplitCbfs.Cr2 );
-        }
-      }
-    }
-    else // usual case
-#endif
-    {
-#if ENABLE_CHROMA_422
-      if( cs.pcv->multiBlock422 )
-      {
-        SplitCbfs.Cb |= SplitCbfs.Cb2;
-        SplitCbfs.Cr |= SplitCbfs.Cr2;
-      }
-#endif
-
-      cbfs.Cb |= SplitCbfs.Cb;
-      cbfs.Cr |= SplitCbfs.Cr;
-
-      for (auto &ptu : cs.tus)
-      {
-        if (currArea.Cb().contains(ptu->Cb()) || (!ptu->Cb().valid() && currArea.Y().contains(ptu->Y())))
-        {
-          TU::setCbfAtDepth(*ptu, COMPONENT_Cb, currDepth, SplitCbfs.Cb );
-          TU::setCbfAtDepth(*ptu, COMPONENT_Cr, currDepth, SplitCbfs.Cr );
-        }
-      }
-    }
+    THROW( "TU split is only allowed in HEVC mode or with Mode1D partitions" );
   }
+#endif
 
   return cbfs;
 }
@@ -2249,4 +2514,45 @@ UInt64 IntraSearch::xFracModeBitsIntra(PredictionUnit &pu, const UInt &uiMode, c
   std::swap(orgMode, pu.intraDir[chType]);
 
   return m_CABACEstimator->getEstFracBits();
+}
+
+
+
+void IntraSearch::encPredIntraDPCM( const ComponentID &compID, PelBuf &pOrg, PelBuf &pDst, const UInt &uiDirMode )
+{
+  CHECK( pOrg.buf == 0, "Encoder DPCM called without original buffer" );
+
+  const int srcStride = (pDst.width + pDst.height + 1);
+  CPelBuf   pSrc      = CPelBuf( getPredictorPtr( compID, false ), srcStride, srcStride );
+
+  // Sample Adaptive intra-Prediction (SAP)
+  if( uiDirMode == HOR_IDX )
+  {
+    // left column filled with reference samples, remaining columns filled with pOrg data
+    for( int y = 0; y < pDst.height; y++ )
+    {
+      pDst.at( 0, y ) = pSrc.at( 0, 1 + y );
+    }
+    CPelBuf orgRest  = pOrg.subBuf( 0, 0, pOrg.width - 1, pOrg.height );
+    PelBuf  predRest = pDst.subBuf( 1, 0, pDst.width - 1, pDst.height );
+
+    predRest.copyFrom( orgRest );
+  }
+  else // VER_IDX
+  {
+    // top row filled with reference samples, remaining rows filled with pOrg data
+    for( int x = 0; x < pDst.width; x++ )
+    {
+      pDst.at( x, 0 ) = pSrc.at( 1 + x, 0 );
+    }
+    CPelBuf orgRest  = pOrg.subBuf( 0, 0, pOrg.width, pOrg.height - 1 );
+    PelBuf  predRest = pDst.subBuf( 0, 1, pDst.width, pDst.height - 1 );
+
+    predRest.copyFrom( orgRest );
+  }
+}
+
+bool IntraSearch::useDPCMForFirstPassIntraEstimation( const PredictionUnit &pu, const UInt &uiDirMode )
+{
+  return CU::isRDPCMEnabled( *pu.cu ) && pu.cu->transQuantBypass && (uiDirMode == HOR_IDX || uiDirMode == VER_IDX);
 }

@@ -66,31 +66,39 @@ public:
   ~TrQuant();
 
   // initialize class
-  Void init                 ( UInt uiMaxTrSize,
-                              Bool useRDOQ                = false,
-                              Bool useRDOQTS              = false,
+  Void init       ( 
+                    const Quant* otherQuant,
+                    const UInt uiMaxTrSize,
+                    const bool bUseRDOQ             = false,
+                    const bool bUseRDOQTS           = false,
 #if T0196_SELECTIVE_RDOQ
-                              Bool useSelectiveRDOQ       = false,
+                    const bool useSelectiveRDOQ     = false,
 #endif
-                              UInt uiAltResiCompId        = 0,
-                              RDOQfn rdoqfn               = RDOQfn::JEM,
-                              Bool bEnc                   = false,
-                              Bool useTransformSkipFast   = false,
-                              bool use65IntraModes        = false,
-                              bool rectTUs                = false
-                              );
+#if JEM_TOOLS
+                    const UInt uiAltResiCompId      = 0,
+#endif
+                    const bool bEnc                 = false,
+                    const bool useTransformSkipFast = false,
+#if JEM_TOOLS
+                    const bool use65IntraModes      = false,
+#endif
+                    const bool rectTUs              = false
+  );
 
+#if JEM_TOOLS
   UChar getEmtTrIdx( TransformUnit tu, const ComponentID compID );
   UChar getEmtMode ( TransformUnit tu, const ComponentID compID );
 
   Void FwdNsstNxN( Int* src, const UInt uiMode, const UInt uiIndex, const UInt uiSize );
   Void InvNsstNxN( Int* src, const UInt uiMode, const UInt uiIndex, const UInt uiSize );
+#endif
 
 protected:
 
+#if JEM_TOOLS
   Void xFwdNsst( const TransformUnit &tu, const ComponentID compID );
   Void xInvNsst( const TransformUnit &tu, const ComponentID compID );
-
+#endif
 public:
 
   Void invTransformNxN  (TransformUnit &tu, const ComponentID &compID, PelBuf &pResi, const QpParam &cQPs);
@@ -104,22 +112,29 @@ public:
 
   Void invRdpcmNxN(TransformUnit& tu, const ComponentID &compID, PelBuf &pcResidual);
 #if RDOQ_CHROMA_LAMBDA
-  Void   setLambdas  ( const Double lambdas[MAX_NUM_COMPONENT] ) { m_quant->setLambdas( lambdas ); }
-  Void   selectLambda( const ComponentID compIdx )               { m_quant->selectLambda( compIdx ); }
+  Void   setLambdas  ( const Double lambdas[MAX_NUM_COMPONENT] )   { m_quant->setLambdas( lambdas ); }
+  Void   selectLambda( const ComponentID compIdx )                 { m_quant->selectLambda( compIdx ); }
+  Void   getLambdas  ( Double (&lambdas)[MAX_NUM_COMPONENT]) const { m_quant->getLambdas( lambdas ); }
 #endif
-  Void   setLambda   ( const Double dLambda )                    { m_quant->setLambda( dLambda ); }
-  Double getLambda   () const                                    { return m_quant->getLambda(); }
+  Void   setLambda   ( const Double dLambda )                      { m_quant->setLambda( dLambda ); }
+  Double getLambda   () const                                      { return m_quant->getLambda(); }
 
   Quant* getQuant() { return m_quant;  }
 
+
+#if ENABLE_SPLIT_PARALLELISM
+  void    copyState( const TrQuant& other );
+#endif
+
 protected:
   TCoeff*  m_plTempCoeff;
-//  Double   m_dLambda;
   UInt     m_uiMaxTrSize;
   Bool     m_bEnc;
   Bool     m_useTransformSkipFast;
 
+#if JEM_TOOLS
   bool     m_use65IntraModes;
+#endif
   bool     m_rectTUs;
 
   Bool     m_scalingListEnabledFlag;
@@ -127,11 +142,13 @@ protected:
 private:
   Quant    *m_quant;          //!< Quantizer
 
+#if JEM_TOOLS
   // needed for NSST
-  TCoeff m_tempMatrix         [64];
+  TCoeff   m_tempMatrix [64];
+#endif
 
   // forward Transform
-  Void xT        ( const Int channelBitDepth, Bool useDST, const Pel* piBlkResi, UInt uiStride, TCoeff* psCoeff, Int iWidth, Int iHeight, const Int maxLog2TrDynamicRange, UChar ucMode, UChar ucTrIdx );
+  void xT        ( const TransformUnit &tu, const ComponentID &compID, const CPelBuf &resi, CoeffBuf &dstCoeff, const int iWidth, const int iHeight );
 
   void (*m_fTr ) ( const int bitDepth, const Pel *residual, size_t stride, TCoeff *coeff, size_t width, size_t height, bool useDST, const int maxLog2TrDynamicRange );
   void (*m_fITr) ( const int bitDepth, const TCoeff *coeff, Pel *residual, size_t stride, size_t width, size_t height, bool useDST, const int maxLog2TrDynamicRange );
@@ -150,13 +167,7 @@ private:
                  const QpParam       &cQP      );
 
   // inverse transform
-  Void xIT(      const Int           &channelBitDepth,
-                 const Bool          &useDST,
-                 const CCoeffBuf     &pCoeff,
-                       PelBuf        &pResidual,
-                 const Int           &maxLog2TrDynamicRange,
-                 const UChar          ucMode,
-                 const UChar          ucTrIdx);
+  void xIT     ( const TransformUnit &tu, const ComponentID &compID, const CCoeffBuf &pCoeff, PelBuf &pResidual );
 
   // inverse skipping transform
   Void xITransformSkip(

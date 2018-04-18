@@ -64,6 +64,8 @@ private:
   // encoder configuration
   EncCfg*                 m_pcCfg;                              ///< encoder configuration class
 
+  EncLib*                 m_pcLib;
+
   // pictures
   PicList*                m_pcListPic;                          ///< list of pictures
 
@@ -72,7 +74,7 @@ private:
   EncCu*                  m_pcCuEncoder;                        ///< CU encoder
 
   // encoder search
-  InterSearch*            m_pcInterSearch;                       ///< encoder search class
+  InterSearch*            m_pcInterSearch;                      ///< encoder search class
 
   // coding tools
   CABACWriter*            m_CABACWriter;
@@ -89,22 +91,23 @@ private:
   RateCtrl*               m_pcRateCtrl;                         ///< Rate control manager
   UInt                    m_uiSliceSegmentIdx;
   Ctx                     m_lastSliceSegmentEndContextState;    ///< context storage for state at the end of the previous slice-segment (used for dependent slices only).
-  Ctx                     m_entropyCodingSyncContextState;      ///< context storate for state of contexts at the wavefront/WPP/entropy-coding-sync second CTU of tile-row
-  CABACEncoder*           m_CABACEncoder;
+  Ctx                     m_entropyCodingSyncContextState;      ///< context storage for state of contexts at the wavefront/WPP/entropy-coding-sync second CTU of tile-row
+#if JEM_TOOLS
+  CABACDataStore*         m_CABACDataStore;
+#endif
   SliceType               m_encCABACTableIdx;
 #if SHARP_LUMA_DELTA_QP
   Int                     m_gopID;
 #endif
-#if HHI_HLM_USE_QPA
-  double*                 m_uEnerHpCtu;                         ///< CTU-wise L2 or squared L1 norm of high-passed luma input
-  Pel*                    m_iOffsetCtu;                         ///< CTU-wise DC offset (later QP index offset) of luma input
-#endif
 
 #if SHARP_LUMA_DELTA_QP
-  Double   calculateLambda( const Slice* slice, const Int GOPid, const Int depth, const Double refQP, const Double dQP, Int &iQP );
+public:
+  Int getGopId()        const { return m_gopID; }
+  Double  calculateLambda( const Slice* slice, const Int GOPid, const Int depth, const Double refQP, const Double dQP, Int &iQP );
+private:
 #endif
-  Void     setUpLambda(Slice* slice, const Double dLambda, Int iQP);
-  Void     calculateBoundingCtuTsAddrForSlice(UInt &startCtuTSAddrSlice, UInt &boundingCtuTSAddrSlice, Bool &haveReachedTileBoundary, Picture* pcPic, const Int sliceMode, const Int sliceArgument);
+  Void    setUpLambda( Slice* slice, const Double dLambda, Int iQP );
+  Void    calculateBoundingCtuTsAddrForSlice( UInt &startCtuTSAddrSlice, UInt &boundingCtuTSAddrSlice, Bool &haveReachedTileBoundary, Picture* pcPic, const Int sliceMode, const Int sliceArgument );
 
 public:
   EncSlice();
@@ -118,15 +121,18 @@ public:
   Void    initEncSlice        ( Picture*  pcPic, const Int pocLast, const Int pocCurr,
                                 const Int iGOPid,   Slice*& rpcSlice, const Bool isField );
   Void    resetQP             ( Picture* pic, Int sliceQP, Double lambda );
-#if SHARP_LUMA_DELTA_QP
-  Void    updateLambda        ( Slice* slice, Double dQP);
-#endif
 
   // compress and encode slice
   Void    precompressSlice    ( Picture* pcPic                                     );      ///< precompress slice for multi-loop slice-level QP opt.
   Void    compressSlice       ( Picture* pcPic, const Bool bCompressEntireSlice, const Bool bFastDeltaQP );      ///< analysis stage of slice
   Void    calCostSliceI       ( Picture* pcPic );
+
   Void    encodeSlice         ( Picture* pcPic, OutputBitstream* pcSubstreams, UInt &numBinsCoded );
+#if ENABLE_WPP_PARALLELISM
+  static
+#endif
+  Void    encodeCtus          ( Picture* pcPic, const Bool bCompressEntireSlice, const Bool bFastDeltaQP, UInt startCtuTsAddr, UInt boundingCtuTsAddr, EncLib* pcEncLib );
+
 
   // misc. functions
   Void    setSearchRange      ( Slice* pcSlice  );                                  ///< set ME range adaptively

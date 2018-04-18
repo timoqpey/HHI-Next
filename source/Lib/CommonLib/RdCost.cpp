@@ -61,6 +61,17 @@ RdCost::~RdCost()
 
 Double RdCost::calcRdCost( uint64_t fracBits, Distortion distortion )
 {
+#if HM_REPRODUCE_RDCOST_CALCULATION
+  if( m_costMode == COST_STANDARD_LOSSY )
+  {
+#if HM_16_6_BIT_EQUAL
+    return floor( double(distortion) + m_dLambda * double(fracBits >> SCALE_BITS) + 0.5 );
+#else
+    // in HM, a rounding (floor(x+.5)) is done, which makes cost differ sometimes
+    return double(distortion) + m_dLambda * double(fracBits >> SCALE_BITS);
+#endif
+  }
+#endif
   return m_DistScale * double(distortion) + double(fracBits);
 }
 
@@ -143,7 +154,7 @@ Void RdCost::init()
   m_afpDistortFunc[DF_SAD_FULL_NBIT64 ] = RdCost::xGetSAD_full;
   m_afpDistortFunc[DF_SAD_FULL_NBIT16N] = RdCost::xGetSAD_full;
 
-#if HHI_SIMD_OPT_DIST
+#if ENABLE_SIMD_OPT_DIST
 #ifdef TARGET_SIMD_X86
   initRdCostX86();
 #endif
@@ -154,6 +165,23 @@ Void RdCost::init()
   m_motionLambda               = 0;
   m_iCostScale                 = 0;
 }
+
+
+#if ENABLE_SPLIT_PARALLELISM
+
+void RdCost::copyState( const RdCost& other )
+{
+  m_costMode      = other.m_costMode;
+  m_dLambda       = other.m_dLambda;
+  m_DistScale     = other.m_DistScale;
+  memcpy( m_distortionWeight, other.m_distortionWeight, sizeof( m_distortionWeight ) );
+  m_mvPredictor   = other.m_mvPredictor;
+  m_motionLambda  = other.m_motionLambda;
+  m_iCostScale    = other.m_iCostScale;
+  m_useQtbt       = other.m_useQtbt;
+  memcpy( m_dLambdaMotionSAD, other.m_dLambdaMotionSAD, sizeof( m_dLambdaMotionSAD ) );
+}
+#endif
 
 Void RdCost::setDistParam( DistParam &rcDP, const CPelBuf &org, const Pel* piRefY, Int iRefStride, Int bitDepth, ComponentID compID, Int subShiftMode, Int step, Bool useHadamard )
 {
@@ -285,22 +313,22 @@ Void RdCost::setDistParam( DistParam &rcDP, const Pel* pOrg, const Pel* piRefY, 
   rcDP.bitDepth   = bitDepth;
   rcDP.compID     = compID;
   rcDP.isQtbt     = m_useQtbt;
-  
+
   rcDP.org.buf    = pOrg;
   rcDP.org.stride = iOrgStride;
   rcDP.org.width  = width;
   rcDP.org.height = height;
-  
+
   rcDP.cur.buf    = piRefY;
   rcDP.cur.stride = iRefStride;
   rcDP.cur.width  = width;
   rcDP.cur.height = height;
-  
+
   rcDP.step       = step;
   rcDP.maximumDistortionForEarlyExit = std::numeric_limits<Distortion>::max();
-  
+
   CHECK( useHadamard || rcDP.useMR || subShiftMode > 0, "only used in xDirectMCCost with these default parameters (so far...)" );
-  
+
   if( width == 12 )
   {
     rcDP.distFunc = m_afpDistortFunc[ DF_SAD12 ];
@@ -1668,8 +1696,6 @@ Distortion RdCost::xGetMRSAD48( const DistParam &rcDtParam )
   return ( uiSum >> DISTORTION_PRECISION_ADJUSTMENT(rcDtParam.bitDepth-8) );
 }
 
-
-
 // --------------------------------------------------------------------------------------------------------------------
 // SSE
 // --------------------------------------------------------------------------------------------------------------------
@@ -2798,19 +2824,24 @@ Distortion RdCost::xGetHADs( const DistParam &rcDtParam )
   return ( uiSum >> DISTORTION_PRECISION_ADJUSTMENT( rcDtParam.bitDepth - 8 ) );
 }
 
+Pel orgCopy[MAX_CU_SIZE * MAX_CU_SIZE];
+
+#if _OPENMP
+#pragma omp threadprivate(orgCopy)
+#endif
 
 Distortion RdCost::xGetMRHADs( const DistParam &rcDtParam )
 {
   const Pel offset = rcDtParam.org.meanDiff( rcDtParam.cur );
 
-  PelBuf modOrg( const_cast< Pel* >( rcDtParam.org.buf ), rcDtParam.org.stride, rcDtParam.org );
+  PelBuf modOrg( orgCopy, rcDtParam.org );
 
+  modOrg.copyFrom( rcDtParam.org );
   modOrg.subtract( offset );
 
-  Distortion dist = m_afpDistortFunc[DF_HAD]( rcDtParam );
+  DistParam modDistParam = rcDtParam;
+  modDistParam.org = modOrg;
 
-  modOrg.subtract( -offset );
-
-  return dist;
+  return m_afpDistortFunc[DF_HAD]( modDistParam );
 }
 //! \}

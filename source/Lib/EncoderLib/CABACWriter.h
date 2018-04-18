@@ -47,7 +47,9 @@
 //! \{
 
 
-class CABACEncoder;
+#if JEM_TOOLS
+class CABACDataStore;
+#endif
 class CABACWriter
 {
 public:
@@ -55,8 +57,12 @@ public:
   virtual ~CABACWriter() {}
 
 public:
+#if JEM_TOOLS
   void        initCtxModels             ( const Slice&                  slice,
-                                          const CABACEncoder*           cabacEncoder );
+                                          const CABACDataStore*         cabacDataStore );
+#else
+  void        initCtxModels             ( const Slice&                  slice );
+#endif
   SliceType   getCtxInitId              ( const Slice&                  slice );
   void        initBitstream             ( OutputBitstream*              bitstream )           { m_Bitstream = bitstream; m_BinEncoder.init( m_Bitstream ); }
 
@@ -69,26 +75,28 @@ public:
   uint32_t    getNumBins                ()                                                    { return m_BinEncoder.getNumBins(); }
   bool        isEncoding                ()                                                    { return m_BinEncoder.isEncoding(); }
 
+#if JEM_TOOLS
   void        enableBinStore            ( const Slice&                  slice,
-                                          CABACEncoder&                 cabacEncoder );
+                                          CABACDataStore&               cabacDataStore );
   void        estWinSizes               ( const Slice&                  slice,
-                                          CABACEncoder&                 cabacEncoder ) const;
-
+                                          CABACDataStore&               cabacDataStore ) const;
+#endif
 public:
   // slice segment data (clause 7.3.8.1)
   void        end_of_slice              ();
 
   // coding tree unit (clause 7.3.8.2)
-  void        coding_tree_unit          (       CodingStructure&        cs,       const UnitArea&   area,       int& qpL,           int& qpC,            unsigned ctuRsAddr,  bool skipSao = false );
+  void        coding_tree_unit          (       CodingStructure&        cs,       const UnitArea&   area,       int (&qps)[2],  unsigned ctuRsAddr,  bool skipSao = false );
 
   // sao (clause 7.3.8.3)
   void        sao                       ( const Slice&                  slice,    unsigned          ctuRsAddr );
   void        sao_block_pars            ( const SAOBlkParam&            saoPars,  const BitDepths&  bitDepths,  bool* sliceEnabled, bool leftMergeAvail, bool aboveMergeAvail, bool onlyEstMergeInfo );
   void        sao_offset_pars           ( const SAOOffset&              ctbPars,  ComponentID       compID,     bool sliceEnabled,  int bitDepth );
-
+#if JEM_TOOLS
   void        alf                       ( const Slice&                  slice,    const ALFParam& alfParam );
   void        alf                       ( const ALFParam&               alfParam, SliceType sliceType, bool isGALF );
 
+#endif
   // coding (quad)tree (clause 7.3.8.4)
   void        coding_tree               ( const CodingStructure&        cs,       Partitioner&      pm,         CUCtx& cuCtx );
   void        split_cu_flag             ( bool                          split,    const CodingStructure& cs,    Partitioner& pm );
@@ -99,17 +107,25 @@ public:
   void        cu_transquant_bypass_flag ( const CodingUnit&             cu );
   void        cu_skip_flag              ( const CodingUnit&             cu );
   void        pred_mode                 ( const CodingUnit&             cu );
+#if HEVC_TOOLS
   void        part_mode                 ( const CodingUnit&             cu );
+#endif
+#if JEM_TOOLS
   void        pdpc_flag                 ( const CodingUnit&             cu );
+#endif
   void        pcm_data                  ( const CodingUnit&             cu );
   void        pcm_flag                  ( const CodingUnit&             cu );
   void        cu_pred_data              ( const CodingUnit&             cu );
+#if JEM_TOOLS
   void        cu_lic_flag               ( const CodingUnit&             cu );
   void        obmc_flag                 ( const CodingUnit&             cu );
+#endif
   void        intra_luma_pred_modes     ( const CodingUnit&             cu );
   void        intra_luma_pred_mode      ( const PredictionUnit&         pu );
   void        intra_chroma_pred_modes   ( const CodingUnit&             cu );
+#if JEM_TOOLS
   void        intra_chroma_lmc_mode     ( const PredictionUnit&         pu );
+#endif
   void        intra_chroma_pred_mode    ( const PredictionUnit&         pu );
   void        cu_residual               ( const CodingUnit&             cu,       Partitioner&      pm,         CUCtx& cuCtx );
   void        rqt_root_cbf              ( const CodingUnit&             cu );
@@ -118,39 +134,63 @@ public:
   // prediction unit (clause 7.3.8.6)
   void        prediction_unit           ( const PredictionUnit&         pu );
   void        merge_flag                ( const PredictionUnit&         pu );
+#if JEM_TOOLS
   void        affine_flag               ( const CodingUnit&             cu );
+#endif
   void        merge_idx                 ( const PredictionUnit&         pu );
+#if JEM_TOOLS
   void        imv_mode                  ( const CodingUnit&             cu );
+#endif
   void        inter_pred_idc            ( const PredictionUnit&         pu );
   void        ref_idx                   ( const PredictionUnit&         pu,       RefPicList        eRefList );
   void        mvp_flag                  ( const PredictionUnit&         pu,       RefPicList        eRefList );
 
+#if JEM_TOOLS
   void        fruc_mrg_mode             ( const PredictionUnit&         pu );
+#endif
 
   // pcm samples (clause 7.3.8.7)
   void        pcm_samples               ( const TransformUnit&          tu );
 
   // transform tree (clause 7.3.8.8)
   void        transform_tree            ( const CodingStructure&        cs,       Partitioner&      pm,     CUCtx& cuCtx,   ChromaCbfs& chromaCbfs );
+#if HEVC_TOOLS
   void        split_transform_flag      ( bool                          split,    unsigned          depth );
-  void        cbf_comp                  ( bool                          cbf,      const CompArea&   area,   unsigned depth );
+#endif
+#if HEVC_TOOLS
+  void        cbf_comp                  ( const CodingStructure&        cs,       bool              cbf,    const CompArea& area, unsigned depth );
+#else
+  void        cbf_comp                  ( const CodingStructure&        cs,       bool              cbf,    const CompArea& area );
+#endif
 
+#if JEM_TOOLS
   // mvd coding (clause 7.3.8.9)
   void        mvd_coding                ( const Mv &rMvd, UChar imv );
+#else
+  void        mvd_coding                ( const Mv &rMvd );
+#endif
 
   // transform unit (clause 7.3.8.10)
   void        transform_unit            ( const TransformUnit&          tu,       CUCtx&            cuCtx,  ChromaCbfs& chromaCbfs );
+#if HM_QTBT_AS_IN_JEM_SYNTAX
   void        transform_unit_qtbt       ( const TransformUnit&          tu,       CUCtx&            cuCtx,  ChromaCbfs& chromaCbfs );
-  void        cu_qp_delta               ( const CodingUnit&             cu,       int               predQP );
+#endif
+  void        cu_qp_delta               ( const CodingUnit&             cu,       int               predQP, const SChar qp );
   void        cu_chroma_qp_offset       ( const CodingUnit&             cu );
+#if JEM_TOOLS
+#if !HM_EMT_NSST_AS_IN_JEM
   void        cu_emt_noqrt_idx          ( const CodingUnit&             cu );
+#endif
+#endif
 
   // residual coding (clause 7.3.8.11)
-  void        residual_nsst_mode        ( const CodingUnit&             cu,       CUCtx&            cuCtx  );
   void        residual_coding           ( const TransformUnit&          tu,       ComponentID       compID );
   void        transform_skip_flag       ( const TransformUnit&          tu,       ComponentID       compID );
+#if JEM_TOOLS
+  void        residual_nsst_mode        ( const CodingUnit&             cu,       CUCtx&            cuCtx  );
   void        emt_tu_index              ( const TransformUnit&          tu );
   void        emt_cu_flag               ( const CodingUnit&             cu );
+#endif
   void        explicit_rdpcm_mode       ( const TransformUnit&          tu,       ComponentID       compID );
   void        last_sig_coeff            ( CoeffCodingContext&           cctx );
   void        residual_coding_subblock  ( CoeffCodingContext&           cctx,     const TCoeff*     coeff  );
@@ -162,9 +202,9 @@ private:
   void        unary_max_symbol          ( unsigned symbol, unsigned ctxId0, unsigned ctxIdN, unsigned maxSymbol );
   void        unary_max_eqprob          ( unsigned symbol,                                   unsigned maxSymbol );
   void        exp_golomb_eqprob         ( unsigned symbol, unsigned count );
-
   void        encode_sparse_dt          ( DecisionTree& dt, unsigned toCodeId );
 
+#if JEM_TOOLS
   // alf
   void        alf_aux                   ( const ALFParam&               alfParam, bool isGALF );
   void        alf_filter                ( const ALFParam&               alfParam, bool isGALF, bool bChroma = false );
@@ -175,13 +215,17 @@ private:
   void        codeAlfSvlc               ( Int iCode );
   void        alfGolombEncode           ( int coeff, int k );
 
+#endif
   // statistic
   unsigned    get_num_written_bits()    { return m_BinEncoder.getNumWrittenBits(); }
+
+#if JEM_TOOLS
   Void  xWriteTruncBinCode(UInt uiSymbol, UInt uiMaxSymbol);
 #if  JVET_C0038_NO_PREV_FILTERS
   Void  xWriteEpExGolomb(UInt uiSymbol, UInt uiCount);
 #endif
 
+#endif
 private:
   BinEncIf&         m_BinEncoder;
   OutputBitstream*  m_Bitstream;
@@ -195,75 +239,60 @@ class CABACEncoder
 public:
   CABACEncoder()
     : m_CABACWriterStd      ( m_BinEncoderStd )
+#if JEM_TOOLS
     , m_CABACWriterJMP      ( m_BinEncoderJMP )
     , m_CABACWriterJAW      ( m_BinEncoderJAW )
     , m_CABACWriterJMPAW    ( m_BinEncoderJMPAW )
+#endif
     , m_CABACEstimatorStd   ( m_BitEstimatorStd )
+#if JEM_TOOLS
     , m_CABACEstimatorJMP   ( m_BitEstimatorJMP )
     , m_CABACEstimatorJAW   ( m_BitEstimatorJAW )
     , m_CABACEstimatorJMPAW ( m_BitEstimatorJMPAW )
+#endif
+#if JEM_TOOLS
     , m_CABACWriter         { &m_CABACWriterStd,    &m_CABACWriterJMP,    &m_CABACWriterJAW,    &m_CABACWriterJMPAW    }
     , m_CABACEstimator      { &m_CABACEstimatorStd, &m_CABACEstimatorJMP, &m_CABACEstimatorJAW, &m_CABACEstimatorJMPAW }
+#else
+    , m_CABACWriter         { &m_CABACWriterStd,   }
+    , m_CABACEstimator      { &m_CABACEstimatorStd }
+#endif
   {}
 
+#if JEM_TOOLS
   CABACWriter*                getCABACWriter          ( const SPS*   sps   )        { return m_CABACWriter   [sps->getSpsNext().getCABACEngineMode()]; }
   CABACWriter*                getCABACEstimator       ( const SPS*   sps   )        { return m_CABACEstimator[sps->getSpsNext().getCABACEngineMode()]; }
-
-  void                        checkInit               ( const SPS*    sps  )        { m_CtxWSizeStore.checkInit(sps); }
-  bool                        validWinSizes           ( const Slice* slice )  const { return m_CtxWSizeStore.validWinSizes(slice); }
-  void                        setSliceWinUpdateMode   ( Slice*       slice )  const {        m_CtxWSizeStore.setSliceWinUpdateMode(slice); }
-  void                        setWSizeSetValid        ( const Slice* slice )        {        m_CtxWSizeStore.getWSizeSet(slice).setValid( Ctx::getDefaultWindowSize( slice->getSPS()->getSpsNext().getCABACEngineMode() ) ); }
-  void                        setWSizeSetCoded        ( const Slice* slice )        {        m_CtxWSizeStore.getWSizeSet(slice).setCoded(); }
-  const std::vector<uint8_t>& getWSizeWriteBuffer     ( const Slice* slice )        { return m_CtxWSizeStore.getWriteBuffer(slice); }
-  const std::vector<uint8_t>* getWinSizes             ( const Slice* slice )  const { return m_CtxWSizeStore.getWinSizes(slice); }
-  std::vector<uint8_t>&       getWinSizeBuffer        ( const Slice* slice )        { return m_CtxWSizeStore.getWSizeSet(slice).getWinSizeBuffer(); }
-  std::size_t                 getNumWSizeCodeIds      ()                      const { return m_CtxWSizeStore.getNumCodeIds(); }
-  int                         getCtxIdFromWSizeCodeId ( std::size_t  id    )  const { return m_CtxWSizeStore.getCtxId(id); }
-
-  void  loadCtxStates     ( const Slice*  slice, Ctx& ctx   ) const
-  {
-    if( slice->getSPS()->getSpsNext().getUseCIPF() )
-    {
-      m_CtxStateStore.loadCtx(slice,ctx);
-    }
-  }
-  void  storeCtxStates    ( const Slice*  slice, const Ctx& ctx )
-  {
-    if( slice->getSPS()->getSpsNext().getUseCIPF() )
-    {
-      m_CtxStateStore.storeCtx( slice, ctx );
-    }
-  }
-  void  updateBufferState ( const Slice* slice )
-  {
-    if ( slice->getPendingRasInit() )
-    {
-      m_CtxStateStore.clearValid();
-    }
-    m_CtxWSizeStore.updateState( slice, true );
-  }
-
+#else
+  CABACWriter*                getCABACWriter          ( const SPS*   sps   )        { return m_CABACWriter   [0]; }
+  CABACWriter*                getCABACEstimator       ( const SPS*   sps   )        { return m_CABACEstimator[0]; }
+#endif
 private:
   BinEncoder_Std      m_BinEncoderStd;
+#if JEM_TOOLS
   BinEncoder_JMP      m_BinEncoderJMP;
   BinEncoder_JAW      m_BinEncoderJAW;
   BinEncoder_JMPAW    m_BinEncoderJMPAW;
+#endif
   BitEstimator_Std    m_BitEstimatorStd;
+#if JEM_TOOLS
   BitEstimator_JMP    m_BitEstimatorJMP;
   BitEstimator_JAW    m_BitEstimatorJAW;
   BitEstimator_JMPAW  m_BitEstimatorJMPAW;
+#endif
   CABACWriter         m_CABACWriterStd;
+#if JEM_TOOLS
   CABACWriter         m_CABACWriterJMP;
   CABACWriter         m_CABACWriterJAW;
   CABACWriter         m_CABACWriterJMPAW;
+#endif
   CABACWriter         m_CABACEstimatorStd;
+#if JEM_TOOLS
   CABACWriter         m_CABACEstimatorJMP;
   CABACWriter         m_CABACEstimatorJAW;
   CABACWriter         m_CABACEstimatorJMPAW;
+#endif
   CABACWriter*        m_CABACWriter   [BPM_NUM-1];
   CABACWriter*        m_CABACEstimator[BPM_NUM-1];
-  CtxStateStore       m_CtxStateStore;
-  CtxWSizeStore       m_CtxWSizeStore;
 };
 
 //! \}

@@ -54,14 +54,20 @@ typedef static_vector<UnitArea, 4> Partitioning;
 
 enum PartSplit
 {
-  CTU_LEVEL        = 0,  
+  CTU_LEVEL        = 0,
   CU_QUAD_SPLIT,
 
   CU_HORZ_SPLIT,
   CU_VERT_SPLIT,
+  CU_TRIH_SPLIT,
+  CU_TRIV_SPLIT,
 
   TU_QUAD_SPLIT,
+#if HM_REPRODUCE_4x4_BLOCK_ESTIMATION_ORDER
+  TU_QUAD_SPLIT_HM,
+#endif
   NUM_PART_SPLIT,
+  CU_MT_SPLIT             = 1000, ///< dummy element to indicate the MT (multi-type-tree) split
   CU_BT_SPLIT             = 1001, ///< dummy element to indicate the BT split
   CU_DONT_SPLIT           = 2000  ///< dummy element to indicate no splitting
 };
@@ -98,8 +104,16 @@ protected:
 public:
   unsigned currDepth;
   unsigned currQtDepth;
+#if HEVC_TOOLS
   unsigned currTrDepth;
+#endif
   unsigned currBtDepth;
+  unsigned currMtDepth;
+
+#if !HM_QTBT_ONLY_QT_IMPLICIT
+  unsigned currImplicitBtDepth;
+#endif
+  ChannelType chType;
 
   virtual ~Partitioner                    () { }
 
@@ -110,15 +124,17 @@ public:
 
   SplitSeries getSplitSeries              () const;
 
-  virtual void initCtu                    ( const UnitArea& ctuArea )                                                   = 0;
+  virtual void initCtu                    ( const UnitArea& ctuArea, const ChannelType _chType, const Slice& slice )    = 0;
   virtual void splitCurrArea              ( const PartSplit split, const CodingStructure &cs )                          = 0;
   virtual void exitCurrSplit              ()                                                                            = 0;
   virtual bool nextPart                   ( const CodingStructure &cs, bool autoPop = false )                           = 0;
   virtual bool hasNextPart                ()                                                                            = 0;
-
-  virtual void setCUData                  ( CodingUnit& cu );
-
-public:
+                                                                                                                        
+  virtual void setCUData                  ( CodingUnit& cu );                                                           
+                                                                                                                        
+  virtual void copyState                  ( const Partitioner& other );
+                                                                                                                        
+public:                                                                                                                 
   virtual bool canSplit                   ( const PartSplit split,                          const CodingStructure &cs ) = 0;
   virtual bool isSplitImplicit            ( const PartSplit split,                          const CodingStructure &cs ) = 0;
   virtual PartSplit getImplicitSplit      (                                                 const CodingStructure &cs ) = 0;
@@ -130,10 +146,11 @@ public:
   void setMaxMinDepth( unsigned& minDepth, unsigned& maxDepth, const CodingStructure& cs ) const;
 };
 
+#if HEVC_TOOLS
 class HEVCPartitioner : public AdaptiveDepthPartitioner
 {
 public:
-  void initCtu                    ( const UnitArea& ctuArea );
+  void initCtu                    ( const UnitArea& ctuArea, const ChannelType _chTyp, const Slice& slice );
   void splitCurrArea              ( const PartSplit split, const CodingStructure &cs );
   void exitCurrSplit              ();
   bool nextPart                   ( const CodingStructure &cs, bool autoPop = false );
@@ -144,10 +161,11 @@ public:
   PartSplit getImplicitSplit      (                                                 const CodingStructure &cs );
 };
 
+#endif
 class QTBTPartitioner : public AdaptiveDepthPartitioner
 {
 public:
-  void initCtu                    ( const UnitArea& ctuArea );
+  void initCtu                    ( const UnitArea& ctuArea, const ChannelType _chType, const Slice& slice );
   void splitCurrArea              ( const PartSplit split, const CodingStructure &cs );
   void exitCurrSplit              ();
   bool nextPart                   ( const CodingStructure &cs, bool autoPop = false );
@@ -157,6 +175,9 @@ public:
   bool isSplitImplicit            ( const PartSplit split,                          const CodingStructure &cs );
   PartSplit getImplicitSplit      (                                                 const CodingStructure &cs );
 };
+
+
+
 
 
 namespace PartitionerFactory
@@ -170,9 +191,17 @@ namespace PartitionerFactory
 
 namespace PartitionerImpl
 {
+#if HEVC_TOOLS
   Partitioning getPUPartitioning ( const CodingUnit &cu );
+#endif
   Partitioning getCUSubPartitions( const UnitArea   &cuArea, const CodingStructure &cs, const PartSplit splitType = CU_QUAD_SPLIT );
+#if HEVC_TOOLS
+#if HM_REPRODUCE_4x4_BLOCK_ESTIMATION_ORDER
+  Partitioning getTUSubPartitions( const UnitArea   &tuArea, const CodingStructure &cs, bool hmCompatible = false );
+#else
   Partitioning getTUSubPartitions( const UnitArea   &tuArea, const CodingStructure &cs );
+#endif
+#endif
 };
 
 #endif

@@ -42,7 +42,6 @@
 #error Include CommonDef.h not TypeDef.h
 #endif
 
-
 #include <vector>
 #include <utility>
 #include <sstream>
@@ -51,8 +50,41 @@
 #include <assert.h>
 #include <cassert>
 
+#ifndef JEM_TOOLS
+#define JEM_TOOLS                                         1 // Defines the inclusion of JEM tools into compiled executable
+
+#endif
+#ifndef JEM_COMP
+#define JEM_COMP                                          1
+
+#endif
+#ifndef HEVC_TOOLS
+#define HEVC_TOOLS                                        0
+
+#endif
 
 
+
+#ifndef ENABLE_WPP_PARALLELISM
+#define ENABLE_WPP_PARALLELISM                            0
+#endif
+#if ENABLE_WPP_PARALLELISM
+#ifndef ENABLE_WPP_STATIC_LINK
+#define ENABLE_WPP_STATIC_LINK                            0 // bug fix static link
+#endif
+#define PARL_WPP_MAX_NUM_THREADS                         16
+#endif
+
+
+#ifndef ENABLE_SPLIT_PARALLELISM
+#define ENABLE_SPLIT_PARALLELISM                          0
+#endif
+#if ENABLE_SPLIT_PARALLELISM
+#define PARL_SPLIT_MAX_NUM_JOBS                           6                             // number of parallel jobs that can be defined and need memory allocated
+#define NUM_RESERVERD_SPLIT_JOBS                        ( PARL_SPLIT_MAX_NUM_JOBS + 1 )  // number of all data structures including the merge thread (0)
+#define PARL_SPLIT_MAX_NUM_THREADS                        PARL_SPLIT_MAX_NUM_JOBS
+#define NUM_SPLIT_THREADS_IF_MSVC                         4
+#endif
 
 // ====================================================================================================================
 // NEXT software switches
@@ -63,11 +95,44 @@
 #endif // ! ENABLE_TRACING
 
 
+
 #define KEEP_PRED_AND_RESI_SIGNALS                        0
 
+#if JEM_COMP // macros which will cause changes in the decoder behavior ara marked with *** - keep them on to retain compatibility with JEM-toolcheck
+#define HM_REPRODUCE_4x4_BLOCK_ESTIMATION_ORDER           0   // estimate 4x4 blocks as in HM
+#define HM_REPRODUCE_422_CHROMA_CONTEXT_RESET_BUG         1   // reproduce 4:2:2 context reset bug in HM
+#define HM_REPRODUCE_CONTEXT_IDX_CALCULATION              1   // reproduce HM context idx calculation
+#define HM_STORE_FRAC_BITS_AND_USE_ROUNDED_BITS           1   // storage and copying of frac bits in ctx classes
+#define HM_REPRODUCE_RDCOST_CALCULATION                   1   // calculate RD cost as in HM
+#define HM_ME_SR_VIOLATION                                1
+#define HM_POSTPONE_SPLIT_BITS                            1
+#define HM_16_6_BIT_EQUAL                                 1   // reproduce behavior of HM 16.6 rather than 16.13
+#define HM_EQ_MOTION_COST                                 1
+#define HM_NO_ADDITIONAL_SPEEDUPS                         1
+#define HM_NO_ADAPT_PPS_QP                                1   // disable corrected inital QP setup for RA GOP 16
+#define HM_QTBT_AS_IN_JEM                                 1   // ***
+#if     HM_QTBT_AS_IN_JEM
+#define HM_QTBT_AS_IN_JEM_CONTEXT                         1   // ***
+#define HM_QTBT_AS_IN_JEM_SYNTAX                          1   // ***
+#define HM_QTBT_AS_IN_JEM_QUANT                           1   // ***
+#define HM_QTBT_REPRODUCE_FAST_LCTU_BUG                   1
+#define HM_QTBT_ONLY_QT_IMPLICIT                          1   // ***
+#define HM_EMT_IMV_AS_IN_JEM                              1
+#endif
+#define HM_PDPC_AS_IN_JEM                                 1   // *** - PM: reproducing JEM behavior
+#define HM_FRUC_Z_ORDER_AS_IN_JEM                         1   // ***
+#define HM_CODED_CU_INFO                                  1   // like in JEM, when related CU is skipped, it stays like this even if a non skip mode wins...
+#define HM_4TAPIF_AS_IN_JEM                               1   // *** - PM: condition not well suited for 4-tap interpolation filters
+#define HM_MDMS_CODELAST_AS_IN_JEM                        1   // ***
+#define JEM_ADAPTIVE_WINDOW_MECHANISM                     1   // ***
+#define HM_EMT_NSST_AS_IN_JEM                             1   // ***
+#define HM_MDIS_AS_IN_JEM                                 1   // *** - PM: not filtering ref. samples for 64xn case and using Planar MDIS condition at encoder
+#define HM_LIC_MERGE_SKIP_AS_IN_JEM                       1   // count the bits for the LIC flag in the InterSearch::encodeResAndCalcRdInterCU function
+#endif//JEM_COMP
 
 
-#define ENABLE_CHROMA_422                                 1   // enables chroma 4:2:2 sampling format for HM, with QTBT it is implicitly handled, so the special handling can be disabled
+#define ENABLE_CHROMA_422                               ( HEVC_TOOLS ) // enables chroma 4:2:2 sampling format for HM, with QTBT it is implicitly handled, so the special handling can be disabled
+
 
 // ====================================================================================================================
 // Debugging
@@ -99,6 +164,8 @@
 // ====================================================================================================================
 // Tool Switches
 // ====================================================================================================================
+
+
 // This can be enabled by the makefile
 #ifndef RExt__HIGH_BIT_DEPTH_SUPPORT
 #define RExt__HIGH_BIT_DEPTH_SUPPORT                      0 ///< 0 (default) use data type definitions for 8-10 bit video, 1 = use larger data types to allow for up to 16-bit video (originally developed as part of N0188)
@@ -106,27 +173,29 @@
 
 // SIMD optimizations
 #define SIMD_ENABLE                                       1
-#define HHI_SIMD_OPT                                    ( SIMD_ENABLE && !RExt__HIGH_BIT_DEPTH_SUPPORT ) ///< HHI SIMD optimizations, no impact on RD performance
-#define HHI_SIMD_OPT_MCIF                               ( 1 && HHI_SIMD_OPT )                            ///< SIMD optimization for the interpolation filter, no impact on RD performance
-#define HHI_SIMD_OPT_BUFFER                             ( 1 && HHI_SIMD_OPT )                            ///< SIMD optimization for the buffer operations, no impact on RD performance
-#define HHI_SIMD_OPT_DIST                               ( 1 && HHI_SIMD_OPT )                            ///< SIMD optimization for the distortion calculations(SAD,SSE,HADAMARD), no impact on RD performance
+#define ENABLE_SIMD_OPT                                 ( SIMD_ENABLE && !RExt__HIGH_BIT_DEPTH_SUPPORT )    ///< SIMD optimizations, no impact on RD performance
+#define ENABLE_SIMD_OPT_MCIF                            ( 1 && ENABLE_SIMD_OPT )                            ///< SIMD optimization for the interpolation filter, no impact on RD performance
+#define ENABLE_SIMD_OPT_BUFFER                          ( 1 && ENABLE_SIMD_OPT )                            ///< SIMD optimization for the buffer operations, no impact on RD performance
+#define ENABLE_SIMD_OPT_DIST                            ( 1 && ENABLE_SIMD_OPT )                            ///< SIMD optimization for the distortion calculations(SAD,SSE,HADAMARD), no impact on RD performance
 // End of SIMD optimizations
 
-#define AMP_ENC_SPEEDUP                                   1 ///< encoder only speed-up by AMP mode skipping
+#define AMP_ENC_SPEEDUP                                   0 ///< encoder only speed-up by AMP mode skipping
 #if AMP_ENC_SPEEDUP
 #define AMP_MRG                                           1 ///< encoder only force merge for AMP partition (no motion search for AMP)
 #endif
 
-#define HHI_RQT_INTRA_SPEEDUP                             1 ///< tests one best mode with full rqt
-#define HHI_RQT_INTRA_SPEEDUP_MOD                         0 ///< tests two best modes with full rqt
+#define ENABLE_RQT_INTRA_SPEEDUP                          0 ///< tests one best mode with full rqt
+#define ENABLE_RQT_INTRA_SPEEDUP_MOD                      0 ///< tests two best modes with full rqt
 
-#if HHI_RQT_INTRA_SPEEDUP_MOD && !HHI_RQT_INTRA_SPEEDUP
+#if ENABLE_RQT_INTRA_SPEEDUP_MOD && !ENABLE_RQT_INTRA_SPEEDUP
 #error
 #endif
 
-#define MATRIX_MULT                                       0 ///< Brute force matrix multiplication instead of partial butterfly
-
+#if HM_16_6_BIT_EQUAL
+#define ME_ENABLE_ROUNDING_OF_MVS                         0 ///< 0 (default) = disables rounding of motion vectors when right shifted,  1 = enables rounding
+#else
 #define ME_ENABLE_ROUNDING_OF_MVS                         1 ///< 0 (default) = disables rounding of motion vectors when right shifted,  1 = enables rounding
+#endif
 
 #define RDOQ_CHROMA_LAMBDA                                1 ///< F386: weighting of chroma for RDOQ
 
@@ -137,19 +206,25 @@
 #define W0038_DB_OPT                                      1 ///< adaptive DB parameter selection, LoopFilterOffsetInPPS and LoopFilterDisable are set to 0 and DeblockingFilterMetric=2;
 #define W0038_CQP_ADJ                                     1 ///< chroma QP adjustment based on TL, CQPTLAdjustEnabled is set to 1;
 
-#define SHARP_LUMA_DELTA_QP                               1 ///< inculde non-normative LCU deltaQP and normative chromaQP change
+#define SHARP_LUMA_DELTA_QP                               1 ///< include non-normative LCU deltaQP and normative chromaQP change
 #define ER_CHROMA_QP_WCG_PPS                              1 ///< Chroma QP model for WCG used in Anchor 3.2
-#define HHI_HLM_USE_QPA                                   1
+#define ENABLE_QPA                                        0
 
+
+#if JEM_TOOLS
 #define COM16_C806_ALF_TEMPPRED_NUM                       6 //tbd
 
 #define GALF                                              1 //tbd
 #if GALF                                                    //tbd
 #define FORCE0                                            1 ///< forces filter coefficients to be 0
-#define JVET_C0038_NO_PREV_FILTERS                       16 ///<number of fixed filters per class
+#define JVET_C0038_NO_PREV_FILTERS                       16 ///< number of fixed filters per class
+#endif
 #endif
 
-#define RDOQ_CHROMA                                       1           ///< use of RDOQ in chroma
+#define RDOQ_CHROMA                                       1 ///< use of RDOQ in chroma
+
+
+
 
 // ====================================================================================================================
 // Derived macros
@@ -254,25 +329,20 @@ enum QuantFlags
   Q_SELECTIVE_RDOQ = 0x4,
 };
 
-enum class RDOQfn 
-{ 
-  JEM, 
-  HHI 
-};
-
 
 //EMT transform tags
 enum TransType
 {
-  DCT2,
-  DCT5,
-  DCT8,
-  DST1,
-  DST7,
-  NUM_TRANS_TYPE,
-  DCT2_HEVC,
-  DCT2_EMT
+  DCT2 = 0,
+  DCT5 = 1,
+  DCT8 = 2,
+  DST1 = 3,
+  DST7 = 4,
+  NUM_TRANS_TYPE = 5,
+  DCT2_HEVC = 6,
+  DCT2_EMT = 7
 };
+
 
 enum RDPCMMode
 {
@@ -314,6 +384,9 @@ enum ChannelType
   CHANNEL_TYPE_CHROMA  = 1,
   MAX_NUM_CHANNEL_TYPE = 2
 };
+
+#define CH_L CHANNEL_TYPE_LUMA
+#define CH_C CHANNEL_TYPE_CHROMA
 
 enum ComponentID
 {
@@ -373,6 +446,7 @@ enum DeblockEdgeDir
 enum PartSize
 {
   SIZE_2Nx2N           = 0,           ///< symmetric motion partition,  2Nx2N
+#if HEVC_TOOLS
   SIZE_2NxN            = 1,           ///< symmetric motion partition,  2Nx N
   SIZE_Nx2N            = 2,           ///< symmetric motion partition,   Nx2N
   SIZE_NxN             = 3,           ///< symmetric motion partition,   Nx N
@@ -381,6 +455,9 @@ enum PartSize
   SIZE_nLx2N           = 6,           ///< asymmetric motion partition, ( N/2)x2N + (3N/2)x2N
   SIZE_nRx2N           = 7,           ///< asymmetric motion partition, (3N/2)x2N + ( N/2)x2N
   NUMBER_OF_PART_SIZES = 8
+#else
+  NUMBER_OF_PART_SIZES
+#endif
 };
 
 /// supported prediction type
@@ -801,12 +878,15 @@ enum SaveLoadTag
 enum MergeType
 {
   MRG_TYPE_DEFAULT_N        = 0, // 0
+#if JEM_TOOLS
   MRG_TYPE_SUBPU_ATMVP,          // 1
   MRG_TYPE_SUBPU_ATMVP_EXT,      // 2
   MRG_TYPE_FRUC,                 // 3
   MRG_TYPE_FRUC_SET,             // 4
+#endif
   NUM_MRG_TYPE                   // 5
 };
+
 
 //////////////////////////////////////////////////////////////////////////
 // Encoder modes to try out
@@ -869,7 +949,9 @@ private:
 
 };
 
+#if JEM_TOOLS
 #if GALF
+
   #define NUM_OF_ALF_CLASSES   25
 #else
   #define NUM_OF_ALF_CLASSES   16
@@ -898,6 +980,7 @@ struct ALFParam
 
   void destroy();
   void reset();
+  void copyFrom(const ALFParam& src, const Bool isGALF, Bool max_depth_copy = true);
 
   Int alf_flag;                           ///< indicates use of ALF
   Int cu_control_flag;                    ///< coding unit based control flag
@@ -938,6 +1021,7 @@ struct ALFParam
   Int filters_per_group_diff; //this can be updated using codedVarBins
   Int filters_per_group;
 
+
   Int forceCoeff0;
   Int predMethod;
 
@@ -949,7 +1033,7 @@ struct ALFParam
   Bool temporalPredFlag;        //indicate whether reuse previous ALF coefficients
   Int  prevIdx;                 //index of the reused ALF coefficients
 };
-
+#endif
 
 
 struct BitDepths
@@ -1059,7 +1143,6 @@ struct WCGChromaQPControl
 };
 #endif
 
-
 class ChromaCbfs
 {
 public:
@@ -1144,7 +1227,7 @@ private:
 #define CHECK(c,x)          if(c){ THROW(x); }
 #define EXIT(x)             throw( Exception( "\n" ) << x << "\n" )
 #define CHECK_NULLPTR(_ptr) CHECK( !( _ptr ), "Accessing an empty pointer pointer!" )
-#ifdef _DEBUG
+#if defined( _DEBUG )
 #define CHECKD(c,x)         if(c){ THROW(x); }
 #else
 #define CHECKD(c,x)
@@ -1178,13 +1261,13 @@ public:
   static_vector( size_t N_ ) : _size( N_ )                     { }
   static_vector( size_t N_, const T& _val ) : _size( 0 )       { resize( N_, _val ); }
   template<typename It>
-  static_vector( It _it1, It _it2 ) : _size( 0 )               { while( _it1 < _it2 ) ((T*) _arr)[ _size++ ] = *_it1++; }
+  static_vector( It _it1, It _it2 ) : _size( 0 )               { while( _it1 < _it2 ) _arr[ _size++ ] = *_it1++; }
   static_vector( std::initializer_list<T> _il ) : _size( 0 )
   {
     typename std::initializer_list<T>::iterator _src1 = _il.begin();
     typename std::initializer_list<T>::iterator _src2 = _il.end();
 
-    while( _src1 < _src2 ) ((T*) _arr)[ _size++ ] = *_src1++;
+    while( _src1 < _src2 ) _arr[ _size++ ] = *_src1++;
 
     CHECKD( _size > N, "capacity exceeded" );
   }
@@ -1195,35 +1278,35 @@ public:
     typename std::initializer_list<T>::iterator _src1 = _il.begin();
     typename std::initializer_list<T>::iterator _src2 = _il.end();
 
-    while( _src1 < _src2 ) ((T*) _arr)[ _size++ ] = *_src1++;
+    while( _src1 < _src2 ) _arr[ _size++ ] = *_src1++;
 
     CHECKD( _size > N, "capacity exceeded" );
   }
 
-  void resize( size_t N_ )                      { CHECKD( N_ > N, "capacity exceeded" ); while(_size < N_) ((T*) _arr)[ _size++ ] = T() ; _size = N_; }
-  void resize( size_t N_, const T& _val )       { CHECKD( N_ > N, "capacity exceeded" ); while(_size < N_) ((T*) _arr)[ _size++ ] = _val; _size = N_; }
+  void resize( size_t N_ )                      { CHECKD( N_ > N, "capacity exceeded" ); while(_size < N_) _arr[ _size++ ] = T() ; _size = N_; }
+  void resize( size_t N_, const T& _val )       { CHECKD( N_ > N, "capacity exceeded" ); while(_size < N_) _arr[ _size++ ] = _val; _size = N_; }
   void reserve( size_t N_ )                     { CHECKD( N_ > N, "capacity exceeded" ); }
-  void push_back( const T& _val )               { CHECKD( _size >= N, "capacity exceeded" ); ((T*) _arr)[ _size++ ] = _val; }
-  void push_back( T&& val )                     { CHECKD( _size >= N, "capacity exceeded" ); ((T*) _arr)[ _size++ ] = std::forward<T>( val ); }
+  void push_back( const T& _val )               { CHECKD( _size >= N, "capacity exceeded" ); _arr[ _size++ ] = _val; }
+  void push_back( T&& val )                     { CHECKD( _size >= N, "capacity exceeded" ); _arr[ _size++ ] = std::forward<T>( val ); }
   void pop_back()                               { CHECKD( _size == 0, "calling pop_back on an empty vector" ); _size--; }
   void pop_front()                              { CHECKD( _size == 0, "calling pop_front on an empty vector" ); _size--; for( int i = 0; i < _size; i++ ) _arr[i] = _arr[i + 1]; }
   void clear()                                  { _size = 0; }
-  reference       at( size_t _i )               { CHECKD( _i >= _size, "Trying to access an out-of-bound-element" ); return ((T*) _arr)[ _i ]; }
-  const_reference at( size_t _i ) const         { CHECKD( _i >= _size, "Trying to access an out-of-bound-element" ); return ((T*) _arr)[ _i ]; }
-  reference       operator[]( size_t _i )       { CHECKD( _i >= _size, "Trying to access an out-of-bound-element" ); return ((T*) _arr)[ _i ]; }
-  const_reference operator[]( size_t _i ) const { CHECKD( _i >= _size, "Trying to access an out-of-bound-element" ); return ((T*) _arr)[ _i ]; }
-  reference       front()                       { CHECKD( _size == 0, "Trying to access the first element of an empty vector" ); return ((T*) _arr)[ 0 ]; }
-  const_reference front() const                 { CHECKD( _size == 0, "Trying to access the first element of an empty vector" ); return ((T*) _arr)[ 0 ]; }
-  reference       back()                        { CHECKD( _size == 0, "Trying to access the last element of an empty vector" ); return ((T*) _arr)[ _size - 1 ]; }
-  const_reference back() const                  { CHECKD( _size == 0, "Trying to access the last element of an empty vector" ); return ((T*) _arr)[ _size - 1 ]; }
-  pointer         data()                        { return ((T*) _arr); }
-  const_pointer   data() const                  { return ((T*) _arr); }
-  iterator        begin()                       { return ((T*) _arr); }
-  const_iterator  begin() const                 { return ((T*) _arr); }
-  const_iterator  cbegin() const                { return ((T*) _arr); }
-  iterator        end()                         { return ((T*) _arr) + _size; }
-  const_iterator  end() const                   { return ((T*) _arr) + _size; };
-  const_iterator  cend() const                  { return ((T*) _arr) + _size; };
+  reference       at( size_t _i )               { CHECKD( _i >= _size, "Trying to access an out-of-bound-element" ); return _arr[ _i ]; }
+  const_reference at( size_t _i ) const         { CHECKD( _i >= _size, "Trying to access an out-of-bound-element" ); return _arr[ _i ]; }
+  reference       operator[]( size_t _i )       { CHECKD( _i >= _size, "Trying to access an out-of-bound-element" ); return _arr[ _i ]; }
+  const_reference operator[]( size_t _i ) const { CHECKD( _i >= _size, "Trying to access an out-of-bound-element" ); return _arr[ _i ]; }
+  reference       front()                       { CHECKD( _size == 0, "Trying to access the first element of an empty vector" ); return _arr[ 0 ]; }
+  const_reference front() const                 { CHECKD( _size == 0, "Trying to access the first element of an empty vector" ); return _arr[ 0 ]; }
+  reference       back()                        { CHECKD( _size == 0, "Trying to access the last element of an empty vector" );  return _arr[ _size - 1 ]; }
+  const_reference back() const                  { CHECKD( _size == 0, "Trying to access the last element of an empty vector" );  return _arr[ _size - 1 ]; }
+  pointer         data()                        { return _arr; }
+  const_pointer   data() const                  { return _arr; }
+  iterator        begin()                       { return _arr; }
+  const_iterator  begin() const                 { return _arr; }
+  const_iterator  cbegin() const                { return _arr; }
+  iterator        end()                         { return _arr + _size; }
+  const_iterator  end() const                   { return _arr + _size; };
+  const_iterator  cend() const                  { return _arr + _size; };
   size_type       size() const                  { return _size; };
   size_type       byte_size() const             { return _size * sizeof( T ); }
   bool            empty() const                 { return _size == 0; }
@@ -1231,7 +1314,29 @@ public:
   size_type       capacity() const              { return N; }
   size_type       max_size() const              { return N; }
   size_type       byte_capacity() const         { return sizeof(_arr); }
+
+  iterator        insert( const_iterator _pos, const T& _val )
+                                                { CHECKD( _size >= N, "capacity exceeded" );
+                                                  for( difference_type i = _size - 1; i >= _pos - _arr; i-- ) _arr[i + 1] = _arr[i];
+                                                  *const_cast<iterator>( _pos ) = _val;
+                                                  _size++;
+                                                  return const_cast<iterator>( _pos ); }
+
+  iterator        insert( const_iterator _pos, T&& _val )
+                                                { CHECKD( _size >= N, "capacity exceeded" );
+                                                  for( difference_type i = _size - 1; i >= _pos - _arr; i-- ) _arr[i + 1] = _arr[i];
+                                                  *const_cast<iterator>( _pos ) = std::forward<T>( _val );
+                                                  _size++; return const_cast<iterator>( _pos ); }
+  template<class InputIt>
+  iterator        insert( const_iterator _pos, InputIt first, InputIt last )
+                                                { const difference_type numEl = last - first;
+                                                  CHECKD( _size + numEl >= N, "capacity exceeded" );
+                                                  for( difference_type i = _size - 1; i >= _pos - _arr; i-- ) _arr[i + numEl] = _arr[i];
+                                                  iterator it = const_cast<iterator>( _pos ); _size += numEl;
+                                                  while( first != last ) *it++ = *first++;
+                                                  return const_cast<iterator>( _pos ); }
 };
+
 
 // ---------------------------------------------------------------------------
 // dynamic cache
@@ -1241,10 +1346,26 @@ template<typename T>
 class dynamic_cache
 {
   std::vector<T*> m_cache;
+#if ENABLE_SPLIT_PARALLELISM || ENABLE_WPP_PARALLELISM
+  int64_t         m_cacheId;
+#endif
 
 public:
 
+#if ENABLE_SPLIT_PARALLELISM || ENABLE_WPP_PARALLELISM
+  dynamic_cache()
+  {
+    static int cacheId = 0;
+    m_cacheId = cacheId++;
+  }
+
+#endif
   ~dynamic_cache()
+  {
+    deleteEntries();
+  }
+
+  void deleteEntries()
   {
     for( auto &p : m_cache )
     {
@@ -1257,25 +1378,54 @@ public:
 
   T* get()
   {
+    T* ret;
+
     if( !m_cache.empty() )
     {
-      T* ret = m_cache.back();
+      ret = m_cache.back();
       m_cache.pop_back();
-      return ret;
+#if ENABLE_SPLIT_PARALLELISM || ENABLE_WPP_PARALLELISM
+      CHECK( ret->cacheId != m_cacheId, "Putting item into wrong cache!" );
+      CHECK( !ret->cacheUsed,           "Fetched an element that should've been in cache!!" );
+#endif
     }
     else
     {
-      return new T;
+      ret = new T;
     }
+
+#if ENABLE_SPLIT_PARALLELISM || ENABLE_WPP_PARALLELISM
+    ret->cacheId   = m_cacheId;
+    ret->cacheUsed = false;
+
+#endif
+    return ret;
   }
 
   void cache( T* el )
   {
+#if ENABLE_SPLIT_PARALLELISM || ENABLE_WPP_PARALLELISM
+    CHECK( el->cacheId != m_cacheId, "Putting item into wrong cache!" );
+    CHECK( el->cacheUsed,            "Putting cached item back into cache!" );
+
+    el->cacheUsed = true;
+
+#endif
     m_cache.push_back( el );
   }
 
   void cache( std::vector<T*>& vel )
   {
+#if ENABLE_SPLIT_PARALLELISM || ENABLE_WPP_PARALLELISM
+    for( auto el : vel )
+    {
+      CHECK( el->cacheId != m_cacheId, "Putting item into wrong cache!" );
+      CHECK( el->cacheUsed,            "Putting cached item back into cache!" );
+
+      el->cacheUsed = true;
+    }
+
+#endif
     m_cache.insert( m_cache.end(), vel.begin(), vel.end() );
     vel.clear();
   }

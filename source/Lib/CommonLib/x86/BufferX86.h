@@ -45,7 +45,7 @@
 #include "CommonLib/Buffer.h"
 
 
-#if HHI_SIMD_OPT_BUFFER
+#if ENABLE_SIMD_OPT_BUFFER
 #ifdef TARGET_SIMD_X86
 
 template< X86_VEXT vext, int W >

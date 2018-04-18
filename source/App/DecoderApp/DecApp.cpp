@@ -145,6 +145,7 @@ UInt DecApp::decode()
     else
     {
       read(nalu);
+
       if( (m_iMaxTemporalLayer >= 0 && nalu.m_temporalId > m_iMaxTemporalLayer) || !isNaluWithinTargetDecLayerIdSet(&nalu)  )
       {
         bNewPicture = false;
@@ -178,7 +179,7 @@ UInt DecApp::decode()
       if (!loopFiltered || bitstreamFile)
       {
         m_cDecLib.executeLoopFilters();
-        m_cDecLib.finishPicture(poc, pcListPic);
+        m_cDecLib.finishPicture( poc, pcListPic );
       }
       loopFiltered = (nalu.m_nalUnitType == NAL_UNIT_EOS);
       if (nalu.m_nalUnitType == NAL_UNIT_EOS)
@@ -270,12 +271,16 @@ UInt DecApp::decode()
 Void DecApp::xCreateDecLib()
 {
   initROM();
+
   // create decoder class
   m_cDecLib.create();
 
   // initialize decoder class
   m_cDecLib.init();
   m_cDecLib.setDecodedPictureHashSEIEnabled(m_decodedPictureHashSEIEnabled);
+#if JEM_COMP
+  m_cDecLib.setAssumeJEM( m_assumeJEM );
+#endif
   if (!m_outputDecodedSEIMessagesFilename.empty())
   {
     std::ostream &os=m_seiMessageFileStream.is_open() ? m_seiMessageFileStream : std::cout;

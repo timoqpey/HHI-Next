@@ -142,14 +142,23 @@ public:
   Void           setPredictor             ( const Mv& rcMv )
   {
     m_mvPredictor = rcMv;
+#if JEM_TOOLS
     if( m_mvPredictor.highPrec )
     {
       m_mvPredictor = Mv( m_mvPredictor.hor >> VCEG_AZ07_MV_ADD_PRECISION_BIT_FOR_STORE, m_mvPredictor.ver >> VCEG_AZ07_MV_ADD_PRECISION_BIT_FOR_STORE, false );
     }
+#endif
   }
   Void           setCostScale             ( Int iCostScale )           { m_iCostScale = iCostScale; }
+#if HM_EQ_MOTION_COST
+  Distortion     getCost                  ( UInt b )                   { return Distortion( (((UInt)floor(65536.0 * m_motionLambda)) * b) >> 16 ); }
+#else
   Distortion     getCost                  ( UInt b )                   { return Distortion( m_motionLambda * b ); }
+#endif
 
+#if ENABLE_SPLIT_PARALLELISM
+  void copyState( const RdCost& other );
+#endif
 
   // for motion cost
   static UInt    xGetExpGolombNumberOfBits( Int iVal )
@@ -165,9 +174,13 @@ public:
 
     return uiLength2 + ( g_aucPrevLog2[uiTemp2] << 1 );
   }
-
+#if JEM_TOOLS
   Distortion     getCostOfVectorWithPredictor( const Int x, const Int y, const unsigned imvShift )  { return Distortion( m_motionLambda * getBitsOfVectorWithPredictor(x, y, imvShift )); }
   UInt           getBitsOfVectorWithPredictor( const Int x, const Int y, const unsigned imvShift )  { return xGetExpGolombNumberOfBits(((x << m_iCostScale) - m_mvPredictor.getHor())>>imvShift) + xGetExpGolombNumberOfBits(((y << m_iCostScale) - m_mvPredictor.getVer())>>imvShift); }
+#else
+  Distortion     getCostOfVectorWithPredictor( const Int x, const Int y )  { return Distortion( m_motionLambda * getBitsOfVectorWithPredictor(x, y )); }
+  UInt           getBitsOfVectorWithPredictor( const Int x, const Int y )  { return xGetExpGolombNumberOfBits(((x << m_iCostScale) - m_mvPredictor.getHor())) + xGetExpGolombNumberOfBits(((y << m_iCostScale) - m_mvPredictor.getVer())); }
+#endif
 private:
 
   static Distortion xGetSSE           ( const DistParam& pcDtParam );

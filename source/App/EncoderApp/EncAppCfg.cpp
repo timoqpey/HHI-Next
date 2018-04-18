@@ -35,15 +35,17 @@
     \brief    Handle encoder configuration parameters
 */
 
+#include "EncAppCfg.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <cstring>
 #include <string>
 #include <fstream>
 #include <limits>
-#include "CommonLib/Rom.h"
-#include "EncAppCfg.h"
+
 #include "Utilities/program_options_lite.h"
+#include "CommonLib/Rom.h"
 #include "EncoderLib/RateCtrl.h"
 
 #include "CommonLib/dtrace_next.h"
@@ -675,7 +677,7 @@ Bool EncAppCfg::parseCfg( Int argc, TChar* argv[] )
   string sTracingFile;
   bool   bTracingChannelsList = false;
 #endif
-#if HHI_SIMD_OPT
+#if ENABLE_SIMD_OPT
   std::string ignore;
 #endif
 
@@ -686,7 +688,7 @@ Bool EncAppCfg::parseCfg( Int argc, TChar* argv[] )
   ("c",    po::parseConfigFile, "configuration file name")
   ("WarnUnknowParameter,w",                           warnUnknowParameter,                                  0, "warn for unknown configuration parameters instead of failing")
 
-#if HHI_SIMD_OPT
+#if ENABLE_SIMD_OPT
   ("SIMD",                                            ignore,                                      string(""), "SIMD extension to use (SCALAR, SSE41, SSE42, AVX, AVX2, AVX512), default: the highest supported extension\n")
 #endif
   // File, I/O and source parameters
@@ -758,8 +760,8 @@ Bool EncAppCfg::parseCfg( Int argc, TChar* argv[] )
   ("InterlacedSource",                                m_interlacedSourceFlag,                           false, "Indicate that source is interlaced")
   ("NonPackedSource",                                 m_nonPackedConstraintFlag,                        false, "Indicate that source does not contain frame packing")
   ("FrameOnly",                                       m_frameOnlyConstraintFlag,                        false, "Indicate that the bitstream contains only frames")
-
   ("QTBT",                                            m_QTBT,                                           false, "Enable QTBT (0:off, 1:on)  [default: off]")
+  ("MTT",                                             m_MTT,                                               0u, "Multi type tree type (0: off, 1:QTBT + triple split) [default: 0]")
   ("CTUSize",                                         m_uiCTUSize,                                       128u, "CTUSize (specifies the CTU size if QTBT is on) [default: 128]")
   ("MinQTISlice",                                     m_uiMinQT[0],                                        8u, "MinQTISlice")
   ("MinQTLumaISlice",                                 m_uiMinQT[0],                                        8u, "MinQTLumaISlice")
@@ -771,19 +773,25 @@ Bool EncAppCfg::parseCfg( Int argc, TChar* argv[] )
   ("MaxBTDepthISliceC",                               m_uiMaxBTDepthIChroma,                               3u, "MaxBTDepthISliceC")
   ("DualITree",                                       m_dualTree,                                       false, "Use separate QTBT trees for intra slice luma and chroma channel types")
   ("QtbtDualITree",                                   m_dualTree,                                       false, "Use separate QTBT trees for intra slice luma and chroma channel types")
+  ("LargeCTU",                                        m_LargeCTU,                                       false, "Enable large CTU (0:off, 1:on)  [default: off]")
+#if JEM_TOOLS
   ("NSST",                                            m_NSST,                                           false, "Enable NSST (0:off, 1:on)  [default: off]")
   ("Intra4Tap",                                       m_Intra4Tap,                                      false, "Enable 4-tap intra filter (0:off, 1:on)  [default: off]")
   ("Intra65Ang",                                      m_Intra65Ang,                                     false, "Enable 65 intra prediction modes (0:off, 1:on)  [default: off]")
-  ("LargeCTU",                                        m_LargeCTU,                                       false, "Enable large CTU (0:off, 1:on)  [default: off]")
   ("IntraBoundaryFilter",                             m_IntraBoundaryFilter,                            false, "Enable Intra boundary filter (0:off, 1:on)  [default: off]")
   ("SubPuMvp",                                        m_SubPuMvp,                                       false, "Enable Sub-PU temporal motion vector prediction (0:off, 1:on)  [default: off]")
   ("SubPuMvpLog2Size",                                m_SubPuMvpLog2Size,                                  2u, "Sub-PU TMVP size index: 2^n")
   ("CABACEngine",                                     m_CABACEngineMode,                                   0u, "CABAC engine mode (0:standard, 1:multi-parameter, 2:adaptive window, 3:multi-par. + adap. window)  [default: 0]")
   ("AltResiComp",                                     m_altResiCompId,                                     0u, "Alternative residual compression mode (0:off, 1:JEM)  [default: off]")
+#else
+#endif
+#if JEM_TOOLS
   ("HighPrecMv",                                      m_highPrecisionMv,                                false, "High precision motion vectors for temporal merging (0:off, 1:on)  [default: off]")
   ("Affine",                                          m_Affine,                                         false, "Enable affine prediction (0:off, 1:on)  [default: off]")
   ("BIO",                                             m_BIO,                                            false, "Enable bi-directional optical flow")
+#endif
   ("DisableMotCompression",                           m_DisableMotionCompression,                       false, "Disable motion data compression for all modes")
+#if JEM_TOOLS
   ("LICMode",                                         m_LICMode,                                           0u, "Local illumination compensation [LIC] (0:disabled, 1:enabled, 2:enabled for certain modes)  [default: 0]")
   ("FastPicLevelLIC",                                 m_FastPicLevelLIC,                                false, "Fast picture level LIC decision (0:disabled, 1:enabled)  [default: 0]")
   ("IMV",                                             m_ImvMode,                                            0, "Adaptive MV precision Mode (IMV)\n"
@@ -792,6 +800,11 @@ Bool EncAppCfg::parseCfg( Int argc, TChar* argv[] )
                                                                                                                "\t2: IMV Full-Pel and 4-PEL\n")
   ("IMV4PelFast",                                     m_Imv4PelFast,                                        1, "Fast 4-Pel Adaptive MV precision Mode 0:disabled, 1:enabled)  [default: 1]")
   ("IMVMaxCand",                                      m_ImvMaxCand,                                         4, "max IMV cand (QTBF off only)")
+#endif
+#if ENABLE_WPP_PARALLELISM
+  ("AltDQPCoding",                                    m_AltDQPCoding,                                   false, "Improved predictive delta-QP coding (0:off, 1:on)  [default: off]")
+#endif
+#if JEM_TOOLS
   ("IntraPDPC",                                       m_IntraPDPC,                                          0, "Intra PDPC (0:off, 1:on Intra_PDPC, 2: on Planar_PDPC)  [default: off]\n")
   ("ALF",                                             m_ALF,                                                0, "ALF (0:off, 1:ALF, 2:GALF)\n")
   ("LMChroma",                                        m_LMChroma,                                           0, " LMChroma prediction "
@@ -810,18 +823,27 @@ Bool EncAppCfg::parseCfg( Int argc, TChar* argv[] )
     "\t1:  Enable fast methods only for Intra EMT\n"
     "\t2:  Enable fast methods only for Inter EMT\n"
     "\t3:  Enable fast methods for both Intra & Inter EMT\n")
+#endif
+#if JEM_TOOLS
   ("OBMC",                                            m_OBMC,                                           false, "Overlapping Block Motion Compensation")
   ("OBMCBLK",                                         m_OBMCBlkSize,                                        4, "block size in overlapped block motion compensation")
   ("FRUC",                                            m_FRUC,                                           false, "frame rate up-conversion based merge mode")
   ("FRUCF",                                           m_FRUCRefineFilter,                                  1u, "whether bilinear filter is used in FRUC")
   ("FRUCR",                                           m_FRUCRefineRange,                                   8u, "search range (in pixel) of FRUC refinement")
   ("FRUCRDepth",                                      m_FRUCSmallBlkRefineDepth,                           3u, "depth of FRUC refinement")
+#endif
+#if JEM_TOOLS
   ("AClip,-aclip",                                    m_AClip,                                          false, "Slice Level Adpative Clipping (Automated by default)")
-  ("AClipEnc",                                        m_AClipEnc,                                       false, "Adaptiv clipping Encoder Decision and Sample smoohing ")
-  ("CIPF",                                            m_CIPF,                                           false, "CABAC context initialization from previous frame")
+  ("AClipEnc",                                        m_AClipEnc,                                       false, "Adaptive clipping encoder decision and sample smoothing")
   ("BIF" ,                                            m_BIF,                                            false, "bilateral filter  (0:off, 1:on)  [default: off]")
+#endif
+#if JEM_TOOLS
+  ("CIPF",                                            m_CIPF,                                              0u, "CABAC context initialization from previous frame (0:off, 1:frame-wise, 2:line-wise)")
+#endif
+#if JEM_TOOLS
   ("DMVR",                                            m_DMVR,                                           false, "Enable decoder-side motion vector refinement")
   ("MDMS",                                            m_MDMS,                                           false, "multiple direct mode signaling")
+#endif
   // ADD_NEW_TOOL : (encoder app) add parsing parameters here
 
   ("LCTUFast",                                        m_useFastLCTU,                                    false, "Fast methods for large CTU")
@@ -914,7 +936,7 @@ Bool EncAppCfg::parseCfg( Int argc, TChar* argv[] )
 
   ("AdaptiveQP,-aq",                                  m_bUseAdaptiveQP,                                 false, "QP adaptation based on a psycho-visual model")
   ("MaxQPAdaptationRange,-aqr",                       m_iQPAdaptationRange,                                 6, "QP adaptation range")
-#if HHI_HLM_USE_QPA
+#if ENABLE_QPA
   ("PerceptQPA,-qpa",                                 m_bUsePerceptQPA,                                 false, "perceptually motivated input-adaptive QP modification (default: 0 = off, ignored if -aq is set)")
   ("WPSNR,-wpsnr",                                    m_bUseWPSNR,                                      false, "output perceptually weighted peak SNR (WPSNR) instead of PSNR")
 #endif
@@ -924,7 +946,6 @@ Bool EncAppCfg::parseCfg( Int argc, TChar* argv[] )
 #if T0196_SELECTIVE_RDOQ
   ("SelectiveRDOQ",                                   m_useSelectiveRDOQ,                               false, "Enable selective RDOQ")
 #endif
-  ("RDOQfn",                                          m_RDOQfn,                                            0u, "Specialization of RDOQ function. 0: original, 1: fast" )
   ("RDpenalty",                                       m_rdPenalty,                                          0, "RD-penalty for 32x32 TU for intra in non-intra slices. 0:disabled  1:RD-penalty  2:maximum RD-penalty")
 
   // Deblocking filter parameters
@@ -1191,6 +1212,20 @@ Bool EncAppCfg::parseCfg( Int argc, TChar* argv[] )
   ("SwitchDQP",                                       m_switchDQP,                                  0, "delta QP applied to picture with switchPOC and subsequent pictures." )
   ("FastForwardToPOC",                                m_fastForwardToPOC,                          -1, "Get to encoding the specified POC as soon as possible by skipping temporal layers irrelevant for the specified POC." )
   ("StopAfterFFtoPOC",                                m_stopAfterFFtoPOC,                       false, "If using fast forward to POC, after the POC of interest has been hit, stop further encoding.")
+  ("ForceDecodeBitstream1",                           m_forceDecodeBitstream1,                  false, "force decoding of bitstream 1 - use this only if you are realy sure about what you are doing ")
+  ("DecodeBitstream2ModPOCAndType",                   m_bs2ModPOCAndType,                       false, "Modify POC and NALU-type of second input bitstream, to use second BS as closing I-slice")
+  ("NumSplitThreads",                                 m_numSplitThreads,                            1, "Number of threads used to parallelize splitting")
+  ("ForceSingleSplitThread",                          m_forceSplitSequential,                   false, "Force single thread execution even if taking the parallelized path")
+  ("NumWppThreads",                                   m_numWppThreads,                              1, "Number of threads used to run WPP-style parallelization")
+  ("NumWppExtraLines",                                m_numWppExtraLines,                           0, "Number of additional wpp lines to switch when threads are blocked")
+#if ENABLE_WPP_PARALLELISM
+  ("EnsureWppBitEqual",                               m_ensureWppBitEqual,                       true, "Ensure the results are equal to results with WPP-style parallelism, even if WPP is off")
+#else
+  ("EnsureWppBitEqual",                               m_ensureWppBitEqual,                      false, "Ensure the results are equal to results with WPP-style parallelism, even if WPP is off")
+#endif
+#if JEM_COMP
+  ("GenerateJEM",                                     m_generateJEM,                            false, "Generate a JEM-compatible bitstream!")
+#endif
     ;
 
   for(Int i=1; i<MAX_GOP+1; i++)
@@ -1325,7 +1360,7 @@ Bool EncAppCfg::parseCfg( Int argc, TChar* argv[] )
   m_InputChromaFormatIDC = numberToChromaFormat(tmpInputChromaFormat);
   m_chromaFormatIDC      = ((tmpChromaFormat == 0) ? (m_InputChromaFormatIDC) : (numberToChromaFormat(tmpChromaFormat)));
 
-  CHECK( !( tmpWeightedPredictionMethod >= 0 && tmpWeightedPredictionMethod <= WP_PER_PICTURE_WITH_HISTOGRAM_AND_PER_COMPONENT_AND_CLIPPING_AND_EXTENSION ), "Error in cfg" )
+  CHECK( !( tmpWeightedPredictionMethod >= 0 && tmpWeightedPredictionMethod <= WP_PER_PICTURE_WITH_HISTOGRAM_AND_PER_COMPONENT_AND_CLIPPING_AND_EXTENSION ), "Error in cfg" );
   m_weightedPredictionMethod = WeightedPredictionMethod(tmpWeightedPredictionMethod);
 
   CHECK( tmpFastInterSearchMode<0 || tmpFastInterSearchMode>FASTINTERSEARCH_MODE3, "Error in cfg" );
@@ -1673,15 +1708,15 @@ Bool EncAppCfg::parseCfg( Int argc, TChar* argv[] )
   }
 #endif
 
-#if HHI_HLM_USE_QPA
+#if ENABLE_QPA
   if( m_LargeCTU && m_bUsePerceptQPA && !m_bUseAdaptiveQP && ( m_iSourceHeight <= 1280 ) && ( m_iSourceWidth <= 2048 ) )
 #else
   if( false )
 #endif
   {
-    msg( DETAILS, "***************************************************************************\n" );
-    msg( DETAILS, "** WARNING: QPA on with LargeCTU for incompatible size - disabling LCTU! **\n" );
-    msg( DETAILS, "***************************************************************************\n" );
+    msg( WARNING, "***************************************************************************\n" );
+    msg( WARNING, "* WARNING: QPA on with LargeCTU for incompatible size, limiting CTU size! *\n" );
+    msg( WARNING, "***************************************************************************\n" );
 
     //m_LargeCTU  = false;
     m_uiCTUSize = m_uiMaxCUWidth;
@@ -1719,7 +1754,11 @@ Bool EncAppCfg::parseCfg( Int argc, TChar* argv[] )
       uiAddCUDepth++;
     }
 
+#if HEVC_TOOLS
     m_uiMaxCodingDepth = m_uiMaxCUDepth + uiAddCUDepth + getMaxCUDepthOffset( m_chromaFormatIDC, m_quadtreeTULog2MinSize ); // if minimum TU larger than 4x4, allow for additional part indices for 4:2:2 SubTUs.
+#else
+    m_uiMaxCodingDepth = m_uiMaxCUDepth + uiAddCUDepth; // if minimum TU larger than 4x4, allow for additional part indices for 4:2:2 SubTUs.
+#endif
     m_uiLog2DiffMaxMinCodingBlockSize = m_uiMaxCUDepth - 1;
 
     m_uiCTUSize = m_uiMaxCUWidth;
@@ -1763,67 +1802,154 @@ Bool EncAppCfg::xCheckParameter()
   Bool check_failed = false; /* abort if there is a fatal configuration problem */
 #define xConfirmPara(a,b) check_failed |= confirmPara(a,b)
 
+
   if( m_profile != Profile::NEXT )
   {
+#if !HEVC_TOOLS
+    THROW( "Next profile with an alternative partitioner has to be enabled if HEVC_TOOLS is off!" );
+#endif
+#if ENABLE_WPP_PARALLELISM
+    xConfirmPara( m_numWppThreads > 1, "WPP-style parallelization only supported with NEXT profile" );
+#endif
     xConfirmPara( m_QTBT, "QTBT only allowed with NEXT profile" );
+#if JEM_TOOLS
     xConfirmPara( m_NSST, "NSST only allowed with NEXT profile" );
     xConfirmPara( m_Intra65Ang, "Intra 65 Ang only allowed with NEXT profile" );
     xConfirmPara( m_Intra4Tap,  "Intra 4 Tap only allowed with NEXT profile" );
-    xConfirmPara( m_LargeCTU, "Large CTU is only allowed with NEXT profile" );
     xConfirmPara( m_IntraBoundaryFilter, "Intra boundary filter is only allowed with NEXT profile" );
+    xConfirmPara( m_LMChroma, "LMChroma only allowed with NEXT profile" );
+#endif
+    xConfirmPara( m_LargeCTU, "Large CTU is only allowed with NEXT profile" );
+#if JEM_TOOLS
     xConfirmPara( m_SubPuMvp, "Sub-PU motion vector prediction is only allowed with NEXT profile" );
+#endif
+#if JEM_TOOLS
     xConfirmPara( m_CABACEngineMode > 0, "CABAC engine mode > 0 is only allowed with NEXT profile" );
     xConfirmPara( m_altResiCompId > 0, "Alternative residual compression can only be used with NEXT profile" );
+#endif
+#if JEM_TOOLS
     xConfirmPara( m_highPrecisionMv, "High precision MV for temporal merging can only be used with NEXT profile" );
     xConfirmPara( m_Affine, "Affine is only allowed with NEXT profile" );
     xConfirmPara( m_BIO, "BIO only allowed with NEXT profile" );
+#endif
     xConfirmPara( m_DisableMotionCompression, "Disable motion data compression only allowed with NEXT profile" );
+#if JEM_TOOLS
     xConfirmPara( m_LICMode, "LICMode > 0 is only allowed with NEXT profile" );
-    xConfirmPara( m_LMChroma, "LMChroma only allowed with NEXT profile");
+#endif
+    xConfirmPara( m_MTT, "Multi type tree is only allowed with NEXT profile" );
+#if JEM_TOOLS
     xConfirmPara( m_ImvMode, "IMV is only allowed with NEXT profile" );
+#endif
+#if JEM_TOOLS
     xConfirmPara( m_IntraPDPC, "PDPC is only allowed with NEXT profile" );
     xConfirmPara( m_ALF, "ALF is only allowed with NEXT profile" );
     xConfirmPara( m_OBMC, "OBMC is only allowed in NEXT profile" );
+#endif
     xConfirmPara( m_useFastLCTU, "Fast large CTU can only be applied when encoding with NEXT profile" );
     xConfirmPara( m_useSaveLoadEncInfo, "Encoder decision saving can only be applied when encoding with NEXT profile" );
     xConfirmPara( m_useSaveLoadSplitDecision, "Encoder split decision saving can only be applied when encoding with NEXT profile" );
+#if JEM_TOOLS
     xConfirmPara( m_EMT, "EMT only allowed with NEXT profile" );
     xConfirmPara( m_FastEMT, "EMT only allowed with NEXT profile" );
     xConfirmPara( m_FRUC, "FRUC is only allowed with NEXT profile" );
-    xConfirmPara( m_CIPF, "CIPF is only allowed with NEXT profile" );
+#endif
+#if JEM_TOOLS
+    xConfirmPara( m_CIPF > 0, "CIPF is only allowed with NEXT profile" );
+#endif
+#if JEM_TOOLS
     xConfirmPara( m_DMVR, "DMVR is only allowed with NEXT profile" );
     xConfirmPara( m_MDMS, "MDMS is only allowed with NEXT profile" );
+#endif
+#if JEM_TOOLS
     xConfirmPara( m_IntraPDPC, "PDPC is only allowed with NEXT profile" );
+#endif
     // ADD_NEW_TOOL : (parameter check) add a check for next tools here
   }
   else
   {
+#if ENABLE_WPP_PARALLELISM
+    xConfirmPara( !m_AltDQPCoding && ( m_numWppThreads + m_numWppExtraLines ) > 1, "Wavefront parallel encoding only supported with AltDQPCoding" );
+#endif
+#if JEM_TOOLS
     xConfirmPara( m_SubPuMvpLog2Size < MIN_CU_LOG2,      "SubPuMvpLog2Size must be 2 or greater." );
     xConfirmPara( m_SubPuMvpLog2Size > 6,                "SubPuMvpLog2Size must be 6 or smaller." );
+#endif
+ #if JEM_TOOLS
     xConfirmPara( m_CABACEngineMode > 3,                 "CABAC engine mode must be less than or equal to 3." );
+ #endif
+#if JEM_TOOLS
     xConfirmPara( m_LICMode > 2,                         "LICMode > 2 is not supported." );
+#endif
     xConfirmPara( m_useSaveLoadEncInfo && !m_QTBT,       "Encoder decision saving can only be applied with QTBT" );
+    xConfirmPara( !m_QTBT && m_MTT,                      "Multi type tree is an extension of QTBT, thus QTBT has to be enabled for MTT" );
+
+#if !HM_QTBT_AS_IN_JEM_QUANT
+#endif
 
     xConfirmPara( m_useSaveLoadSplitDecision && !m_QTBT, "Encoder split decision saving can only be applied with QTBT" );
 
+#if JEM_TOOLS
     xConfirmPara( !( m_OBMCBlkSize == 4 || m_OBMCBlkSize == 8 ), "OBMC Block Size must be set to 4 or 8 samples" );
     xConfirmPara( m_Affine && !m_highPrecisionMv, "Affine is not yet implemented for HighPrecMv off." );
-    xConfirmPara( m_DMVR && !( m_QTBT ), "DMVR without QTBT results in encoder-decoder mismatch!" );
+#endif
+#if JEM_TOOLS
+    xConfirmPara( m_DMVR && !m_QTBT, "DMVR without QTBT results in encoder-decoder mismatch!" );
+#endif
+#if JEM_TOOLS
     xConfirmPara( (m_IntraPDPC > 2) || (m_IntraPDPC < 0), "IntraPDPC out of range 0 to 2" );
     xConfirmPara( (m_IntraPDPC & 2) && m_useStrongIntraSmoothing, "PDPC==2 requires disabling strong intra smoothing" );
-    xConfirmPara( (m_LMChroma > 1) && ! m_Intra65Ang, "ELM (LMChroma > 1) requires Intra65Ang" );
+    xConfirmPara( ( m_LMChroma > 1 ) && !m_Intra65Ang, "ELM (LMChroma > 1) requires Intra65Ang" );
+#endif
+#if JEM_TOOLS
+    xConfirmPara( m_CIPF > 2, "CIPF must be in range [0:2]" );
+#endif
+#if JEM_TOOLS
+#endif
+
+#if JEM_TOOLS
+    if( !m_QTBT && m_OBMC )
+    {
+      xConfirmPara( ( m_uiMaxCUWidth >> m_uiMaxCUDepth ) != 4, "When using OBMC with QT+RQT partitioning, MaxPartitionDepth has to be set to the allowed maximum!" );
+    }
+#endif
   }
 
+#if ENABLE_SPLIT_PARALLELISM
+  xConfirmPara( m_numSplitThreads < 1, "Number of used threads cannot be smaller than 1" );
+  xConfirmPara( m_numSplitThreads > PARL_SPLIT_MAX_NUM_THREADS, "Number of used threads cannot be higher than the number of actual jobs" );
+#if _MSC_VER && ENABLE_WPP_PARALLELISM
+  xConfirmPara( m_numSplitThreads > 1 && m_numSplitThreads != NUM_SPLIT_THREADS_IF_MSVC, "Due to poor implementation by Microsoft, NumSplitThreads cannot be set dynamically on runtime!" );
+#endif
+#else
+  xConfirmPara( m_numSplitThreads != 1, "ENABLE_SPLIT_PARALLELISM is disabled, numSplitThreads has to be 1" );
+#endif
 
-#if ( SHARP_LUMA_DELTA_QP && HHI_HLM_USE_QPA )
-  xConfirmPara( m_bUsePerceptQPA && m_lumaLevelToDeltaQPMapping.mode != 0, "QPA and SharpDeltaQP cannot be used together" );
+#if ENABLE_WPP_PARALLELISM
+  xConfirmPara( m_numWppThreads < 1, "Number of threads used for WPP-style parallelization cannot be smaller than 1" );
+  xConfirmPara( m_numWppThreads > PARL_WPP_MAX_NUM_THREADS, "Number of threads used for WPP-style parallelization cannot be bigger than PARL_WPP_MAX_NUM_THREADS" );
+  xConfirmPara( !m_ensureWppBitEqual && m_numWppThreads > 1, "WPP bit equality is implied when using WPP-style parallelism" );
+#if ENABLE_WPP_STATIC_LINK
+  xConfirmPara( m_numWppExtraLines != 0, "WPP-style extra lines out of range" );
+#else
+  xConfirmPara( m_numWppExtraLines < 0, "WPP-style extra lines out of range" );
+#endif
+#else
+  xConfirmPara( m_numWppThreads != 1, "ENABLE_WPP_PARALLELISM is disabled, numWppThreads has to be 1" );
+  xConfirmPara( m_ensureWppBitEqual, "ENABLE_WPP_PARALLELISM is disabled, cannot ensure being WPP bit-equal" );
 #endif
 
 
+#if ( SHARP_LUMA_DELTA_QP && ENABLE_QPA )
+  xConfirmPara( m_bUsePerceptQPA && m_lumaLevelToDeltaQPMapping.mode != 0, "QPA and SharpDeltaQP cannot be used together" );
+#endif
+
+ #if JEM_TOOLS
   xConfirmPara( m_altResiCompId > 1, "Alternative residual compression Id out of range  (0:off, 1:JEM)" );
+ #endif
 
   xConfirmPara( m_useAMaxBT && !m_QTBT, "AMaxBT can only be used with QTBT!" );
 
+#if JEM_TOOLS
 #if GALF
   xConfirmPara( m_ALF == 1, "ALF == 1 not supported with GALF enabled" );
 #else
@@ -1831,9 +1957,29 @@ Bool EncAppCfg::xCheckParameter()
 #endif
 
   xConfirmPara( m_ALF<0 || m_ALF>2, "ALF parameter out of range (0..2)" );
-  xConfirmPara( m_AClipEnc && !m_AClip,  " AClipEnc=1 requires AClip=1" );
+  xConfirmPara( m_AClipEnc && !m_AClip,  "AClipEnc=1 requires AClip=1" );
+#endif
 
 
+
+
+#if JEM_COMP
+  if( m_LICMode )
+  {
+    if( m_QTBT && !m_FastPicLevelLIC )
+    {
+      msg( DETAILS, "***************************************************************************\n" );
+      msg( DETAILS, "** WARNING: To be equal to JEM, FastPicLevelLIC has to be on with QTBT!  **\n" );
+      msg( DETAILS, "***************************************************************************\n" );
+    }
+    else if( !m_QTBT && m_FastPicLevelLIC )
+    {
+      msg( DETAILS, "*****************************************************************************\n" );
+      msg( DETAILS, "** WARNING: To be equal to JEM, FastPicLevelLIC has to be off without QTBT!**\n" );
+      msg( DETAILS, "*****************************************************************************\n" );
+    }
+  }
+#endif
 
   xConfirmPara(m_bitstreamFileName.empty(), "A bitstream file name must be specified (BitstreamFile)");
   const UInt maxBitDepth=(m_chromaFormatIDC==CHROMA_400) ? m_internalBitDepth[CHANNEL_TYPE_LUMA] : std::max(m_internalBitDepth[CHANNEL_TYPE_LUMA], m_internalBitDepth[CHANNEL_TYPE_CHROMA]);
@@ -2010,6 +2156,7 @@ Bool EncAppCfg::xCheckParameter()
     msg( WARNING, "****************************************************************************\n" );
   }
 
+#if JEM_TOOLS
   if( m_SubPuMvp && m_maxNumMergeCand < 7 )
   {
     msg( WARNING, "****************************************************************************\n" );
@@ -2017,7 +2164,17 @@ Bool EncAppCfg::xCheckParameter()
     msg( WARNING, "**          advanced sup-pu temporal merging is enabled.                  **\n" );
     msg( WARNING, "****************************************************************************\n" );
   }
+#endif
 
+#if JEM_COMP && JEM_TOOLS
+  if( m_ImvMode == IMV_DEFAULT )
+  {
+    msg( WARNING, "********************************************************\n" );
+    msg( WARNING, "** WARNING: IMVMode=1 is not compatible with JEM 7.0  **\n" );
+    msg( WARNING, "********************************************************\n" );
+  }
+
+#endif
   xConfirmPara( m_iQP < -6 * (m_internalBitDepth[CHANNEL_TYPE_LUMA] - 8) || m_iQP > MAX_QP, "QP exceeds supported range (-QpBDOffsety to 51)" );
 #if W0038_DB_OPT
   xConfirmPara( m_deblockingFilterMetric!=0 && (m_bLoopFilterDisable || m_loopFilterOffsetInPPS), "If DeblockingFilterMetric is non-zero then both LoopFilterDisable and LoopFilterOffsetInPPS must be 0");
@@ -2031,7 +2188,7 @@ Bool EncAppCfg::xCheckParameter()
   xConfirmPara( m_minSearchWindow < 0,                                                      "Minimum motion search window size for the adaptive window ME must be greater than or equal to 0" );
   xConfirmPara( m_iMaxDeltaQP > MAX_DELTA_QP,                                               "Absolute Delta QP exceeds supported range (0 to 7)" );
 #if SHARP_LUMA_DELTA_QP
-  xConfirmPara(m_lumaLevelToDeltaQPMapping.mode &&  m_uiDeltaQpRD > 0, "Luma-level-based Delta QP cannot be used together with slice level multiple-QP optimization\n" );
+  xConfirmPara( m_lumaLevelToDeltaQPMapping.mode && m_uiDeltaQpRD > 0,                      "Luma-level-based Delta QP cannot be used together with slice level multiple-QP optimization\n" );
 #endif
   if( !m_QTBT )
   {
@@ -2097,18 +2254,21 @@ Bool EncAppCfg::xCheckParameter()
   xConfirmPara( m_uiMaxCUWidth < ( 1 << (m_quadtreeTULog2MinSize + m_uiQuadtreeTUMaxDepthIntra - 1) ), "QuadtreeTUMaxDepthInter must be less than or equal to the difference between log2(maxCUSize) and QuadtreeTULog2MinSize plus 1" );
 
   xConfirmPara(  m_maxNumMergeCand < 1,  "MaxNumMergeCand must be 1 or greater.");
+#if JEM_TOOLS
   if( m_SubPuMvp )
   {
     xConfirmPara( m_maxNumMergeCand > 7, "MaxNumMergeCand must be 5 or smaller." );
   }
   else
+#endif
   {
     xConfirmPara( m_maxNumMergeCand > 5, "MaxNumMergeCand must be 5 or smaller." );
   }
-
+#if JEM_TOOLS
   xConfirmPara( m_EMT < 0 || m_EMT >3, "EMT must be 0, 1, 2 or 3" );
   xConfirmPara( m_FastEMT < 0 || m_FastEMT >3, "FEMT must be 0, 1, 2 or 3" );
 
+#endif
   if( m_usePCM)
   {
     for (UInt channelType = 0; channelType < MAX_NUM_CHANNEL_TYPE; channelType++)
@@ -2578,6 +2738,7 @@ Bool EncAppCfg::xCheckParameter()
     }
   }
 
+
   if (m_toneMappingInfoSEIEnabled)
   {
     xConfirmPara( m_toneMapCodedDataBitDepth < 8 || m_toneMapCodedDataBitDepth > 14 , "SEIToneMapCodedDataBitDepth must be in rage 8 to 14");
@@ -2675,14 +2836,15 @@ Bool EncAppCfg::xCheckParameter()
 #if U0033_ALTERNATIVE_TRANSFER_CHARACTERISTICS_SEI
   xConfirmPara(m_preferredTransferCharacteristics > 255, "transfer_characteristics_idc should not be greater than 255.");
 #endif
-
+#if JEM_TOOLS
   xConfirmPara( unsigned(m_ImvMode) > 2, "ImvMode exceeds range (0 to 2)" );
-
+#endif
   xConfirmPara( m_decodeBitstreams[0] == m_bitstreamFileName, "Debug bitstream and the output bitstream cannot be equal.\n" );
   xConfirmPara( m_decodeBitstreams[1] == m_bitstreamFileName, "Decode2 bitstream and the output bitstream cannot be equal.\n" );
-
+#if JEM_TOOLS
   xConfirmPara(unsigned(m_LMChroma) > 4, "ELMMode exceeds range (0 to 4)");
 
+#endif
 #undef xConfirmPara
   return check_failed;
 }
@@ -2886,31 +3048,50 @@ Void EncAppCfg::xPrintParameter()
   if( m_profile == Profile::NEXT )
   {
     msg( VERBOSE, "\nNEXT TOOL CFG: " );
+#if JEM_TOOLS
     msg( VERBOSE, "Intra4Tap:%d ", m_Intra4Tap );
     msg( VERBOSE, "Intra65Ang:%d ", m_Intra65Ang );
+    msg( VERBOSE, "IntraBoundaryFilter:%d ", m_IntraBoundaryFilter );
     msg( VERBOSE, "NSST:%d ", m_NSST );
     msg( VERBOSE, "Affine:%d ", m_Affine );
-    msg( VERBOSE, "IntraBoundaryFilter:%d ", m_IntraBoundaryFilter );
     msg( VERBOSE, "SubPuMvp:%d ", m_SubPuMvp );
     if( m_SubPuMvp )
     {
       msg( VERBOSE, "SubPuMvpLog2Size:%d ", m_SubPuMvpLog2Size );
     }
+#endif
+#if JEM_TOOLS
     msg( VERBOSE, "CABACEngine:%d ", m_CABACEngineMode );
+#endif
     msg( VERBOSE, "QTBT:%d ", m_QTBT );
     if( m_QTBT ) msg( VERBOSE, "DualITree:%d ", m_dualTree );
     msg( VERBOSE, "LargeCTU:%d ", m_LargeCTU );
+#if JEM_TOOLS
     msg( VERBOSE, "IMV:%d ", m_ImvMode );
     if( !m_QTBT ) msg( VERBOSE, "IMVMaxCand:%d ", m_ImvMaxCand );
+#endif
+#if JEM_TOOLS
     msg( VERBOSE, "AltResiComp:%d ", m_altResiCompId );
+#endif
+#if JEM_TOOLS
     msg( VERBOSE, "HighPrecMv:%d ", m_highPrecisionMv );
     msg( VERBOSE, "BIO:%d ", m_BIO );
+#endif
     msg( VERBOSE, "DisMDC:%d ", m_DisableMotionCompression );
+#if JEM_TOOLS
     msg( VERBOSE, "LICMode:%d ", m_LICMode );
+#endif
+    msg( VERBOSE, "MTT:%d ", m_MTT );
+#if ENABLE_WPP_PARALLELISM
+    msg( VERBOSE, "AltDQPCoding:%d ", m_AltDQPCoding );
+#endif
+#if JEM_TOOLS
     msg( VERBOSE, "IntraPDPC:%d ", m_IntraPDPC );
     msg( VERBOSE, "ALF:%d ", m_ALF );
     msg( VERBOSE, "LMChroma:%d ", m_LMChroma );
     msg( VERBOSE, "EMT: %1d(intra) %1d(inter) ", m_EMT & 1, ( m_EMT >> 1 ) & 1 );
+#endif
+#if JEM_TOOLS
     msg( VERBOSE, "OBMC:%d OBMCBLK:%d ", m_OBMC, m_OBMCBlkSize );
     msg( VERBOSE, "FRUC:%d ", m_FRUC );
     if( m_FRUC )
@@ -2919,12 +3100,19 @@ Void EncAppCfg::xPrintParameter()
       msg( VERBOSE, "FRUCR:%d ", m_FRUCRefineRange );
       msg( VERBOSE, "FRUCDepth:%d ", m_FRUCSmallBlkRefineDepth );
     }
+#endif
+#if JEM_TOOLS
     msg( VERBOSE, "CIPF:%d ", m_CIPF );
+#endif
+#if JEM_TOOLS
     msg( VERBOSE, "BIF:%d ", m_BIF );
     msg( VERBOSE, "AClip:%d ", m_AClip );
     msg( VERBOSE, "AClipEnc:%d ", m_AClipEnc );
+#endif
+#if JEM_TOOLS
     msg( VERBOSE, "DMVR:%d ", m_DMVR );
     msg( VERBOSE, "MDMS:%d ", m_MDMS );
+#endif
   }
   // ADD_NEW_TOOL (add some output indicating the usage of tools)
 
@@ -2940,19 +3128,28 @@ Void EncAppCfg::xPrintParameter()
   }
   msg( VERBOSE, "FastMrg:%d ", m_useFastMrg );
   msg( VERBOSE, "PBIntraFast:%d ", m_usePbIntraFast );
+#if JEM_TOOLS
   if( m_LICMode > 0 ) msg( VERBOSE, "FastPicLevelLIC:%d ", m_FastPicLevelLIC );
   if( m_ImvMode == 2 ) msg( VERBOSE, "IMV4PelFast:%d ", m_Imv4PelFast );
   if( m_EMT ) msg( VERBOSE, "EMTFast: %1d(intra) %1d(inter) ", ( m_FastEMT & m_EMT & 1 ), ( m_FastEMT >> 1 ) & ( m_EMT >> 1 ) & 1 );
+#endif
   if( m_QTBT ) msg( VERBOSE, "AMaxBT:%d ", m_useAMaxBT );
   if( m_QTBT ) msg( VERBOSE, "E0023FastEnc:%d ", m_e0023FastEnc );
   if( m_QTBT ) msg( VERBOSE, "ContentBasedFastQtbt:%d ", m_contentBasedFastQtbt );
-  msg( VERBOSE, "RDOQfn:%d ", m_RDOQfn );
+
+  msg( VERBOSE, "NumSplitThreads:%d ", m_numSplitThreads );
+  if( m_numSplitThreads > 1 )
+  {
+    msg( VERBOSE, "ForceSingleSplitThread:%d ", m_forceSplitSequential );
+  }
+  msg( VERBOSE, "NumWppThreads:%d+%d ", m_numWppThreads, m_numWppExtraLines );
+  msg( VERBOSE, "EnsureWppBitEqual:%d ", m_ensureWppBitEqual );
 
   msg( VERBOSE, "\n\n");
 
   msg( NOTICE, "\n");
 
-  fflush(stdout);
+  fflush( stdout );
 }
 
 Bool confirmPara(Bool bflag, const TChar* message)

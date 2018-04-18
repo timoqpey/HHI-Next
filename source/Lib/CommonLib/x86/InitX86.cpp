@@ -44,11 +44,10 @@
 #include "CommonLib/RdCost.h"
 #include "CommonLib/Buffer.h"
 
-
 #ifdef TARGET_SIMD_X86
 
 
-#if HHI_SIMD_OPT_MCIF
+#if ENABLE_SIMD_OPT_MCIF
 Void InterpolationFilter::initInterpolationFilterX86( /*Int iBitDepthY, Int iBitDepthC*/ )
 {
   auto vext = read_x86_extension_flags();
@@ -68,7 +67,7 @@ Void InterpolationFilter::initInterpolationFilterX86( /*Int iBitDepthY, Int iBit
 }
 #endif
 
-#if HHI_SIMD_OPT_BUFFER
+#if ENABLE_SIMD_OPT_BUFFER
 Void PelBufferOps::initPelBufOpsX86()
 {
   auto vext = read_x86_extension_flags();
@@ -91,7 +90,7 @@ Void PelBufferOps::initPelBufOpsX86()
 
 
 
-#if HHI_SIMD_OPT_DIST
+#if ENABLE_SIMD_OPT_DIST
 Void RdCost::initRdCostX86()
 {
   auto vext = read_x86_extension_flags();
@@ -111,9 +110,5 @@ Void RdCost::initRdCostX86()
 }
 #endif
 
-
-
-
 #endif
-
 

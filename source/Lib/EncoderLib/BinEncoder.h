@@ -1,39 +1,4 @@
-/* The copyright in this software is being made available under the BSD
- * License, included below. This software may be subject to other third party
- * and contributor rights, including patent rights, and no such rights are
- * granted under this license.
- *
- * Copyright (c) 2010-2017, ITU/ISO/IEC
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- *  * Redistributions of source code must retain the above copyright notice,
- *    this list of conditions and the following disclaimer.
- *  * Redistributions in binary form must reproduce the above copyright notice,
- *    this list of conditions and the following disclaimer in the documentation
- *    and/or other materials provided with the distribution.
- *  * Neither the name of the ITU/ISO/IEC nor the names of its contributors may
- *    be used to endorse or promote products derived from this software without
- *    specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS
- * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
- * THE POSSIBILITY OF SUCH DAMAGE.
- */
 
-/** \file     BinDecoder.h
- *  \brief    Low level binary symbol writer
- */
 
 #pragma once
 
@@ -247,9 +212,23 @@ public:
   void      restart             ()                                    { m_EstFracBits = (m_EstFracBits >> SCALE_BITS) << SCALE_BITS; }
   void      reset               ( int qp, int initId )                { Ctx::init( qp, initId ); m_EstFracBits = 0;}
 public:
+#if HM_STORE_FRAC_BITS_AND_USE_ROUNDED_BITS
+  void      resetBits           ()                                    { m_EstFracBits &= ((1 << SCALE_BITS) - 1); }
+#else
   void      resetBits           ()                                    { m_EstFracBits = 0; }
+#endif
 
+#if HM_STORE_FRAC_BITS_AND_USE_ROUNDED_BITS
+#if ENABLE_TRACING
+  uint64_t  getEstFracBits      ()                              const {
+    DTRACE( g_trace_ctx, D_EST_FRAC_BITS, "FBits=%d\n", m_EstFracBits );
+    return ( ( m_EstFracBits >> SCALE_BITS ) << SCALE_BITS );         }   // rounding to yields same results as HM
+#else
+  uint64_t  getEstFracBits      ()                              const { return ((m_EstFracBits >> SCALE_BITS) << SCALE_BITS); }   // rounding to yields same results as HM
+#endif
+#else
   uint64_t  getEstFracBits      ()                              const { return m_EstFracBits; }
+#endif
   unsigned  getNumBins          ( unsigned ctxId )              const { THROW( "not supported for BitEstimator" ); return 0; }
 public:
   void      encodeBinEP         ( unsigned bin                      ) { m_EstFracBits += BinProbModelBase::estFracBitsEP (); }
@@ -268,7 +247,11 @@ public:
   unsigned  getNumWrittenBits   ()                                      { /*THROW( "Not supported" );*/ return (UInt)( 0/*m_EstFracBits*//* >> SCALE_BITS*/ ); }
 
 protected:
+#if HM_STORE_FRAC_BITS_AND_USE_ROUNDED_BITS
+  uint64_t&               m_EstFracBits;
+#else
   uint64_t                m_EstFracBits;
+#endif
 };
 
 
@@ -291,13 +274,17 @@ private:
 
 
 typedef TBinEncoder  <BinProbModel_Std>   BinEncoder_Std;
+#if JEM_TOOLS
 typedef TBinEncoder  <BinProbModel_JMP>   BinEncoder_JMP;
 typedef TBinEncoder  <BinProbModel_JAW>   BinEncoder_JAW;
 typedef TBinEncoder  <BinProbModel_JMPAW> BinEncoder_JMPAW;
+#endif
 
 typedef TBitEstimator<BinProbModel_Std>   BitEstimator_Std;
+#if JEM_TOOLS
 typedef TBitEstimator<BinProbModel_JMP>   BitEstimator_JMP;
 typedef TBitEstimator<BinProbModel_JAW>   BitEstimator_JAW;
 typedef TBitEstimator<BinProbModel_JMPAW> BitEstimator_JMPAW;
+#endif
 
 

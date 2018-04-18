@@ -49,7 +49,9 @@
 #include "CommonLib/InterPrediction.h"
 #include "CommonLib/IntraPrediction.h"
 #include "CommonLib/LoopFilter.h"
+#if JEM_TOOLS
 #include "CommonLib/AdaptiveLoopFilter.h"
+#endif
 #include "CommonLib/SEI.h"
 #include "CommonLib/Unit.h"
 
@@ -58,7 +60,7 @@ class InputNALUnit;
 //! \ingroup DecoderLib
 //! \{
 
-bool tryDecodePicture( Picture* pcPic, const std::string& bitstreamFileName, bool bDecodeUntilPocFound = false );
+bool tryDecodePicture( Picture* pcPic, const int expectedPoc, const std::string& bitstreamFileName, bool bDecodeUntilPocFound = false );
 
 // ====================================================================================================================
 // Class definition
@@ -79,6 +81,10 @@ private:
   ParameterSetManager     m_parameterSetManager;  // storage for parameter sets
   Slice*                  m_apcSlicePilot;
 
+#if JEM_COMP
+  bool                    m_assumeJEM;
+#endif
+
   SEIMessages             m_SEIs; ///< List of SEI messages that have been received before the first slice and between slices, excluding prefix SEIs...
 
   // functional classes
@@ -89,10 +95,15 @@ private:
   DecCu                   m_cCuDecoder;
   HLSyntaxReader          m_HLSReader;
   CABACDecoder            m_CABACDecoder;
+#if JEM_TOOLS
+  CABACDataStore          m_CABACDataStore;
+#endif
   SEIReader               m_seiReader;
   LoopFilter              m_cLoopFilter;
   SampleAdaptiveOffset    m_cSAO;
+#if JEM_TOOLS
   AdaptiveLoopFilter      m_cALF;
+#endif
   // decoder side RD cost computation
   RdCost                  m_cRdCost;                      ///< RD cost computation class
 
@@ -126,7 +137,7 @@ public:
   Void  create  ();
   Void  destroy ();
 
-  Void setDecodedPictureHashSEIEnabled(Int enabled) { m_decodedPictureHashSEIEnabled=enabled; }
+  Void  setDecodedPictureHashSEIEnabled(Int enabled) { m_decodedPictureHashSEIEnabled=enabled; }
 
   Void  init();
   Bool  decode(InputNALUnit& nalu, Int& iSkipFrame, Int& iPOCLastDisplay);
@@ -144,6 +155,11 @@ public:
   Void  setFirstSliceInSequence (bool val) { m_bFirstSliceInSequence = val; }
   Void  setDecodedSEIMessageOutputStream(std::ostream *pOpStream) { m_pDecodedSEIOutputStream = pOpStream; }
   UInt  getNumberOfChecksumErrorsDetected() const { return m_numberOfChecksumErrorsDetected; }
+
+#if JEM_COMP
+  bool  getAssumeJEM() const { return m_assumeJEM; }
+  void  setAssumeJEM( bool b ) { m_assumeJEM = b; }
+#endif
 
 protected:
   Void  xUpdateRasInit(Slice* slice);

@@ -95,6 +95,7 @@ const BinFracBits ProbModelTables::m_BinFracBits_128[128] =
   {{0x0041f, 0x2c0ad}}, {{0x2c0ad, 0x0041f}},   {{0x003e7, 0x2ca8d}}, {{0x2ca8d, 0x003e7}},   {{0x003ba, 0x2d323}}, {{0x2d323, 0x003ba}},   {{0x0010c, 0x3bfbb}}, {{0x3bfbb, 0x0010c}}
 };
 
+#if JEM_TOOLS
 const BinFracBits ProbModelTables::m_BinFracBits_256[256] =
 {
   {{0x0005c, 0x48000}}, {{0x00116, 0x3b520}}, {{0x001d0, 0x356cb}}, {{0x0028b, 0x318a9}}, {{0x00346, 0x2ea40}}, {{0x00403, 0x2c531}}, {{0x004c0, 0x2a658}}, {{0x0057e, 0x28beb}},
@@ -131,6 +132,7 @@ const BinFracBits ProbModelTables::m_BinFracBits_256[256] =
   {{0x28beb, 0x0057e}}, {{0x2a658, 0x004c0}}, {{0x2c531, 0x00403}}, {{0x2ea40, 0x00346}}, {{0x318a9, 0x0028b}}, {{0x356cb, 0x001d0}}, {{0x3b520, 0x00116}}, {{0x48000, 0x0005c}}
 };
 
+#endif
 const uint32_t ProbModelTables::m_EstFracProb[128] =
 {
   0x041b5, 0x03df6, 0x04410, 0x03bbc, 0x04636, 0x039a3, 0x048e6, 0x036f6, 0x04bd3, 0x0340c, 0x04e5d, 0x03185, 0x050fa, 0x02eeb, 0x0534b, 0x02c9b,
@@ -211,6 +213,7 @@ const uint8_t ProbModelTables::m_LPSTable_64_4[64][4] =
   {   2,   2,   2,   2 }
 };
 
+#if JEM_TOOLS
 const uint16_t ProbModelTables::m_LPSTable_512_64[512][64] =
 {
   {  253,  257,  261,  265,  269,  273,  277,  281,  285,  289,  293,  297,  301,  305,  309,  313,  317,  321,  325,  329,  333,  337,  341,  345,  349,  353,  357,  361,  365,  369,  373,  377,  381,  385,  389,  393,  397,  401,  405,  409,  413,  417,  421,  425,  429,  433,  437,  441,  445,  449,  453,  457,  461,  465,  469,  473,  477,  481,  485,  489,  493,  497,  501,  505,},
@@ -727,42 +730,7 @@ const uint16_t ProbModelTables::m_LPSTable_512_64[512][64] =
   {    3,    3,    3,    3,    3,    3,    3,    3,    3,    3,    3,    3,    3,    3,    3,    3,    3,    3,    3,    3,    3,    3,    3,    3,    3,    3,    3,    3,    3,    3,    3,    3,    3,    3,    3,    3,    3,    3,    3,    3,    3,    3,    3,    3,    3,    3,    3,    3,    3,    3,    3,    3,    3,    3,    3,    3,    3,    3,    3,    3,    3,    3,    3,    3,},
 };
 
-const uint8_t ProbModelTables::m_LPSTable_32_8[32][8] =
-{
-  { 128, 150, 165, 181, 197, 213, 228, 244 },
-  { 128, 145, 160, 175, 191, 206, 221, 236 },
-  { 125, 140, 155, 170, 184, 199, 214, 229 },
-  { 121, 135, 150, 164, 178, 192, 207, 221 },
-  { 117, 131, 144, 158, 172, 186, 199, 213 },
-  { 113, 126, 139, 152, 166, 179, 192, 205 },
-  { 108, 121, 134, 147, 159, 172, 185, 198 },
-  { 104, 116, 129, 141, 153, 165, 178, 190 },
-  { 100, 112, 123, 135, 147, 159, 170, 182 },
-  {  96, 107, 118, 129, 141, 152, 163, 174 },
-  {  91, 102, 113, 124, 134, 145, 156, 167 },
-  {  87,  97, 108, 118, 128, 138, 149, 159 },
-  {  83,  93, 102, 112, 122, 132, 141, 151 },
-  {  79,  88,  97, 106, 116, 125, 134, 143 },
-  {  74,  83,  92, 101, 109, 118, 127, 136 },
-  {  70,  78,  87,  95, 103, 111, 120, 128 },
-  {  66,  74,  81,  89,  97, 105, 112, 120 },
-  {  62,  69,  76,  83,  91,  98, 105, 112 },
-  {  57,  64,  71,  78,  84,  91,  98, 105 },
-  {  53,  59,  66,  72,  78,  84,  91,  97 },
-  {  49,  55,  60,  66,  72,  78,  83,  89 },
-  {  45,  50,  55,  60,  66,  71,  76,  81 },
-  {  40,  45,  50,  55,  59,  64,  69,  74 },
-  {  36,  40,  45,  49,  53,  57,  62,  66 },
-  {  32,  36,  39,  43,  47,  51,  54,  58 },
-  {  28,  31,  34,  37,  41,  44,  47,  50 },
-  {  23,  26,  29,  32,  34,  37,  40,  43 },
-  {  19,  21,  24,  26,  28,  30,  33,  35 },
-  {  15,  17,  18,  20,  22,  24,  25,  27 },
-  {  11,  12,  13,  14,  16,  17,  18,  19 },
-  {   6,   7,   8,   9,   9,  10,  11,  12 },
-  {   4,   4,   4,   4,   4,   4,   4,   4 }
-};
-
+#endif
 const uint8_t ProbModelTables::m_RenormTable_32[32] =
 {
   6,  5,  4,  4,
@@ -775,6 +743,7 @@ const uint8_t ProbModelTables::m_RenormTable_32[32] =
   1,  1,  1,  1
 };
 
+#if JEM_TOOLS
 const uint8_t ProbModelTables::m_RenormTable_128[128] =
 {
   7,  6,  5,  5,
@@ -811,6 +780,8 @@ const uint8_t ProbModelTables::m_RenormTable_128[128] =
   0,  0,  0,  0,
 };
 
+#endif
+#if JEM_TOOLS
 const uint16_t ProbModelTables::m_InistateToCount[128] =
 {
     614,    647,    681,    718,    756,    797,    839,    884,    932,    982,   1034,   1089,   1148,   1209,   1274,   1342,
@@ -823,6 +794,20 @@ const uint16_t ProbModelTables::m_InistateToCount[128] =
   31425,  31493,  31558,  31619,  31678,  31733,  31785,  31835,  31883,  31928,  31970,  32011,  32049,  32086,  32120,  32153
 };
 
+#endif
+#if HM_REPRODUCE_CONTEXT_IDX_CALCULATION
+const double ProbModelTables::m_StateToProbLPS[64] =
+{
+  0.50000000, 0.47460857, 0.45050660, 0.42762859, 0.40591239, 0.38529900, 0.36573242, 0.34715948,
+  0.32952974, 0.31279528, 0.29691064, 0.28183267, 0.26752040, 0.25393496, 0.24103941, 0.22879875,
+  0.21717969, 0.20615069, 0.19568177, 0.18574449, 0.17631186, 0.16735824, 0.15885931, 0.15079198,
+  0.14313433, 0.13586556, 0.12896592, 0.12241667, 0.11620000, 0.11029903, 0.10469773, 0.09938088,
+  0.09433404, 0.08954349, 0.08499621, 0.08067986, 0.07658271, 0.07269362, 0.06900203, 0.06549791,
+  0.06217174, 0.05901448, 0.05601756, 0.05317283, 0.05047256, 0.04790942, 0.04547644, 0.04316702,
+  0.04097487, 0.03889405, 0.03691890, 0.03504406, 0.03326442, 0.03157516, 0.02997168, 0.02844963,
+  0.02700488, 0.02563349, 0.02433175, 0.02309612, 0.02192323, 0.02080991, 0.01975312, 0.01875000
+};
+#endif
 
 
 
@@ -841,7 +826,7 @@ void BinProbModel_Std::init( int qp, int initId )
     m_State     = ( std::min( 62, 63 - inistate ) << 1 );
   }
 }
-
+#if JEM_TOOLS
 void BinProbModel_JMP::init( int qp, int initId )
 {
   int slope     = ( ( initId >>  4 )  * 5 ) - 45;
@@ -867,7 +852,7 @@ void BinProbModel_JMPAW::init( int qp, int initId )
   m_P0 = m_P1       = m_InistateToCount[ inistate < 1 ? 1 : inistate > 126 ? 126 : inistate ];
   m_Log2WindowSize0 = m_DefaultLog2WindowSize0;
 }
-
+#endif
 
 
 
@@ -1016,12 +1001,14 @@ const CtxSet ContextSetCfg::RefPic = ContextSetCfg::addCtxSet
   {  CNU, CNU,},
 });
 
+#if JEM_TOOLS
 const CtxSet ContextSetCfg::AffineFlag = ContextSetCfg::addCtxSet
 ({
   {  197, 185, 201,},
   {  197, 185, 201,},
   {  CNU, CNU, CNU,},
 });
+#endif
 
 const CtxSet ContextSetCfg::Mvd = ContextSetCfg::addCtxSet
 ({
@@ -1032,9 +1019,9 @@ const CtxSet ContextSetCfg::Mvd = ContextSetCfg::addCtxSet
 
 const CtxSet ContextSetCfg::TransSubdivFlag = ContextSetCfg::addCtxSet
 ({
-  {  224, 167, 122, 122,},
-  {  124, 138,  94,  94,},
-  {  153, 138, 138, 138,},
+  {  224, 167, 122, 122, 122},
+  {  124, 138,  94,  94,  94},
+  {  153, 138, 138, 138, 138},
 });
 
 const CtxSet ContextSetCfg::QtRootCbf = ContextSetCfg::addCtxSet
@@ -1228,6 +1215,7 @@ const CtxSet ContextSetCfg::SaoTypeIdx = ContextSetCfg::addCtxSet
   {  200,},
 });
 
+#if JEM_TOOLS
 const CtxSet ContextSetCfg::AlfCUCtrlFlags = ContextSetCfg::addCtxSet
 ({
   {  CNU, CNU, CNU,},
@@ -1242,6 +1230,7 @@ const CtxSet ContextSetCfg::AlfUvlcSCModel = ContextSetCfg::addCtxSet
   {  139, 139,},
 });
 
+#endif
 const CtxSet ContextSetCfg::TransformSkipFlag = ContextSetCfg::addCtxSet
 ({
   {  139, 139,},
@@ -1256,6 +1245,7 @@ const CtxSet ContextSetCfg::TransquantBypassFlag = ContextSetCfg::addCtxSet
   {  154,},
 });
 
+#if JEM_TOOLS
 const CtxSet ContextSetCfg::NSSTIdx = ContextSetCfg::addCtxSet
 ({
   {  107, 107, 107, 107, 107,},
@@ -1263,6 +1253,7 @@ const CtxSet ContextSetCfg::NSSTIdx = ContextSetCfg::addCtxSet
   {  139, 139, 139, 139, 139,},
 });
 
+#endif
 const CtxSet ContextSetCfg::RdpcmFlag = ContextSetCfg::addCtxSet
 ({
   {  139, 139,},
@@ -1277,6 +1268,7 @@ const CtxSet ContextSetCfg::RdpcmDir = ContextSetCfg::addCtxSet
   {  CNU, CNU,},
 });
 
+#if JEM_TOOLS
 const CtxSet ContextSetCfg::EMTTuIndex = ContextSetCfg::addCtxSet
 ({
   {  CNU, CNU, CNU, CNU,},
@@ -1291,6 +1283,7 @@ const CtxSet ContextSetCfg::EMTCuFlag = ContextSetCfg::addCtxSet
   {  CNU, CNU, CNU, CNU, CNU, CNU,},
 });
 
+#endif
 const CtxSet ContextSetCfg::CrossCompPred = ContextSetCfg::addCtxSet
 ({
   {  154, 154, 154, 154, 154, 154, 154, 154, 154, 154,},
@@ -1312,6 +1305,7 @@ const CtxSet ContextSetCfg::ChromaQpAdjIdc = ContextSetCfg::addCtxSet
   {  154,},
 });
 
+#if JEM_TOOLS
 const CtxSet ContextSetCfg::ImvFlag = ContextSetCfg::addCtxSet
 ({
   {  197, 185, 201, 185,},
@@ -1346,6 +1340,9 @@ const CtxSet ContextSetCfg::FrucMode = ContextSetCfg::addCtxSet
   {  197, 185, 201,},
   {  CNU, CNU, CNU,},
 });
+#endif
+
+
 
 const unsigned ContextSetCfg::NumberOfContexts = (unsigned)ContextSetCfg::sm_InitTables[0].size();
 
@@ -1423,9 +1420,11 @@ void CtxStore<BinProbModel>::savePStates( std::vector<uint16_t>& probStates ) co
 
 
 template class CtxStore<BinProbModel_Std>;
+#if JEM_TOOLS
 template class CtxStore<BinProbModel_JMP>;
 template class CtxStore<BinProbModel_JAW>;
 template class CtxStore<BinProbModel_JMPAW>;
+#endif
 
 
 
@@ -1433,20 +1432,28 @@ template class CtxStore<BinProbModel_JMPAW>;
 
 Ctx::Ctx()                                  : m_BPMType( BPM_Undefined )                        {}
 Ctx::Ctx( const BinProbModel_Std*   dummy ) : m_BPMType( BPM_Std   ), m_CtxStore_Std  ( true )  {}
+#if JEM_TOOLS
 Ctx::Ctx( const BinProbModel_JMP*   dummy ) : m_BPMType( BPM_JMP   ), m_CtxStore_JMP  ( true )  {}
 Ctx::Ctx( const BinProbModel_JAW*   dummy ) : m_BPMType( BPM_JAW   ), m_CtxStore_JAW  ( true )  {}
 Ctx::Ctx( const BinProbModel_JMPAW* dummy ) : m_BPMType( BPM_JMPAW ), m_CtxStore_JMPAW( true )  {}
+#endif
 
 Ctx::Ctx( const Ctx& ctx )
   : m_BPMType         ( ctx.m_BPMType )
   , m_CtxStore_Std    ( ctx.m_CtxStore_Std    )
+#if JEM_TOOLS
   , m_CtxStore_JMP    ( ctx.m_CtxStore_JMP    )
   , m_CtxStore_JAW    ( ctx.m_CtxStore_JAW    )
   , m_CtxStore_JMPAW  ( ctx.m_CtxStore_JMPAW  )
+#endif
+#if HM_STORE_FRAC_BITS_AND_USE_ROUNDED_BITS
+  , m_FracBitsStore   ( ctx.m_FracBitsStore   )
+#endif
 {
   ::memcpy( m_GRAdaptStats, ctx.m_GRAdaptStats, sizeof( unsigned ) * RExt__GOLOMB_RICE_ADAPTATION_STATISTICS_SETS );
 }
 
+#if JEM_TOOLS
 
 CtxWSizeStore::CtxWSizeStore()
   : m_isInitialized   ( false )
@@ -1459,7 +1466,11 @@ void CtxWSizeStore::checkInit( const SPS* sps )
 {
   if( !m_isInitialized )
   {
+#if JEM_ADAPTIVE_WINDOW_MECHANISM
     const int readWriteBufferSize = 384;
+#else
+    const int readWriteBufferSize = Ctx::NumberOfContexts;
+#endif
     m_readWriteBuffer.resize( readWriteBufferSize, 0 );
     xInitMappingTable       ( sps );
     xSetAllInvalid          ();
@@ -1469,6 +1480,14 @@ void CtxWSizeStore::checkInit( const SPS* sps )
 
 void CtxWSizeStore::updateState( const Slice* slice, const bool enc )
 {
+#if JEM_ADAPTIVE_WINDOW_MECHANISM
+#else // bug fix : corrected handling of random access points
+  if ( slice->getPendingRasInit() )
+  {
+    xSetAllInvalid();
+  }
+  CHECK( slice->getRapPicFlag() && !enc && slice->getCabacWinUpdateMode() == 2, "reusing of cabac window sizes not possible at random access point" );
+#endif
   if( !enc && slice->getCabacWinUpdateMode() == 1 )
   {
     xApplyReadWriteBuffer( slice );
@@ -1571,6 +1590,7 @@ void addDummySetToMapping( std::vector<int>& mapping, unsigned numCtx )
 
 void CtxWSizeStore::xInitMappingTable( const SPS* sps )
 {
+#if JEM_ADAPTIVE_WINDOW_MECHANISM
   m_codeId2ctxId.reserve( std::max<std::size_t>( m_readWriteBuffer.size(), std::size_t(Ctx::NumberOfContexts) ) );
   const SPSNext&  spsNext             = sps->getSpsNext();
   unsigned        numCtxSplitFlag     = ( spsNext.getUseLargeCTU() ? 5 : 3 ); // hard-wired in JEM
@@ -1580,7 +1600,9 @@ void CtxWSizeStore::xInitMappingTable( const SPS* sps )
   unsigned        numCtxTransSubdiv   = ( spsNext.getUseLargeCTU() || spsNext.getUseQTBT() ? 4 : 3 ); // hard-wired in JEM
   unsigned        numCtxLastXY        = ( spsNext.getUseLargeCTU() || spsNext.getUseQTBT() ? 25 : 15 ); // hard-wired in JEM
   unsigned        numCtxEmtCUFlag     = ( spsNext.getUseLargeCTU() || spsNext.getUseQTBT() ? 6 : 4 ); // hard-wired in JEM
+#if JEM_TOOLS
   unsigned        numImvCtx           = ( spsNext.getImvMode() > 1 ? 4 : 3 );
+#endif
   addCtxSetToMapping      ( m_codeId2ctxId, Ctx::SplitFlag,              0, numCtxSplitFlag );
   if( spsNext.getUseQTBT() )  // hard-wired in JEM
   {
@@ -1601,11 +1623,13 @@ void CtxWSizeStore::xInitMappingTable( const SPS* sps )
   }
   addCtxSetToMapping      ( m_codeId2ctxId, Ctx::MergeFlag,              0, 1 );
   addCtxSetToMapping      ( m_codeId2ctxId, Ctx::MergeIdx,               0, numCtxMergeIdx );
+#if JEM_TOOLS
   if( true /* VCEG_AZ07_FRUC_MERGE */ )
   {
     addCtxSetToMapping    ( m_codeId2ctxId, Ctx::FrucFlag,               0, 3 );
     addCtxSetToMapping    ( m_codeId2ctxId, Ctx::FrucMode,               0, 3 );
   }
+#endif
   addCtxSetToMapping      ( m_codeId2ctxId, Ctx::PartSize,               0, 4 );
   addCtxSetToMapping      ( m_codeId2ctxId, Ctx::PredMode,               0, 1 );
   addCtxSetToMapping      ( m_codeId2ctxId, Ctx::IPredMode[0],           0, numCtxIPredLuma );
@@ -1672,6 +1696,7 @@ void CtxWSizeStore::xInitMappingTable( const SPS* sps )
   addCtxSetToMapping      ( m_codeId2ctxId, Ctx::CrossCompPred,          0, 10 );
   addCtxSetToMapping      ( m_codeId2ctxId, Ctx::ChromaQpAdjFlag,        0, 1 );
   addCtxSetToMapping      ( m_codeId2ctxId, Ctx::ChromaQpAdjIdc,         0, 1 );
+#if JEM_TOOLS
   if( true /* COM16_C806_OBMC */ )
   {
     addCtxSetToMapping    ( m_codeId2ctxId, Ctx::ObmcFlag,               0, 1 );
@@ -1684,6 +1709,7 @@ void CtxWSizeStore::xInitMappingTable( const SPS* sps )
   {
     addCtxSetToMapping    ( m_codeId2ctxId, Ctx::LICFlag,                0, 1 );
   }
+#endif
   if( true /* ALF_HM3_REFACTOR */ )
   {
     if( spsNext.getGALFEnabled() )
@@ -1704,10 +1730,23 @@ void CtxWSizeStore::xInitMappingTable( const SPS* sps )
     addCtxSetToMapping    ( m_codeId2ctxId, Ctx::EMTTuIndex,             0, 4 );
     addCtxSetToMapping    ( m_codeId2ctxId, Ctx::EMTCuFlag,              0, numCtxEmtCUFlag );
   }
+#if JEM_TOOLS
   if( true /* COM16_C1016_AFFINE */ )
   {
     addCtxSetToMapping    ( m_codeId2ctxId, Ctx::AffineFlag,             0, 3 );
   }
+#endif
+  if( spsNext.getUseQTBT() )
+  {
+    addCtxSetToMapping    ( m_codeId2ctxId, Ctx::BTSplitFlag,            6, Ctx::BTSplitFlag.Size-6 );
+  }
   m_codeId2ctxId.resize   ( m_readWriteBuffer.size(), -1 );
+#else
+  m_codeId2ctxId.resize   ( Ctx::NumberOfContexts );
+  for( std::size_t n = 0; n < Ctx::NumberOfContexts; n++ )
+  {
+    m_codeId2ctxId[n] = (int)n;
+  }
+#endif
 }
-
+#endif

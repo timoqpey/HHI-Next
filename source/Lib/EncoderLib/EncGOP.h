@@ -46,7 +46,9 @@
 #include "CommonLib/LoopFilter.h"
 #include "CommonLib/NAL.h"
 #include "EncSampleAdaptiveOffset.h"
+#if JEM_TOOLS
 #include "EncAdaptiveLoopFilter.h"
+#endif
 #include "EncSlice.h"
 #include "VLCWriter.h"
 #include "CABACWriter.h"
@@ -65,6 +67,12 @@ class EncLib;
 // ====================================================================================================================
 // Class definition
 // ====================================================================================================================
+class AUWriterIf
+{
+public:
+  virtual void outputAU( const AccessUnit& ) = 0;
+};
+
 
 class EncGOP
 {
@@ -113,7 +121,9 @@ private:
 
   //--Adaptive Loop filter
   EncSampleAdaptiveOffset*  m_pcSAO;
+#if JEM_TOOLS
   EncAdaptiveLoopFilter*    m_pcALF;
+#endif
   RateCtrl*                 m_pcRateCtrl;
   // indicate sequence first
   Bool                    m_bSeqFirst;
@@ -140,6 +150,8 @@ private:
   UInt                    m_uiPrevISlicePOC;
   Bool                    m_bInitAMaxBT;
 
+  AUWriterIf*             m_AUWriterIf;
+
 public:
   EncGOP();
   virtual ~EncGOP();
@@ -149,7 +161,7 @@ public:
 
   Void  init        ( EncLib* pcEncLib );
   Void  compressGOP ( Int iPOCLast, Int iNumPicRcvd, PicList& rcListPic, std::list<PelUnitBuf*>& rcListPicYuvRec,
-                      std::list<AccessUnit>& accessUnitsInGOP, Bool isField, Bool isTff, const InputColourSpaceConversion snr_conversion, const Bool printFrameMSE );
+                      Bool isField, Bool isTff, const InputColourSpaceConversion snr_conversion, const Bool printFrameMSE );
   Void  xAttachSliceDataToNalUnit (OutputNALUnit& rNalu, OutputBitstream* pcBitstreamRedirect);
 
 
@@ -171,16 +183,17 @@ protected:
 protected:
 
   Void  xInitGOP          ( Int iPOCLast, Int iNumPicRcvd, Bool isField );
-  Void  xGetBuffer        ( PicList& rcListPic, std::list<PelUnitBuf*>& rcListPicYuvRecOut, Int iNumPicRcvd, Int iTimeOffset, Picture*& rpcPic, Int pocCurr, Bool isField );
+  Void  xGetBuffer        ( PicList& rcListPic, std::list<PelUnitBuf*>& rcListPicYuvRecOut,
+                            Int iNumPicRcvd, Int iTimeOffset, Picture*& rpcPic, Int pocCurr, Bool isField );
 
-  Void  xCalculateAddPSNRs         ( const Bool isField, const Bool isFieldTopFieldFirst, const Int iGOPid, Picture* pcPic, const AccessUnit&accessUnit, PicList &rcListPic, Double dEncTime, const InputColourSpaceConversion snr_conversion, const Bool printFrameMSE, Double* PSNR_Y );
+  Void  xCalculateAddPSNRs         ( const Bool isField, const Bool isFieldTopFieldFirst, const Int iGOPid, Picture* pcPic, const AccessUnit&accessUnit, PicList &rcListPic, int64_t dEncTime, const InputColourSpaceConversion snr_conversion, const Bool printFrameMSE, Double* PSNR_Y );
   Void  xCalculateAddPSNR          ( Picture* pcPic, PelUnitBuf cPicD, const AccessUnit&, Double dEncTime, const InputColourSpaceConversion snr_conversion, const Bool printFrameMSE, Double* PSNR_Y );
   Void  xCalculateInterlacedAddPSNR( Picture* pcPicOrgFirstField, Picture* pcPicOrgSecondField,
                                      PelUnitBuf cPicRecFirstField, PelUnitBuf cPicRecSecondField,
                                      const InputColourSpaceConversion snr_conversion, const Bool printFrameMSE, Double* PSNR_Y );
 
   UInt64 xFindDistortionPlane(const CPelBuf& pic0, const CPelBuf& pic1, const UInt rshift
-#if HHI_HLM_USE_QPA
+#if ENABLE_QPA
                             , const UInt chromaShift = 0
 #endif
                              );

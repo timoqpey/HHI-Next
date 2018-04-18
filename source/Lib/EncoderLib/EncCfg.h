@@ -183,40 +183,71 @@ protected:
   unsigned  m_maxTotalCUDepth;
   unsigned  m_log2DiffMaxMinCodingBlockSize;
 
-  bool      m_NSST;
+#if JEM_TOOLS
   bool      m_Intra4Tap;
   bool      m_Intra65Ang;
-  bool      m_LargeCTU;
   bool      m_IntraBoundaryFilter;
-  bool      m_SubPuMvp;
-  unsigned  m_SubPuMvpLog2Size;
-  unsigned  m_CABACEngineMode;
-  unsigned  m_altResiCompId;
-  bool      m_highPrecMv;
-  bool      m_Affine;
-  bool      m_BIO;
-  bool      m_DisableMotionCompression;
-  unsigned  m_LICMode;
-  bool      m_FastPicLevelLIC;
+#endif
+#if JEM_TOOLS
   int       m_LMChroma;
+#endif
+#if JEM_TOOLS
   int       m_IntraPDPC;
   int       m_ALF;
+#endif
+#if JEM_TOOLS
+  bool      m_BIF;
+#endif
+#if JEM_TOOLS
+  bool      m_MDMS;
+#endif
+#if JEM_TOOLS
   int       m_IntraEMT;
   int       m_InterEMT;
   int       m_FastIntraEMT;
   int       m_FastInterEMT;
+  bool      m_NSST;
+#endif
+  bool      m_LargeCTU;
+#if JEM_TOOLS
+  bool      m_SubPuMvp;
+  unsigned  m_SubPuMvpLog2Size;
+#endif
+#if JEM_TOOLS
+  unsigned  m_CABACEngineMode;
+  unsigned  m_altResiCompId;
+#endif
+#if JEM_TOOLS
+  bool      m_highPrecMv;
+  bool      m_Affine;
+  bool      m_BIO;
+#endif
+  bool      m_DisableMotionCompression;
+#if JEM_TOOLS
+  unsigned  m_LICMode;
+  bool      m_FastPicLevelLIC;
+#endif
+  unsigned  m_MTTMode;
+
+#if ENABLE_WPP_PARALLELISM
+  bool      m_AltDQPCoding;
+#endif
+#if JEM_TOOLS
   bool      m_OBMC;
   unsigned  m_uiObmcBlkSize;
   bool      m_FRUC;
   unsigned  m_FRUCRefineFilter;
   unsigned  m_FRUCRefineRange;
   unsigned  m_FRUCSmallBlkRefineDepth;
-  bool      m_CIPF;
-  bool      m_BIF;
+#endif
+#if JEM_TOOLS
+  unsigned  m_CIPF;
   bool      m_AClip;
   bool      m_AClipEnc;
+#endif
+#if JEM_TOOLS
   bool      m_DMVR;
-  bool      m_MDMS;
+#endif
   // ADD_NEW_TOOL : (encoder lib) add tool enabling flags and associated parameters here
 
   bool      m_useFastLCTU;
@@ -225,7 +256,6 @@ protected:
   bool      m_useAMaxBT;
   bool      m_useSaveLoadEncInfo;
   bool      m_useSaveLoadSplitDecision;
-
   bool      m_e0023FastEnc;
   bool      m_contentBasedFastQtbt;
 
@@ -283,7 +313,7 @@ protected:
   Bool      m_highPrecisionOffsetsEnabledFlag;
   Bool      m_bUseAdaptiveQP;
   Int       m_iQPAdaptationRange;
-#if HHI_HLM_USE_QPA
+#if ENABLE_QPA
   Bool      m_bUsePerceptQPA;
   Bool      m_bUseWPSNR;
 #endif
@@ -298,7 +328,6 @@ protected:
 #if T0196_SELECTIVE_RDOQ
   Bool      m_useSelectiveRDOQ;
 #endif
-  RDOQfn    m_RDOQfn;
   UInt      m_rdPenalty;
   FastInterSearchMode m_fastInterSearchMode;
   Bool      m_bUseEarlyCU;
@@ -493,16 +522,34 @@ protected:
   std::string m_summaryOutFilename;                           ///< filename to use for producing summary output file.
   std::string m_summaryPicFilenameBase;                       ///< Base filename to use for producing summary picture output files. The actual filenames used will have I.txt, P.txt and B.txt appended.
   UInt        m_summaryVerboseness;                           ///< Specifies the level of the verboseness of the text output.
+#if JEM_TOOLS
   int       m_ImvMode;
   int       m_Imv4PelFast;
   int       m_ImvMaxCand;
-
+#endif
   std::string m_decodeBitstreams[2];                          ///< filename for decode bitstreams.
+  bool        m_forceDecodeBitstream1;                        ///< guess what it means
   int         m_switchPOC;                                    ///< dbg poc.
   int         m_switchDQP;                                    ///< dqp applied to  switchPOC and subsequent pictures.
   int         m_fastForwardToPOC;                             ///<
   bool        m_stopAfterFFtoPOC;                             ///<
+  bool        m_bs2ModPOCAndType;
 
+
+
+#if ENABLE_SPLIT_PARALLELISM
+  int         m_numSplitThreads;
+  bool        m_forceSingleSplitThread;
+#endif
+#if ENABLE_WPP_PARALLELISM
+  int         m_numWppThreads;
+  int         m_numWppExtraLines;
+  bool        m_ensureWppBitEqual;
+#endif
+#if JEM_COMP
+
+  bool        m_generateJEM;
+#endif
 
 public:
   EncCfg()
@@ -569,7 +616,7 @@ public:
   void      setQTBT                         ( bool b )           { m_QTBT = b; }
   void      setCTUSize                      ( unsigned  u )      { m_CTUSize  = u; }
   void      setMinQTSizes                   ( unsigned* minQT)   { m_uiMinQT[0] = minQT[0]; m_uiMinQT[1] = minQT[1]; m_uiMinQT[2] = minQT[2]; }
-  void      setMaxBTDepth                   ( unsigned uiMaxBTDepth, unsigned uiMaxBTDepthI, unsigned uiMaxBTDepthIChroma = 0 )
+  void      setMaxBTDepth                   ( unsigned uiMaxBTDepth, unsigned uiMaxBTDepthI, unsigned uiMaxBTDepthIChroma )
                                                              { m_uiMaxBTDepth = uiMaxBTDepth; m_uiMaxBTDepthI = uiMaxBTDepthI; m_uiMaxBTDepthIChroma = uiMaxBTDepthIChroma; }
   unsigned  getMaxBTDepth                   ()         const { return m_uiMaxBTDepth; }
   unsigned  getMaxBTDepthI                  ()         const { return m_uiMaxBTDepthI; }
@@ -579,6 +626,7 @@ public:
   void      setDualITree                    ( bool b )       { m_dualITree = b; }
   bool      getDualITree                    ()         const { return m_dualITree; }
 
+#if JEM_TOOLS
   void      setNSST                         ( bool b )       { m_NSST = b; }
   bool      getNSST                         ()         const { return m_NSST; }
 
@@ -588,9 +636,11 @@ public:
   void      setIntra65Ang                   ( bool b )       { m_Intra65Ang = b; }
   bool      getIntra65Ang                   ()         const { return m_Intra65Ang; }
 
+#endif
   void      setLargeCTU                     ( bool b )       { m_LargeCTU = b; }
   bool      getLargeCTU                     ()         const { return m_LargeCTU; }
 
+#if JEM_TOOLS
   void      setUseIntraBoundaryFilter       ( bool b )       { m_IntraBoundaryFilter = b; }
   bool      getUseIntraBoundaryFilter       ()         const { return m_IntraBoundaryFilter; }
 
@@ -601,13 +651,16 @@ public:
   bool      getSubPuMvp                     ()         const { return m_SubPuMvp; }
   void      setSubPuMvpLog2Size             ( unsigned n )   { m_SubPuMvpLog2Size = n; }
   unsigned  getSubPuMvpLog2Size             ()         const { return m_SubPuMvpLog2Size; }
+#endif
 
+#if JEM_TOOLS
   void      setCABACEngineMode              ( UInt mode )    { m_CABACEngineMode = mode; }
   UInt      getCABACEngineMode              ()               { return m_CABACEngineMode; }
 
   void      setAltResiCompId                ( unsigned n )   { m_altResiCompId = n; }
   unsigned  getAltResiCompId                ()               { return m_altResiCompId; }
-
+#endif
+#if JEM_TOOLS
   void      setHighPrecisionMv              ( bool b )       { m_highPrecMv = b; }
   bool      getHighPrecisionMv              ()               { return m_highPrecMv; }
 
@@ -616,15 +669,24 @@ public:
 
   void      setAffine                       ( bool b )       { m_Affine = b; }
   bool      getAffine                       ()         const { return m_Affine; }
-
+#endif
   void      setDisableMotionCompression     ( bool b )       { m_DisableMotionCompression = b; }
   bool      getDisableMotionCompression     ()         const { return m_DisableMotionCompression; }
 
+#if JEM_TOOLS
   void      setLICMode                      ( unsigned u )   { m_LICMode = u; }
   unsigned  getLICMode                      ()         const { return m_LICMode; }
   void      setFastPicLevelLIC              ( bool b )       { m_FastPicLevelLIC = b; }
   bool      getFastPicLevelLIC              ()         const { return m_FastPicLevelLIC; }
+#endif
 
+  void      setMTTMode                      ( unsigned u )   { m_MTTMode = u; }
+  unsigned  getMTTMode                      ()         const { return m_MTTMode; }
+#if ENABLE_WPP_PARALLELISM
+  void      setUseAltDQPCoding              ( bool b )       { m_AltDQPCoding = b; }
+  bool      getUseAltDQPCoding              ()         const { return m_AltDQPCoding; }
+#endif
+#if JEM_TOOLS
   void      setIntraPDPC                    ( int n )        { m_IntraPDPC = n; }
   int       getIntraPDPC()                             const { return m_IntraPDPC; }
 
@@ -639,7 +701,9 @@ public:
   bool      getIntraEMT                     ()         const { return m_IntraEMT; }
   void      setInterEMT                     ( bool b )       { m_InterEMT = b; }
   bool      getInterEMT                     ()         const { return m_InterEMT; }
+#endif
 
+#if JEM_TOOLS
   void      setUseOBMC                      ( bool n )       { m_OBMC = n; }
   bool      getUseOBMC                      ()         const { return m_OBMC; }
   void      setOBMCBlkSize                  ( unsigned n )   { m_uiObmcBlkSize = n; }
@@ -653,22 +717,30 @@ public:
   unsigned  getFRUCRefineRange              ()         const { return m_FRUCRefineRange; }
   void      setFRUCSmallBlkRefineDepth      ( unsigned n )   { m_FRUCSmallBlkRefineDepth = n; }
   unsigned  getFRUCSmallBlkRefineDepth      ()         const { return m_FRUCSmallBlkRefineDepth; }
+#endif
 
-  void      setCIPF                         ( bool b )       { m_CIPF = b; }
-  bool      getCIPF                         ()         const { return m_CIPF; }
+#if JEM_TOOLS
+  void      setCIPF                         ( unsigned n )   { m_CIPF = n; }
+  unsigned  getCIPF                         ()         const { return m_CIPF; }
+#endif
 
+#if JEM_TOOLS
   void      setUseBIF                       ( bool b )       { m_BIF = b; }
   bool      getUseBIF                       ()         const { return m_BIF; }
   void      setUseAClip                     ( bool b )       { m_AClip = b; }
   bool      getUseAClip                     ()         const { return m_AClip; }
   void      setUseAClipEnc                  ( bool b )       { m_AClipEnc = b; }
   bool      getUseAClipEnc                  ()         const { return m_AClipEnc; }
+#endif
 
+#if JEM_TOOLS
   void      setUseDMVR                      ( bool b )       { m_DMVR = b; }
   bool      getUseDMVR                      ()         const { return m_DMVR; }
-
+#endif
+#if JEM_TOOLS
   void      setMDMS                         ( bool b )       { m_MDMS = b; }
   bool      getMDMS                         ()         const { return m_MDMS; }
+#endif
   // ADD_NEW_TOOL : (encoder lib) add access functions here
 
   Void      setMaxCUWidth                   ( UInt  u )      { m_maxCUWidth  = u; }
@@ -760,7 +832,7 @@ public:
 
   Void      setUseAdaptiveQP                ( Bool  b )      { m_bUseAdaptiveQP = b; }
   Void      setQPAdaptationRange            ( Int   i )      { m_iQPAdaptationRange = i; }
-#if HHI_HLM_USE_QPA
+#if ENABLE_QPA
   Void      setUsePerceptQPA                ( const Bool b ) { m_bUsePerceptQPA = b; }
   Void      setUseWPSNR                     ( const Bool b ) { m_bUseWPSNR = b; }
 #endif
@@ -833,7 +905,7 @@ public:
   Int       getMaxCuDQPDepth                () const { return m_iMaxCuDQPDepth; }
   Bool      getUseAdaptiveQP                () const { return m_bUseAdaptiveQP; }
   Int       getQPAdaptationRange            () const { return m_iQPAdaptationRange; }
-#if HHI_HLM_USE_QPA
+#if ENABLE_QPA
   Bool      getUsePerceptQPA                () const { return m_bUsePerceptQPA; }
   Bool      getUseWPSNR                     () const { return m_bUseWPSNR; }
 #endif
@@ -848,7 +920,6 @@ public:
 #if T0196_SELECTIVE_RDOQ
   Void      setUseSelectiveRDOQ             ( Bool b )      { m_useSelectiveRDOQ = b; }
 #endif
-  Void      setRDOQfn                       ( RDOQfn fn )   { m_RDOQfn     = fn; }
   Void      setRDpenalty                    ( UInt  u )     { m_rdPenalty  = u; }
   Void      setFastInterSearchMode          ( FastInterSearchMode m ) { m_fastInterSearchMode = m; }
   Void      setUseEarlyCU                   ( Bool  b )     { m_bUseEarlyCU = b; }
@@ -877,7 +948,6 @@ public:
 #if T0196_SELECTIVE_RDOQ
   Bool      getUseSelectiveRDOQ             ()      { return m_useSelectiveRDOQ; }
 #endif
-  RDOQfn    getRDOQfn                       ()      { return m_RDOQfn;    }
   Int       getRDpenalty                    ()      { return m_rdPenalty;  }
   FastInterSearchMode getFastInterSearchMode() const{ return m_fastInterSearchMode;  }
   Bool      getUseEarlyCU                   () const{ return m_bUseEarlyCU; }
@@ -1271,15 +1341,18 @@ public:
 
   Void         setSummaryVerboseness(UInt v)                         { m_summaryVerboseness = v; }
   UInt         getSummaryVerboseness( ) const                        { return m_summaryVerboseness; }
+#if JEM_TOOLS
   Void         setIMV(int n)                                         { m_ImvMode = n; }
   Int          getIMV() const                                        { return m_ImvMode; }
   Void         setIMV4PelFast(int n)                                 { m_Imv4PelFast = n; }
   Int          getIMV4PelFast() const                                { return m_Imv4PelFast; }
   Void         setIMVMaxCand(Int n)                                  { m_ImvMaxCand = n; }
   Int          getIMVMaxCand() const                                 { return m_ImvMaxCand; }
-
+#endif
   Void         setDecodeBitstream( int i, const std::string& s )     { m_decodeBitstreams[i] = s; }
   const std::string& getDecodeBitstream( int i )               const { return m_decodeBitstreams[i]; }
+  bool         getForceDecodeBitstream1()                      const { return m_forceDecodeBitstream1; }
+  Void         setForceDecodeBitstream1( bool b )                    { m_forceDecodeBitstream1 = b; }
   Void         setSwitchPOC( int i )                                 { m_switchPOC = i; }
   int          getSwitchPOC()                                  const { return m_switchPOC; }
   Void         setSwitchDQP( int i )                                 { m_switchDQP = i; }
@@ -1289,9 +1362,31 @@ public:
   bool         useFastForwardToPOC()                           const { return m_fastForwardToPOC >= 0; }
   Void         setStopAfterFFtoPOC( bool b )                         { m_stopAfterFFtoPOC = b; }
   bool         getStopAfterFFtoPOC()                           const { return m_stopAfterFFtoPOC; }
+  Void         setBs2ModPOCAndType( bool b )                         { m_bs2ModPOCAndType = b; }
+  bool         getBs2ModPOCAndType()                           const { return m_bs2ModPOCAndType; }
 
+
+#if ENABLE_SPLIT_PARALLELISM
+  void         setNumSplitThreads( int n )                           { m_numSplitThreads = n; }
+  int          getNumSplitThreads()                            const { return m_numSplitThreads; }
+  void         setForceSingleSplitThread( bool b )                   { m_forceSingleSplitThread = b; }
+  int          getForceSingleSplitThread()                     const { return m_forceSingleSplitThread; }
+#endif
+#if ENABLE_WPP_PARALLELISM
+  void         setNumWppThreads( int n )                             { m_numWppThreads = n; }
+  int          getNumWppThreads()                              const { return m_numWppThreads; }
+  void         setNumWppExtraLines( int n )                          { m_numWppExtraLines = n; }
+  int          getNumWppExtraLines()                           const { return m_numWppExtraLines; }
+  void         setEnsureWppBitEqual( bool b)                         { m_ensureWppBitEqual = b; }
+  bool         getEnsureWppBitEqual()                          const { return m_ensureWppBitEqual; }
+#endif
+#if JEM_COMP
+
+  void         setGenerateJEM( bool b )                              { m_generateJEM = b; }
+  bool         getGenerateJEM()                                const { return m_generateJEM; }
+#endif
 };
 
 //! \}
-
+  
 #endif // !defined(AFX_TENCCFG_H__6B99B797_F4DA_4E46_8E78_7656339A6C41__INCLUDED_)

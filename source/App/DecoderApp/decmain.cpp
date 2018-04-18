@@ -64,7 +64,7 @@ int main(int argc, char* argv[])
   fprintf( stdout, NVM_ONOS );
   fprintf( stdout, NVM_COMPILEDBY );
   fprintf( stdout, NVM_BITS );
-#if HHI_SIMD_OPT
+#if ENABLE_SIMD_OPT
   std::string SIMD;
   df::program_options_lite::Options optsSimd;
   optsSimd.addOptions()( "SIMD", SIMD, string( "" ), "" );
