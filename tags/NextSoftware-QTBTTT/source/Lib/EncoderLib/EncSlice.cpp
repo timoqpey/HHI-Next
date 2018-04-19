@@ -1411,9 +1411,13 @@ void EncSlice::encodeCtus( Picture* pcPic, const Bool bCompressEntireSlice, cons
       break;
     }
 
+#if ENABLE_WPP_PARALLELISM || ENABLE_SPLIT_PARALLELISM
 #pragma omp critical
+#endif
     pcSlice->setSliceBits( ( UInt ) ( pcSlice->getSliceBits() + numberOfWrittenBits ) );
+#if ENABLE_WPP_PARALLELISM || ENABLE_SPLIT_PARALLELISM
 #pragma omp critical
+#endif
     pcSlice->setSliceSegmentBits( pcSlice->getSliceSegmentBits() + numberOfWrittenBits );
 
     // Store probabilities of second CTU in line into buffer - used only if wavefront-parallel-processing is enabled.
