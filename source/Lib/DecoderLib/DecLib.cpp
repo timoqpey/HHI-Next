@@ -80,6 +80,10 @@ bool tryDecodePicture( Picture* pcEncPic, const int expectedPoc, const std::stri
       // initialize decoder class
       pcDecLib->init();
 
+#if JEM_COMP
+      pcDecLib->setAssumeJEM( false );
+
+#endif
       pcDecLib->setDecodedPictureHashSEIEnabled( true );
 
       bFirstCall = false;
